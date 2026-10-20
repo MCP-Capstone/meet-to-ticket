@@ -1,5 +1,9 @@
 server:
   port: 8080
+  servlet:
+    session:
+      # 로그인 세션 유지 시간 (JSESSIONID 쿠키)
+      timeout: 2h
 
 spring:
   application:
