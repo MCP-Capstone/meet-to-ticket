@@ -1,0 +1,24 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: backend
+  datasource:
+    # 기본값은 루트 docker-compose.yml의 PostgreSQL과 같다. 바꾸려면 환경 변수로 덮어쓴다.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/meettoticket}
+    username: ${DB_USERNAME:meettoticket}
+    password: ${DB_PASSWORD:meettoticket}
+  jpa:
+    hibernate:
+      # 개발 단계라 엔티티 기준으로 테이블을 자동 생성/갱신한다.
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: true
+
+agent:
+  # Agent(FastAPI) 주소. 포트 규칙은 docs/dev-env.md 참고
+  base-url: ${AGENT_BASE_URL:http://localhost:8001}
