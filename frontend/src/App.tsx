@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ActionItemList } from './components/ActionItemList'
 import { AuthForm } from './components/AuthForm'
 import { ExtractingView } from './components/ExtractingView'
 import { MeetingForm } from './components/MeetingForm'
 import { Stepper } from './components/Stepper'
-import { api, useMock } from './api'
+import { api, ApiRequestError, onUnauthorized, useMock } from './api'
 import type { ActionItem, CreateMeetingRequest, Meeting, User } from './api'
 
 type Step = 'input' | 'extracting' | 'result'
@@ -16,11 +16,18 @@ const toMessage = (e: unknown) => (e instanceof Error ? e.message : '알 수 없
 function App() {
   // undefined: 로그인 상태 확인 중, null: 로그인 안 함
   const [user, setUser] = useState<User | null | undefined>(undefined)
+  const [authNotice, setAuthNotice] = useState<string | null>(null)
+  // 401 처리기 안에서 최신 로그인 상태를 보려고 ref에도 둔다.
+  const loggedIn = useRef(false)
   const [step, setStep] = useState<Step>('input')
   const [meetingTitle, setMeetingTitle] = useState('')
   const [meeting, setMeeting] = useState<Meeting | null>(null)
   const [actionItems, setActionItems] = useState<ActionItem[]>([])
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    loggedIn.current = Boolean(user)
+  }, [user])
 
   // 새로고침해도 세션이 남아 있으면 로그인 상태를 이어간다.
   useEffect(() => {
@@ -41,6 +48,8 @@ function App() {
       setActionItems(res.actionItems)
       setStep('result')
     } catch (e) {
+      // 로그인 만료는 onUnauthorized가 로그인 화면으로 보낸다.
+      if (e instanceof ApiRequestError && e.code === 'UNAUTHORIZED') return
       setError(toMessage(e))
       setStep('input')
     }
@@ -51,6 +60,21 @@ function App() {
     setActionItems([])
     setError(null)
     setStep('input')
+  }
+
+  // 세션이 만료되면 작업 중이던 화면을 지우고 로그인 화면으로 보낸다.
+  useEffect(() => {
+    onUnauthorized(() => {
+      if (loggedIn.current) setAuthNotice('로그인이 만료되었습니다. 다시 로그인해 주세요.')
+      reset()
+      setUser(null)
+    })
+    return () => onUnauthorized(null)
+  }, [])
+
+  const handleLogin = (loggedInUser: User) => {
+    setAuthNotice(null)
+    setUser(loggedInUser)
   }
 
   const handleLogout = async () => {
@@ -79,7 +103,7 @@ function App() {
         </div>
       </header>
 
-      {user === null && <AuthForm onLogin={setUser} />}
+      {user === null && <AuthForm onLogin={handleLogin} notice={authNotice} />}
 
       {user && (
         <>
