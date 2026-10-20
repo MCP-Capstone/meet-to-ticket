@@ -23,6 +23,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	// 비밀번호 해시(BCrypt)만 사용한다. Spring Security 전체는 쓰지 않는다.
 	implementation 'org.springframework.security:spring-security-crypto'
+	// API 명세 (Swagger UI: /swagger-ui.html). 3.x가 Spring Boot 4를 지원한다.
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'org.postgresql:postgresql'
 	annotationProcessor 'org.projectlombok:lombok'
