@@ -21,8 +21,12 @@ node_modules/
 dist/
 build/
 .next/
+dist-ssr/
+*.local
 npm-debug.log*
+yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
 # Backend (Spring, Gradle/Maven)
 .gradle/
