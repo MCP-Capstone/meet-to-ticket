@@ -1,0 +1,53 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# 환경 변수 / 비밀 정보
+.env
+.env.*
+!.env.example
+
+# 로그
+*.log
+logs/
+
+# Frontend (Node) / 공통 빌드 산출물
+node_modules/
+dist/
+build/
+.next/
+npm-debug.log*
+yarn-error.log*
+
+# Backend (Spring, Gradle/Maven)
+.gradle/
+target/
+out/
+bin/
+*.class
+HELP.md
+
+# Agent / MCP 서버 (Python, FastAPI)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# AI 모델 / 데이터 (용량 큰 파일)
+*.pt
+*.bin
+*.safetensors
+
+# 개인 로컬 설정
+.claude/settings.local.json
