@@ -1,6 +1,6 @@
 # backend
 
-Java 21 + Spring Boot 3.5 + Gradle + Spring Data JPA + PostgreSQL
+Java 21 + Spring Boot 4.1 + Gradle + Spring Data JPA + PostgreSQL
 
 ## 실행
 

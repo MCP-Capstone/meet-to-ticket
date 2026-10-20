@@ -20,7 +20,7 @@ frontend → backend → agent → mcp-server → 외부 서비스 (티켓 생�
 | 영역 | 스택 |
 |---|---|
 | Frontend | React, TypeScript |
-| Backend | Java 21, Spring Boot 3.5, Gradle, Spring Data JPA |
+| Backend | Java 21, Spring Boot 4.1, Gradle, Spring Data JPA |
 | DB | PostgreSQL |
 
 ## AI (agent, mcp-server)
