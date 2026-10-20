@@ -40,8 +40,8 @@ src/
 │   ├── real.ts       # 실제 백엔드 호출
 │   └── index.ts      # mock / real 선택
 ├── mocks/            # 가짜 API와 샘플 데이터
-├── components/       # MeetingForm, ActionItemList
-└── App.tsx           # 입력 → 추출 → 확인 → 티켓 생성 흐름
+├── components/       # Stepper, MeetingForm, ExtractingView, ActionItemList
+└── App.tsx           # 입력 → 추출 → 결과 확인 흐름
 ```
 
 ## 사용하는 API
@@ -50,7 +50,6 @@ src/
 |---|---|---|
 | POST | `/api/meetings` | 회의록 등록 |
 | POST | `/api/meetings/{meetingId}/extract` | 할 일 추출 |
-| POST | `/api/tickets` | 전체 할 일로 티켓 생성 |
 
 ## API 호출
 
