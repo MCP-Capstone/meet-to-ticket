@@ -2,7 +2,7 @@
 name: 버그 리포트
 about: 의도와 다르게 동작하는 문제 보고
 title: "fix(scope): "
-labels: bug
+labels: fix
 assignees: ''
 ---
 

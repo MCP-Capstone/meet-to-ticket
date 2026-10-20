@@ -2,7 +2,7 @@
 name: 작업
 about: 문서, 설정, 리팩터링, 테스트 등 기능/버그 외 작업
 title: "chore(scope): "
-labels: ''
+labels: chore
 assignees: ''
 ---
 

@@ -2,7 +2,7 @@
 name: 기능 요청
 about: 새로운 기능 추가 또는 기존 기능 개선
 title: "feat(scope): "
-labels: enhancement
+labels: feat
 assignees: ''
 ---
 
