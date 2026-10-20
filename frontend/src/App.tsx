@@ -1,121 +1,86 @@
 import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { ActionItemList } from './components/ActionItemList'
+import { MeetingForm } from './components/MeetingForm'
+import { api, ApiRequestError, useMock } from './api'
+import type { ActionItem, CreateMeetingRequest, Ticket } from './api'
+
+type Step = 'input' | 'extracting' | 'review' | 'creating'
+
+const toMessage = (e: unknown) =>
+  e instanceof ApiRequestError || e instanceof Error ? e.message : '알 수 없는 오류가 발생했습니다.'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [step, setStep] = useState<Step>('input')
+  const [actionItems, setActionItems] = useState<ActionItem[]>([])
+  const [tickets, setTickets] = useState<Ticket[]>([])
+  const [error, setError] = useState<string | null>(null)
+
+  const handleExtract = async (body: CreateMeetingRequest) => {
+    setError(null)
+    setStep('extracting')
+    try {
+      const meeting = await api.createMeeting(body)
+      const res = await api.extractActionItems(meeting.meetingId)
+      setActionItems(res.actionItems)
+      setTickets([])
+      setStep('review')
+    } catch (e) {
+      setError(toMessage(e))
+      setStep('input')
+    }
+  }
+
+  const handleCreateTickets = async () => {
+    setError(null)
+    setStep('creating')
+    try {
+      const res = await api.createTickets({
+        actionItemIds: actionItems.map((item) => item.actionItemId),
+        target: 'GITHUB',
+      })
+      setTickets(res.tickets)
+    } catch (e) {
+      setError(toMessage(e))
+    } finally {
+      setStep('review')
+    }
+  }
+
+  const reset = () => {
+    setActionItems([])
+    setTickets([])
+    setError(null)
+    setStep('input')
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <main className="container">
+      <header className="header">
+        <h1>meet-to-ticket</h1>
+        {useMock && <span className="badge mock">MOCK</span>}
+      </header>
 
-      <div className="ticks"></div>
+      {error && <p className="error">{error}</p>}
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      {step === 'input' || step === 'extracting' ? (
+        <>
+          <MeetingForm disabled={step === 'extracting'} onSubmit={handleExtract} />
+          {step === 'extracting' && <p className="muted center">할 일을 추출하고 있습니다...</p>}
+        </>
+      ) : (
+        <>
+          <ActionItemList
+            actionItems={actionItems}
+            tickets={tickets}
+            creating={step === 'creating'}
+            onCreateTickets={handleCreateTickets}
+          />
+          <button className="link" onClick={reset} disabled={step === 'creating'}>
+            새 회의록 입력
+          </button>
+        </>
+      )}
+    </main>
   )
 }
 
