@@ -28,6 +28,15 @@ docker compose down -v    # 종료 + 데이터 삭제
 | DB | `meettoticket` |
 | 사용자 / 비밀번호 | `meettoticket` / `meettoticket` |
 
+### 서비스별 접속 정보
+
+| 서비스 | 설정 |
+|---|---|
+| backend | `application.yml` 기본값 사용 (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`로 변경 가능) |
+| agent, mcp-server | `DATABASE_URL=postgresql://meettoticket:meettoticket@localhost:5432/meettoticket` |
+
+- 모든 서비스는 로컬(호스트)에서 실행하므로 주소는 `localhost:5432`로 같다.
+- 테이블 구조는 backend(JPA 엔티티)가 관리한다. agent, mcp-server에서 테이블을 만들거나 구조를 바꾸지 않는다.
 - 값을 바꾸려면 `.env.example`을 `.env`로 복사해서 수정한다.
 - 5432 포트를 이미 쓰는 로컬 PostgreSQL이 있으면 먼저 종료한다.
 
