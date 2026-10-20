@@ -1,4 +1,4 @@
-package com.mcpcapstone.meettoticket.common;
+package com.mcpcapstone.meettoticket.controller;
 
 import java.util.Map;
 

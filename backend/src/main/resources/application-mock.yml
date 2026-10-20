@@ -1,0 +1,5 @@
+# 명시적으로 mock 프로필을 활성화한 개발 DB에서만 스키마와 시드를 생성한다.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: update

@@ -1,4 +1,9 @@
-package com.mcpcapstone.meettoticket.auth;
+package com.mcpcapstone.meettoticket.controller;
+
+import com.mcpcapstone.meettoticket.auth.SessionConst;
+
+import com.mcpcapstone.meettoticket.controller.AuthController;
+import com.mcpcapstone.meettoticket.service.AuthService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -20,7 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.mcpcapstone.meettoticket.common.error.BusinessException;
 import com.mcpcapstone.meettoticket.common.error.ErrorCode;
-import com.mcpcapstone.meettoticket.user.User;
+import com.mcpcapstone.meettoticket.domain.User;
 
 @WebMvcTest(AuthController.class)
 class AuthControllerTest {

@@ -1,4 +1,4 @@
-package com.mcpcapstone.meettoticket.user;
+package com.mcpcapstone.meettoticket.domain;
 
 import java.time.OffsetDateTime;
 
@@ -26,13 +26,13 @@ public class User {
 	@Column(name = "user_id")
 	private Long id;
 
-	@Column(nullable = false, unique = true, length = 20)
+	@Column(name = "login_id", nullable = false, unique = true, length = 100)
 	private String loginId;
 
-	@Column(nullable = false, length = 100)
+	@Column(name = "password_hash", nullable = false, length = 255)
 	private String passwordHash;
 
-	@Column(nullable = false, length = 20)
+	@Column(nullable = false, length = 100)
 	private String name;
 
 	@CreationTimestamp

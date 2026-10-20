@@ -1,4 +1,6 @@
-package com.mcpcapstone.meettoticket.auth;
+package com.mcpcapstone.meettoticket.service;
+
+import com.mcpcapstone.meettoticket.service.AuthService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -16,12 +18,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import com.mcpcapstone.meettoticket.auth.dto.LoginRequest;
-import com.mcpcapstone.meettoticket.auth.dto.SignupRequest;
+import com.mcpcapstone.meettoticket.dto.LoginRequest;
+import com.mcpcapstone.meettoticket.dto.SignupRequest;
 import com.mcpcapstone.meettoticket.common.error.BusinessException;
 import com.mcpcapstone.meettoticket.common.error.ErrorCode;
-import com.mcpcapstone.meettoticket.user.User;
-import com.mcpcapstone.meettoticket.user.UserRepository;
+import com.mcpcapstone.meettoticket.domain.User;
+import com.mcpcapstone.meettoticket.repository.UserRepository;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {

@@ -1,15 +1,15 @@
-package com.mcpcapstone.meettoticket.auth;
+package com.mcpcapstone.meettoticket.service;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.mcpcapstone.meettoticket.auth.dto.LoginRequest;
-import com.mcpcapstone.meettoticket.auth.dto.SignupRequest;
+import com.mcpcapstone.meettoticket.dto.LoginRequest;
+import com.mcpcapstone.meettoticket.dto.SignupRequest;
 import com.mcpcapstone.meettoticket.common.error.BusinessException;
 import com.mcpcapstone.meettoticket.common.error.ErrorCode;
-import com.mcpcapstone.meettoticket.user.User;
-import com.mcpcapstone.meettoticket.user.UserRepository;
+import com.mcpcapstone.meettoticket.domain.User;
+import com.mcpcapstone.meettoticket.repository.UserRepository;
 
 import lombok.RequiredArgsConstructor;
 

@@ -1,4 +1,7 @@
-package com.mcpcapstone.meettoticket.auth;
+package com.mcpcapstone.meettoticket.controller;
+
+import com.mcpcapstone.meettoticket.auth.SessionConst;
+import com.mcpcapstone.meettoticket.service.AuthService;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -9,13 +12,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.SessionAttribute;
 
-import com.mcpcapstone.meettoticket.auth.dto.LoginRequest;
-import com.mcpcapstone.meettoticket.auth.dto.SignupRequest;
-import com.mcpcapstone.meettoticket.auth.dto.UserResponse;
+import com.mcpcapstone.meettoticket.dto.LoginRequest;
+import com.mcpcapstone.meettoticket.dto.SignupRequest;
+import com.mcpcapstone.meettoticket.dto.UserResponse;
 import com.mcpcapstone.meettoticket.common.error.BusinessException;
 import com.mcpcapstone.meettoticket.common.error.ErrorCode;
 import com.mcpcapstone.meettoticket.common.error.ErrorResponse;
-import com.mcpcapstone.meettoticket.user.User;
+import com.mcpcapstone.meettoticket.domain.User;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;

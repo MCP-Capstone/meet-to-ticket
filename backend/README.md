@@ -31,7 +31,7 @@ http://localhost:8080/api/health 에서 `{"status":"UP"}`가 나오면 정상이
 | DTO 필드 | `@Schema(description, example)` | 필드 설명, 예시 값 |
 | 로그인 불필요 API | `@SecurityRequirements` | 자물쇠 표시 제거 (기본은 로그인 필요) |
 
-예시는 `auth/AuthController.java`, `auth/dto/SignupRequest.java` 참고.
+예시는 `controller/AuthController.java`, `dto/SignupRequest.java` 참고.
 
 아직 구현하지 않은 API는 DTO와 컨트롤러 메서드만 먼저 만들고 `501 Not Implemented`를 돌려주는 껍데기로 둔다. 명세가 먼저 나오고, 구현할 때 메서드 안만 채운다.
 
@@ -83,3 +83,9 @@ curl -b cookie.txt localhost:8080/api/auth/me
 ## 에러 응답
 
 모든 에러는 `{ "code": "...", "message": "..." }` 형식이다. 새 에러는 `common/error/ErrorCode`에 추가하고 `throw new BusinessException(ErrorCode.XXX)`로 던진다.
+
+## #25 JPA 엔티티와 목업 데이터
+
+엔티티는 `domain/`에 두고 `controller/`, `service/`, `dto/`, `repository/`를 같은 레벨에 둔다. 인증 컨트롤러·서비스·DTO와 UserRepository도 각각 해당 계층에 배치했다. `auth/`에는 세션 상수·로그인 인터셉터·비밀번호 설정만 남긴다.
+
+개발용 데이터 생성은 [목업 사용 안내](../scripts/db/README.md)를 따른다. 목업은 mock 프로필에서만 입력되며 기존 로그인 계정과 같은 User 엔티티·PasswordEncoder를 사용한다.

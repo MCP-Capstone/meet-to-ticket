@@ -1,4 +1,4 @@
-package com.mcpcapstone.meettoticket.auth.dto;
+package com.mcpcapstone.meettoticket.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
