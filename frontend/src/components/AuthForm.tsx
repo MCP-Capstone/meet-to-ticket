@@ -7,6 +7,8 @@ type Mode = 'login' | 'signup'
 
 interface Props {
   onLogin: (user: User) => void
+  // 로그인 만료 등으로 로그인 화면에 돌아왔을 때 보여줄 안내
+  notice?: string | null
 }
 
 const LOGIN_ID_PATTERN = /^[a-zA-Z0-9]{4,20}$/
@@ -22,7 +24,7 @@ function validateSignup(loginId: string, password: string, passwordConfirm: stri
   return null
 }
 
-export function AuthForm({ onLogin }: Props) {
+export function AuthForm({ onLogin, notice }: Props) {
   const [mode, setMode] = useState<Mode>('login')
   const [loginId, setLoginId] = useState('')
   const [password, setPassword] = useState('')
@@ -72,6 +74,7 @@ export function AuthForm({ onLogin }: Props) {
         </button>
       </div>
 
+      {notice && !error && <p className="notice">{notice}</p>}
       {error && <p className="error">{error}</p>}
 
       <label>

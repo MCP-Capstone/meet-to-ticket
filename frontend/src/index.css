@@ -373,6 +373,15 @@ button.link {
   background: var(--danger-soft);
 }
 
+/* 안내 */
+.notice {
+  padding: 12px 16px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
 @media (max-width: 560px) {
   .row {
     grid-template-columns: 1fr;
