@@ -1,4 +1,4 @@
-const steps = ['회의록 입력', '할 일 추출', '결과 확인'] as const
+const steps = ['회의록 업로드', '분석', '결과 확인'] as const
 
 interface Props {
   current: 0 | 1 | 2
