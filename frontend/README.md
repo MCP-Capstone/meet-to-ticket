@@ -42,9 +42,11 @@ src/
 │   ├── client.ts     # fetch 공통 처리, 에러 변환
 │   ├── real.ts       # 실제 백엔드 호출
 │   └── index.ts      # mock / real 선택
-├── mocks/            # 가짜 API와 샘플 데이터
-├── components/       # AuthForm, Stepper, MeetingForm, ExtractingView, ActionItemList
-└── App.tsx           # 로그인 확인 → 입력 → 추출 → 결과 확인 흐름
+├── mocks/            # 가짜 API와 샘플 데이터 (샘플 .txt 회의록 포함)
+├── hooks/
+│   └── useAnalysisPolling.ts  # 분석 상태 2초 간격 조회
+├── components/       # AuthForm, UploadForm, AnalysisProgress, ResultList, Stepper, Spinner
+└── App.tsx           # 로그인 확인 → 업로드 → 분석 → 결과 확인 흐름
 ```
 
 ## 사용하는 API
@@ -55,8 +57,19 @@ src/
 | POST | `/api/auth/login` | 로그인 |
 | POST | `/api/auth/logout` | 로그아웃 |
 | GET | `/api/auth/me` | 로그인 상태 확인 (새로고침 시) |
-| POST | `/api/meetings` | 회의록 등록 |
-| POST | `/api/meetings/{meetingId}/extract` | 할 일 추출 |
+| POST | `/api/projects/{projectId}/meetings` | .txt 회의록 업로드 (multipart, `file`) |
+| POST | `/api/meetings/{meetingId}/analysis` | 분석 시작 (202, `jobId`) |
+| GET | `/api/analysis/{jobId}` | 분석 상태 / 현재 단계 (2초 간격 조회) |
+| GET | `/api/analysis/{jobId}/results` | 항목별 결과 |
+
+> 업로드 / 분석 / 결과 API의 경로와 필드는 임시다. 확정 스키마와 Swagger 명세가 나오면 `src/api/types.ts`, `src/api/real.ts`를 맞춘다.
+
+## 분석 상태 조회 (polling)
+
+- `useAnalysisPolling`이 2초마다 `GET /api/analysis/{jobId}`를 호출한다. SSE는 쓰지 않는다.
+- `COMPLETED` / `FAILED`가 되면 멈추고 결과를 불러온다.
+- 처리 중 화면을 벗어나면(로그아웃, 처음으로) 조회를 정리한다.
+- 서버 오류 / 네트워크 오류가 3번 연속되면 멈추고 안내한다. 4xx는 바로 멈춘다.
 
 ## API 호출
 
