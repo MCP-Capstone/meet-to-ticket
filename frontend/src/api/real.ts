@@ -1,8 +1,6 @@
 import { request } from './client'
 import type {
   CreateMeetingRequest,
-  CreateTicketsRequest,
-  CreateTicketsResponse,
   ExtractResponse,
   Meeting,
 } from './types'
@@ -15,7 +13,4 @@ export const realApi = {
 
   extractActionItems: (meetingId: number) =>
     request<ExtractResponse>(`/meetings/${meetingId}/extract`, { method: 'POST' }),
-
-  createTickets: (body: CreateTicketsRequest) =>
-    request<CreateTicketsResponse>('/tickets', { method: 'POST', body: JSON.stringify(body) }),
 }
