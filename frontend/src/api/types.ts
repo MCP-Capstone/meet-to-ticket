@@ -35,6 +35,23 @@ export interface ExtractResponse {
   actionItems: ActionItem[]
 }
 
+export interface User {
+  userId: number
+  loginId: string
+  name: string
+}
+
+export interface SignupRequest {
+  loginId: string
+  password: string
+  name: string
+}
+
+export interface LoginRequest {
+  loginId: string
+  password: string
+}
+
 export interface ApiError {
   code: string
   message: string
