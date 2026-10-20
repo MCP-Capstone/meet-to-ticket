@@ -1,0 +1,4 @@
+# 개발과 테스트용. 시연 환경에는 필요 없다.
+-r requirements.in
+pytest>=8
+pytest-asyncio>=0.26

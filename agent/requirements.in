@@ -1,0 +1,8 @@
+# 에이전트(LangGraph) 전용 환경
+# langchain-mcp-adapters가 mcp<2를 요구하므로, mcp 2.x를 쓰는 서버와 환경을 나눈다.
+langgraph>=1.2,<2
+langchain-mcp-adapters>=0.3.2,<0.4      # 0.x는 마이너 버전에서도 API가 바뀔 수 있어 상한을 좁게
+langchain-openai>=1.0,<2                # LLM 제공사 패키지 (다른 제공사를 쓰면 이 줄만 교체)
+python-dotenv>=1.0                      # .env에서 API 키, 서버 주소 읽기
+fastapi>=0.150,<0.151                   # 에이전트 API 서버. 0.x라 상한을 좁게
+uvicorn>=0.54,<0.55                     # FastAPI를 띄우는 ASGI 서버
