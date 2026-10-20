@@ -40,6 +40,11 @@ const loadUsers = () => load<MockUser[]>(USERS_KEY, [demoUser])
 
 const fail = (status: number, code: string, message: string) => new ApiRequestError(status, { code, message })
 
+// 실제 백엔드처럼 로그인하지 않으면 401을 던진다.
+const requireLogin = () => {
+  if (!load<User | null>(SESSION_KEY, null)) throw fail(401, 'UNAUTHORIZED', '로그인이 필요합니다.')
+}
+
 const toUser = ({ userId, loginId, name }: User): User => ({ userId, loginId, name })
 
 export const mockApi: typeof realApi = {
@@ -79,6 +84,7 @@ export const mockApi: typeof realApi = {
 
   async createMeeting(body) {
     await delay(300)
+    requireLogin()
     const meeting: Meeting = {
       ...body,
       meetingId: nextMeetingId++,
@@ -90,6 +96,7 @@ export const mockApi: typeof realApi = {
   async extractActionItems(meetingId) {
     // LLM 응답 시간을 흉내 낸다.
     await delay(1500)
+    requireLogin()
     const actionItems: ActionItem[] = mockActionItems.map((item, i) => ({
       ...item,
       actionItemId: meetingId * 10 + i,
