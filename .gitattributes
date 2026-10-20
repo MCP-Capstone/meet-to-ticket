@@ -1,0 +1,22 @@
+# 기본: 텍스트 파일은 저장소에 LF로 저장
+* text=auto eol=lf
+
+# Windows 스크립트는 CRLF 유지
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Gradle wrapper 스크립트는 LF 고정
+gradlew text eol=lf
+
+# 바이너리
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.pt binary
+*.safetensors binary
