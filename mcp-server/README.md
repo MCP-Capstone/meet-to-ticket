@@ -20,10 +20,11 @@ GitHub 이슈 도구를 제공하는 MCP 서버의 **파이썬 환경 설정** �
 | `requirements-dev.in` | 실행용 `.in`에 테스트 도구(pytest 등)를 더한 파일 | 올림 |
 | `requirements-dev.txt` | 위 파일을 고정한 것. 개발자 PC는 이걸로 설치한다 | 올림 |
 | `.python-version` | 이 폴더의 Python 버전(3.12). uv가 읽는다 | 올림 |
-| `.gitignore` | 커밋하지 않을 파일 목록 | 올림 |
 | `.env.example` | `.env`에 어떤 값이 필요한지 보여 주는 빈 양식 | 올림 |
 | `.env` | 실제 GitHub 토큰 등 비밀 값. 직접 만든다 | **안 올림** |
 | `.venv/` | 가상환경 폴더. 설치된 패키지가 들어 있다 | **안 올림** |
+
+커밋하지 않을 파일(`.env`, `.venv/` 등)의 규칙은 이 폴더가 아니라 저장소 루트의 `.gitignore`가 담당합니다.
 
 ## 2. 왜 가상환경이 2개인가
 
@@ -195,10 +196,12 @@ uv pip sync requirements-dev.txt
 |---|---|---|
 | 올림 | 소스 코드 | 공유 대상 |
 | 올림 | `requirements*.in`, `requirements*.txt` | 모두가 같은 버전을 쓰기 위해 |
-| 올림 | `.gitignore`, `.python-version` | 폴더 규칙과 Python 버전 공유 |
+| 올림 | `.python-version` | Python 버전 공유 |
 | 올림 | `.env.example` | 필요한 값의 목록만 있고 비밀은 없다 |
 | 안 올림 | `.env` | GitHub 토큰 같은 비밀 값이 들어 있다. 한 번 올라가면 기록에 남는다 |
 | 안 올림 | `.venv/` | 용량이 크고 컴퓨터마다 다르다. `.txt`로 언제든 다시 만들 수 있다 |
+
+안 올리는 파일은 저장소 루트의 `.gitignore`가 자동으로 걸러 줍니다. 이 폴더에는 별도의 `.gitignore`를 두지 않습니다.
 
 ## 8. 자주 나는 문제
 
