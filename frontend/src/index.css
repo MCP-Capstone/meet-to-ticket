@@ -5,10 +5,16 @@
   --card: #ffffff;
   --border: #d0d7de;
   --accent: #0969da;
+  --accent-soft: #ddf4ff;
   --danger: #cf222e;
-  --radius: 8px;
+  --danger-soft: #ffebe9;
+  --warn: #9a6700;
+  --warn-soft: #fff8c5;
+  --ok: #1a7f37;
+  --ok-soft: #dafbe1;
+  --radius: 10px;
 
-  font: 15px/1.5 system-ui, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  font: 15px/1.6 system-ui, -apple-system, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
   color: var(--text);
   background: var(--bg);
 }
@@ -22,22 +28,27 @@ body {
 }
 
 h1,
-h2 {
+h2,
+p {
   margin: 0;
 }
 
 h1 {
-  font-size: 22px;
+  font-size: 24px;
 }
 
 h2 {
   font-size: 17px;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 .container {
   max-width: 760px;
   margin: 0 auto;
-  padding: 32px 16px;
+  padding: 40px 16px 64px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -45,27 +56,83 @@ h2 {
 
 .header {
   display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
 }
 
+.muted {
+  color: var(--muted);
+}
+
+/* 단계 표시 */
+.stepper {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.stepper li {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.stepper li.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.stepper li.done {
+  color: var(--ok);
+}
+
+.step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid currentColor;
+}
+
+/* 카드 */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.card-header p {
+  margin-top: 2px;
+  font-size: 14px;
+}
+
+/* 폼 */
 .row {
   display: grid;
   grid-template-columns: 1fr 180px;
@@ -75,32 +142,49 @@ h2 {
 label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   font-size: 13px;
-  color: var(--muted);
+  font-weight: 600;
 }
 
 input,
 textarea {
   font: inherit;
+  font-weight: 400;
   color: var(--text);
-  padding: 8px 10px;
+  padding: 9px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
+  background: #fff;
+}
+
+input:focus,
+textarea:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
 }
 
 textarea {
   resize: vertical;
+  line-height: 1.6;
 }
 
+.counter {
+  align-self: flex-end;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.counter.over {
+  color: var(--danger);
+}
+
+/* 버튼 */
 button {
   font: inherit;
-  padding: 8px 14px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
   cursor: pointer;
+  border: 0;
+  background: none;
 }
 
 button:disabled {
@@ -108,11 +192,62 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button.primary {
+  padding: 11px 16px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
 button.link {
-  background: none;
   color: var(--accent);
   padding: 4px;
   align-self: flex-start;
+}
+
+/* 추출 중 */
+.extracting {
+  align-items: center;
+  text-align: center;
+  padding: 56px 24px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 결과 */
+.summary {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 72px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.count strong {
+  font-size: 28px;
+  line-height: 1.2;
+  color: var(--accent);
 }
 
 .items {
@@ -121,75 +256,88 @@ button.link {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .item {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.item-main p {
-  margin: 4px 0;
+.item-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.item p {
   color: var(--muted);
-}
-
-.item-ticket {
-  flex-shrink: 0;
-  align-self: center;
 }
 
 .meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 14px;
   font-size: 13px;
   color: var(--muted);
 }
 
+.empty {
+  text-align: center;
+  padding: 24px 0;
+}
+
+/* 배지 */
 .badge {
+  flex-shrink: 0;
   font-size: 12px;
+  font-weight: 600;
   padding: 1px 8px;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
 }
 
 .badge.high {
   color: var(--danger);
-  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.badge.medium {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.badge.low {
+  color: var(--ok);
+  background: var(--ok-soft);
 }
 
 .badge.mock {
   color: var(--muted);
+  border-color: var(--border);
+  background: var(--card);
 }
 
-.muted {
-  color: var(--muted);
-}
-
-.center {
-  text-align: center;
-}
-
+/* 에러 */
 .error {
-  margin: 0;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border: 1px solid var(--danger);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--danger);
-  background: #fff5f5;
-}
-
-.error-text {
-  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 @media (max-width: 560px) {
   .row {
     grid-template-columns: 1fr;
+  }
+
+  .stepper li {
+    font-size: 12px;
+    padding: 8px;
   }
 }
