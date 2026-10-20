@@ -1,0 +1,22 @@
+# 로컬 개발용. 포트 규칙은 docs/dev-env.md 참고
+services:
+  postgres:
+    image: postgres:17
+    container_name: meettoticket-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-meettoticket}
+      POSTGRES_USER: ${POSTGRES_USER:-meettoticket}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meettoticket}
+      TZ: Asia/Seoul
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:
