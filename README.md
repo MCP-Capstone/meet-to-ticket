@@ -7,7 +7,7 @@
 | 디렉토리 | 역할 | 스택 |
 |---|---|---|
 | `frontend/` | 웹 프론트 | React, TypeScript, Vite |
-| `backend/` | API 서버 | Java 21, Spring Boot 3.5, JPA |
+| `backend/` | API 서버 | Java 21, Spring Boot 4.1, JPA |
 | `agent/` | 회의록 분석 AI Agent | Python, FastAPI |
 | `mcp-server/` | 티켓 생성 MCP 서버 | Python, MCP |
 
