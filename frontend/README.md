@@ -5,11 +5,37 @@ React + TypeScript + Vite
 ## 실행
 
 ```bash
-npm install
+nvm use        # .nvmrc의 Node 24 사용 (nvm이 없으면 Node 24 LTS 설치)
+npm ci         # package-lock.json 그대로 설치
 npm run dev
 ```
 
 http://localhost:5173 에서 열린다.
+
+## Node / 패키지 관리
+
+| 항목 | 규칙 |
+|---|---|
+| Node | **24 LTS** 권장 (`.nvmrc`). 최소 `20.19` 또는 `22.12` 이상 (Vite 8 요구) |
+| 패키지 매니저 | **npm만** 쓴다. yarn / pnpm을 쓰면 lock 파일이 따로 생긴다 |
+| 버전 확인 | `node -v`, `npm -v` |
+
+- Node 버전이 맞지 않으면 `npm ci` / `npm install`이 `EBADENGINE` 에러로 멈춘다. (`.npmrc`의 `engine-strict`)
+- `node_modules/`는 커밋하지 않는다.
+
+### 언제 무엇을 실행하나
+
+| 상황 | 명령 |
+|---|---|
+| 처음 clone 했을 때 | `npm ci` |
+| pull 받았는데 `package.json` / `package-lock.json`이 바뀌었을 때 | `npm ci` |
+| 패키지를 추가할 때 | `npm install <패키지>` (개발용은 `npm install -D <패키지>`) |
+| 설치가 꼬였을 때 | `rm -rf node_modules && npm ci` |
+
+- `npm ci`는 lock 파일에 적힌 버전 그대로 설치한다. 6명이 같은 버전을 쓰도록 평소에는 `npm ci`를 쓴다.
+- 패키지를 추가 / 삭제 / 업데이트하면 **`package.json`과 `package-lock.json`을 함께 커밋**한다.
+- 패키지 업데이트(`npm update`, 메이저 버전 올리기)는 혼자 하지 않고 이슈로 먼저 공유한다. 새 버전 확인은 `npm outdated`.
+- 패키지를 바꾼 PR은 본문 참고 사항에 **"패키지 업데이트 필요: `cd frontend && npm ci`"**를 적는다. (PR 템플릿 체크리스트)
 
 ## 스크립트
 
