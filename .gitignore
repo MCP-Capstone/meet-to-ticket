@@ -35,6 +35,15 @@ out/
 bin/
 *.class
 HELP.md
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/
+.sts4-cache/
+*.iml
+*.iws
+*.ipr
 
 # Agent / MCP 서버 (Python, FastAPI)
 __pycache__/
