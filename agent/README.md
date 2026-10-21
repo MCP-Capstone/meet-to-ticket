@@ -307,6 +307,17 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | `mcp_check.py` | MCP 서버 연결 확인 (이슈 목록 읽기, `--write`면 테스트 이슈 생성) |
 | `samples/` | 회의 요약 예시 3종, 팀원 명단, 요청 목데이터 |
 
+### 모델
+
+| 작업 | 기본 모델 | 추론 | temperature | 설정 |
+|---|---|---|---|---|
+| 액션 아이템 추출, 이슈 초안 | `gpt-5.4-nano` | 끔 (`none`) | 0 | `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` |
+| 검수 | `gpt-5.4-mini` | 모델 기본값 | 1 | `OPENAI_REVIEW_MODEL`, `OPENAI_REVIEW_REASONING_EFFORT` |
+
+- 초안은 같은 회의록이면 같은 결과가 나오도록 추론을 끄고 temperature 0으로 호출한다.
+- 검수는 판단이 중요해 추론을 켠다. gpt-5 계열은 추론을 켜면 temperature 0을 받지 않아 기본값 1로 호출된다(langchain-openai가 자동으로 뺀다).
+- 모델이 temperature나 추론 설정을 지원하지 않는다는 오류를 돌려주면, 그 설정만 빼고 바로 다시 호출한다. 이 재호출은 재시도 횟수에 넣지 않는다.
+
 ### 1) 추출·검수만 확인 (OpenAI 키만 필요)
 
 ```bash
