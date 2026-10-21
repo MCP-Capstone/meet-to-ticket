@@ -32,6 +32,10 @@ const dueText = (item: TaskItem) => {
 const correctionCount = (item: TaskItem) =>
   item.contentJson?.review?.correctionCount ?? item.contentJson?.review?.revisions ?? 0
 
+// 새 이슈를 만들지 않고 기존 GitHub 이슈에 연결만 한 항목
+const isLinked = (item: TaskItem) =>
+  item.publishStatus === 'SUCCEEDED' && item.contentJson?.dedupe?.linked_existing === true
+
 // 반려 사유는 reason / 검수 사유, 발행 실패 / 확인 필요는 errorMessage
 const noteText = (item: TaskItem) =>
   item.publishStatus === 'FAILED' || item.publishStatus === 'UNKNOWN'
@@ -43,6 +47,7 @@ const noteText = (item: TaskItem) =>
 export function ResultList({ meeting, participants, result }: Props) {
   const { summary } = result
   const problems = summary.failed + summary.unknown
+  const linkedCount = result.items.filter(isLinked).length
 
   return (
     <>
@@ -62,9 +67,15 @@ export function ResultList({ meeting, participants, result }: Props) {
         </div>
         <div className="counts">
           <div className="count">
-            <strong>{summary.succeeded}</strong>
+            <strong>{summary.succeeded - linkedCount}</strong>
             <span>발행</span>
           </div>
+          {linkedCount > 0 && (
+            <div className="count linked">
+              <strong>{linkedCount}</strong>
+              <span>기존 이슈 연결</span>
+            </div>
+          )}
           <div className="count excluded">
             <strong>{summary.rejected}</strong>
             <span>검수 반려</span>
@@ -91,13 +102,15 @@ export function ResultList({ meeting, participants, result }: Props) {
         ) : (
           <ul className="items">
             {result.items.map((item) => {
-              const note = noteText(item)
+              const linked = isLinked(item)
+              const statusClass = linked ? 'linked' : item.publishStatus.toLowerCase()
+              const note = linked ? (item.reason ?? item.contentJson?.dedupe?.reason ?? null) : noteText(item)
               const corrections = correctionCount(item)
               const background = backgroundText(item)
               return (
-                <li key={item.itemId} className={`item ${item.publishStatus.toLowerCase()}`}>
+                <li key={item.itemId} className={`item ${statusClass}`}>
                   <div className="item-title">
-                    <span className={`badge ${item.publishStatus.toLowerCase()}`}>{publishLabel[item.publishStatus]}</span>
+                    <span className={`badge ${statusClass}`}>{linked ? '기존 이슈 연결' : publishLabel[item.publishStatus]}</span>
                     <strong>{item.title}</strong>
                   </div>
                   {background && <p>{background}</p>}
@@ -110,7 +123,7 @@ export function ResultList({ meeting, participants, result }: Props) {
                     <span>마감 {dueText(item)}</span>
                     {item.githubIssueUrl && (
                       <a href={item.githubIssueUrl} target="_blank" rel="noreferrer">
-                        #{item.githubIssueNumber} GitHub에서 보기 ↗
+                        #{item.githubIssueNumber} {linked ? '기존 이슈 보기 ↗' : 'GitHub에서 보기 ↗'}
                       </a>
                     )}
                   </div>
