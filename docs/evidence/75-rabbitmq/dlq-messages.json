@@ -1,0 +1,39 @@
+[
+  {
+    "payload_bytes": 36,
+    "redelivered": false,
+    "exchange": "analysis.tasks.dlx",
+    "routing_key": "analysis.failed",
+    "message_count": 0,
+    "properties": {
+      "message_id": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+      "priority": 0,
+      "delivery_mode": 2,
+      "headers": {
+        "spring_listener_return_correlation": "25bc5991-150b-4d69-bf66-bf77980cf8ed",
+        "spring_returned_message_correlation": "cf353f9c-f534-4920-b04a-635b08337faa",
+        "x-death": [
+          {
+            "count": 1,
+            "exchange": "analysis.tasks",
+            "queue": "analysis.tasks.queue",
+            "reason": "rejected",
+            "routing-keys": [
+              "analysis.submit"
+            ],
+            "time": 1792559308
+          }
+        ],
+        "x-first-death-exchange": "analysis.tasks",
+        "x-first-death-queue": "analysis.tasks.queue",
+        "x-first-death-reason": "rejected",
+        "x-last-death-exchange": "analysis.tasks",
+        "x-last-death-queue": "analysis.tasks.queue",
+        "x-last-death-reason": "rejected"
+      },
+      "content_type": "text/plain"
+    },
+    "payload": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+    "payload_encoding": "string"
+  }
+]

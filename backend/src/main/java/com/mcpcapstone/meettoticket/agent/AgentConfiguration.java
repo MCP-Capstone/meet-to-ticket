@@ -9,7 +9,7 @@ import org.springframework.web.client.RestClient;
 @Configuration
 @EnableConfigurationProperties(AgentProperties.class)
 public class AgentConfiguration {
-    @Bean
+    @Bean("agentTransport")
     @ConditionalOnProperty(name = "agent.mode", havingValue = "live", matchIfMissing = true)
     public AgentGateway liveAgentGateway(AgentProperties properties) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();

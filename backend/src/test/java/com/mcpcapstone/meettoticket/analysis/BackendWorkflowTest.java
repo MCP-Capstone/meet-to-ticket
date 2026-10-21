@@ -1,10 +1,26 @@
 package com.mcpcapstone.meettoticket.analysis;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.mcpcapstone.meettoticket.agent.AgentProperties;
+import com.mcpcapstone.meettoticket.queue.AnalysisTaskPublisher;
+import com.mcpcapstone.meettoticket.queue.AnalysisTaskListener;
+import com.mcpcapstone.meettoticket.queue.AnalysisDispatchRepository;
+import com.mcpcapstone.meettoticket.queue.AnalysisDispatchStore;
+import com.mcpcapstone.meettoticket.queue.AnalysisDispatch;
+import com.mcpcapstone.meettoticket.agent.AgentGateway;
+import com.mcpcapstone.meettoticket.agent.AgentException;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.ArrayList;
+
 import com.mcpcapstone.meettoticket.auth.SessionConst;
 import com.mcpcapstone.meettoticket.common.JsonCodec;
 import com.mcpcapstone.meettoticket.project.*;
@@ -30,6 +46,9 @@ import com.mcpcapstone.meettoticket.common.error.BusinessException;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class BackendWorkflowTest {
+    @MockitoBean
+    AnalysisTaskPublisher publisher;
+    @Autowired AnalysisTaskListener listener;
     @Autowired MockMvc mvc;
     @Autowired AnalysisCoordinator coordinator;
     @Autowired AnalysisStore store;
@@ -90,7 +109,13 @@ class BackendWorkflowTest {
                         .andReturn()
                         .getResponse()
                         .getContentAsString();
-        return UUID.fromString(json.read(body).path("taskId").asText());
+        UUID id = UUID.fromString(json.read(body).path("taskId").asText());
+        // 202 수신 시점에는 Agent 실행 전이며, 폴링해도 QUEUED를 유지한다.
+        coordinator.pollPending();
+        mvc.perform(get("/api/analysis-tasks/{id}", id).session(session))
+                .andExpect(jsonPath("$.status").value("QUEUED"));
+        listener.receive(id.toString());
+        return id;
     }
 
     private void finish() {
@@ -256,4 +281,126 @@ class BackendWorkflowTest {
                 .andExpect(jsonPath("$.status").value("FAILED"))
                 .andExpect(jsonPath("$.errorMessage").value(org.hamcrest.Matchers.startsWith("AGENT_TASK_UNAVAILABLE")));
     }
+
+    @Autowired AnalysisDispatchRepository dispatches;
+    @Autowired AnalysisDispatchStore dispatchStore;
+    @Autowired PlatformTransactionManager transactionManager;
+
+    @Test
+    void 처리중과_완료후_중복메시지도_Agent를_재실행하지_않는다() throws Exception {
+        UUID task = start(upload("중복메시지.txt", "박종민"));
+        listener.receive(task.toString());
+        finish();
+        long before = items.count();
+        listener.receive(task.toString());
+        coordinator.pollPending();
+        assertThat(items.count()).isEqualTo(before);
+        assertThat(dispatches.findById(task).orElseThrow().getAttempts()).isEqualTo(1);
+    }
+
+    @Test
+    void 최종접수실패는_영속상태와_작업을_함께_FAILED로_갱신한다() throws Exception {
+        Long meeting = upload("접수실패.txt", "박종민");
+        Long userId = (Long) session.getAttribute(SessionConst.LOGIN_USER_ID);
+        UUID id = coordinator.start(meeting, userId).taskId();
+        var transport = mock(AgentGateway.class);
+        when(transport.mode()).thenReturn("MOCK");
+        when(transport.submit(any()))
+                .thenThrow(new AgentException(false));
+        List<Long> waits = new ArrayList<>();
+        var worker = new AnalysisTaskListener(
+                transport, store, dispatchStore, waits::add);
+        assertThatThrownBy(() -> worker.receive(id.toString()))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class);
+        assertThat(waits).containsExactly(2000L, 4000L, 8000L);
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.FAILED);
+        assertThat(dispatches.findById(id).orElseThrow().getState())
+                .isEqualTo(AnalysisDispatch.State.EXHAUSTED);
+        assertThat(dispatches.findById(id).orElseThrow().getAttempts()).isEqualTo(4);
+        assertThatThrownBy(() -> worker.receive(id.toString()))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class);
+        verify(transport, times(4))
+                .submit(any());
+    }
+
+    @Test
+    void 요청트랜잭션이_롤백되면_작업과_발행기록을_모두_취소한다() throws Exception {
+        Long meeting = upload("롤백.txt", "박종민");
+        Long userId = (Long) session.getAttribute(SessionConst.LOGIN_USER_ID);
+        var id = new AtomicReference<UUID>();
+        var transaction = new TransactionTemplate(transactionManager);
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+            id.set(coordinator.start(meeting, userId).taskId());
+            throw new IllegalStateException("rollback");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(tasks.existsById(id.get())).isFalse();
+        assertThat(dispatches.existsById(id.get())).isFalse();
+        verify(publisher, never()).publish(id.get());
+    }
+
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired @org.springframework.beans.factory.annotation.Qualifier("agentTransport")
+    AgentGateway rawTransport;
+
+    private UUID abandonedClaim(String filename) throws Exception {
+        Long meeting = upload(filename, "박종민");
+        Long userId = (Long) session.getAttribute(SessionConst.LOGIN_USER_ID);
+        UUID id = coordinator.start(meeting, userId).taskId();
+        assertThat(dispatchStore.claim(id, "MOCK")).isTrue();
+        return id;
+    }
+
+    private void ageClaim(UUID id) {
+        jdbc.update("update analysis_dispatches set updated_at = ? where task_id = ?",
+                java.time.OffsetDateTime.now().minusMinutes(3), id);
+    }
+
+    @Test
+    void JVM종료후_오래된_claim은_재POST없이_Agent기존결과를_회수한다() throws Exception {
+        UUID id = abandonedClaim("중단된접수.txt");
+        rawTransport.submit(store.request(id)); // Agent는 받았지만 Spring은 접수 결과 저장 전에 종료
+        ageClaim(id);
+        coordinator.pollPending();
+        assertThat(dispatches.findById(id).orElseThrow().getState()).isEqualTo(AnalysisDispatch.State.UNCERTAIN);
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.RUNNING);
+        coordinator.pollPending();
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.COMPLETED);
+        assertThat(dispatches.findById(id).orElseThrow().getAttempts()).isZero();
+    }
+
+    @Test
+    void Agent접수전_JVM종료도_조회실패로_종료하고_재POST하지_않는다() throws Exception {
+        UUID id = abandonedClaim("전송전중단.txt");
+        ageClaim(id);
+        coordinator.pollPending();
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.FAILED);
+        assertThat(dispatches.findById(id).orElseThrow().getAttempts()).isZero();
+    }
+
+    @Test
+    void 최근_claim은_보호하고_시각이없는_기존행은_조회로_복구한다() throws Exception {
+        UUID id = abandonedClaim("기존행.txt");
+        coordinator.pollPending();
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.QUEUED);
+        assertThat(dispatches.findById(id).orElseThrow().getState()).isEqualTo(AnalysisDispatch.State.SUBMITTING);
+        jdbc.update("update analysis_dispatches set updated_at = null where task_id = ?", id);
+        coordinator.pollPending();
+        assertThat(dispatches.findById(id).orElseThrow().getState()).isEqualTo(AnalysisDispatch.State.UNCERTAIN);
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.FAILED);
+    }
+
+    @Test
+    void DB복구후_DLQ실패기록을_멱등하게_반영하고_완료결과를_보존한다() throws Exception {
+        UUID id = abandonedClaim("실패복구.txt");
+        dispatchStore.failFromDeadLetter(id);
+        dispatchStore.failFromDeadLetter(id);
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.FAILED);
+        assertThat(dispatches.findById(id).orElseThrow().getState()).isEqualTo(AnalysisDispatch.State.EXHAUSTED);
+        UUID complete = start(upload("완료보존.txt", "박종민"));
+        finish();
+        dispatchStore.failFromDeadLetter(complete);
+        assertThat(tasks.findById(complete).orElseThrow().getStatus()).isEqualTo(TaskStatus.COMPLETED);
+        assertThat(dispatches.findById(complete).orElseThrow().getState()).isEqualTo(AnalysisDispatch.State.ACCEPTED);
+    }
+
 }

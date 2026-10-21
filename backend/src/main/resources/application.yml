@@ -8,6 +8,24 @@ server:
 spring:
   application:
     name: backend
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:meettoticket}
+    password: ${RABBITMQ_PASSWORD:meettoticket}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    connection-timeout: 3s
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        prefetch: 1
+        # Agent/DB 재시도는 각각의 호출에 한정한다. 처리 실패는 DLQ로 보내 무한 재전달을 막는다.
+        default-requeue-rejected: false
+        retry:
+          enabled: false
   datasource:
     # 기본값은 루트 docker-compose.yml의 PostgreSQL과 같다. 바꾸려면 환경 변수로 덮어쓴다.
     url: ${DB_URL:jdbc:postgresql://localhost:5432/meettoticket}
@@ -46,3 +64,8 @@ agent:
   read-timeout: 5s
   task-timeout: ${AGENT_TASK_TIMEOUT:10m}
   mock-scenario: ${AGENT_MOCK_SCENARIO:approved}
+
+app:
+  analysis:
+    submitting-timeout: ${ANALYSIS_SUBMITTING_TIMEOUT:2m}
+    failure-reconcile-interval-ms: ${ANALYSIS_FAILURE_RECONCILE_INTERVAL_MS:5000}

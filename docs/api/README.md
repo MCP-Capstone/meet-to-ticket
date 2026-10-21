@@ -31,11 +31,12 @@
 로그인·가입·로그아웃·health 외에는 JSESSIONID 세션이 필요하다. Swagger에서 먼저 로그인하면 같은 출처 요청에 쿠키가 적용된다.
 Authorize에 쿠키를 직접 넣기보다 login API를 실행한다. 세션 사용자 ID는 입력값으로 노출하지 않는다.
 업무 오류는 `{code, message}`. 400(파일/형식/참여자/계정), 401(미로그인), 403(프로젝트 권한),
-404(회의/작업 없음), 409(중복 요청/미종료), 502(Agent 접수 실패)를 각 API에서 확인한다.
+404(회의/작업 없음), 409(중복 요청/미종료)를 각 API에서 확인한다.
+#75부터 분석은 RabbitMQ 큐에 접수하며 Agent 중지 시에도 202를 반환한다. 재시도 후 최종 실패는 상태 조회의 FAILED로 확인한다.
 
 ### 외부 AI·GitHub 없이 테스트
 
-1. PostgreSQL을 준비하고 backend에서 `./gradlew bootRun --args='--spring.profiles.active=demo'` 실행.
+1. 루트에서 `docker compose up -d postgres rabbitmq`로 DB와 큐를 준비하고 backend에서 `./gradlew bootRun --args='--spring.profiles.active=demo'` 실행.
 2. Swagger 접속 후 `POST /api/auth/login`에 demo 계정 입력. 기본 demo1 / password1은 개발용이며 환경변수로 바뀔 수 있다.
 3. `GET /api/projects`로 프로젝트 ID, `GET /api/projects/{projectId}/members`로 실제 팀원 확인.
 4. TXT 파일에 제목·날짜·참여자를 준비하고 업로드 실행. 예시:

@@ -15,7 +15,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@Component
+@Component("agentTransport")
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "agent.mode", havingValue = "mock")
 public class MockAgentGateway implements AgentGateway {
