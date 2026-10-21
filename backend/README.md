@@ -109,7 +109,9 @@ DB는 `users / projects / project_members / meetings / analysis_tasks / task_ite
 ```
 
 - demo 프로필에서만 초기 사용자 `demo1 / password1`과 프로젝트, 회의 샘플의 팀원 6명을 넣는다. 실제 비밀번호는 `DEMO_PASSWORD`로 변경할 수 있다.
-- `DEMO_GITHUB_LOGINS`는 강민규, 박종민, 임나윤, 최윤경, 함주헌, 허민규 순서의 쉼표 구분 실제 로그인명이다. 미지정 계정은 NULL로 남기며 실제 계정으로 가장하지 않는다. 기존 팀원 행을 초기화할 때 덮어쓰지 않는다.
+- 팀원 GitHub 계정은 팀 실제 계정(`mingyukang5420, jongmiiin, jadoolim, 0unk0, juhun-ham, minkyu-huh`)이 기본값이다. 순서는 강민규, 박종민, 임나윤, 최윤경, 함주헌, 허민규이며 `DEMO_GITHUB_LOGINS`(쉼표 구분)로 바꿀 수 있다. 빈 값은 NULL로 남긴다.
+- 기존 팀원 행은 덮어쓰지 않는다. 예전에 GitHub 계정 없이 시드된 DB라면 새 DB를 쓰거나 `project_members.github_name`을 직접 채운다.
+- 업로드용 샘플 회의록: `examples/meetings/*.txt` (데이터 담당 작성, 기대 업무 수는 `scripts/db/README.md`)
 - MOCK 실행 상태는 메모리에만 보관하므로 서버 재시작 후 진행 중 작업은 `AGENT_TASK_UNAVAILABLE`로 FAILED 처리된다. 이미 DB에 저장된 종료 결과는 유지된다.
 - Agent를 호출하지 않고 **고정 모의 응답**을 반환한다. 실제 LLM 추출·검수·GitHub 발행이 아니다.
 - `executionMode=MOCK`이며 모의 승인 항목은 `SKIPPED`, 이슈 번호·URL은 NULL이다. 가짜 GitHub 성공/링크를 만들지 않는다. 화면은 이를 모의 실행으로 표시해야 한다.
@@ -126,7 +128,7 @@ python3 examples/smoke_demo.py
 
 ### 실제 Agent 연결
 
-기본값은 LIVE다. demo 프로필을 끄고 다음 환경변수를 설정한다.
+기본값은 LIVE다. demo 프로필 없이 실행하거나, demo 시드(계정 / 프로젝트 / 팀원)를 그대로 쓰면서 Agent만 실제로 붙이려면 demo 프로필에 `AGENT_MODE=live`를 함께 준다. 다음 환경변수를 설정한다.
 
 ```dotenv
 AGENT_MODE=live

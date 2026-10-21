@@ -26,13 +26,14 @@ public class User {
 	@Column(name = "user_id")
 	private Long id;
 
-	@Column(nullable = false, unique = true, length = 20)
+	// 컬럼 길이는 확정 스키마(DBML) 기준. 가입 입력 제한(SignupRequest)은 더 좁게 둔다.
+	@Column(nullable = false, unique = true, length = 100)
 	private String loginId;
 
-	@Column(nullable = false, length = 100)
+	@Column(nullable = false, length = 255)
 	private String passwordHash;
 
-	@Column(nullable = false, length = 20)
+	@Column(nullable = false, length = 100)
 	private String name;
 
 	@CreationTimestamp
