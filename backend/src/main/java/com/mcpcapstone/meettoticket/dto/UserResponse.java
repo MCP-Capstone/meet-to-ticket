@@ -1,6 +1,6 @@
 package com.mcpcapstone.meettoticket.dto;
 
-import com.mcpcapstone.meettoticket.domain.User;
+import com.mcpcapstone.meettoticket.entity.User;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 

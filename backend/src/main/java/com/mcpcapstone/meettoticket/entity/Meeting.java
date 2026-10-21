@@ -1,4 +1,4 @@
-package com.mcpcapstone.meettoticket.domain;
+package com.mcpcapstone.meettoticket.entity;
 
 
 import jakarta.persistence.*;

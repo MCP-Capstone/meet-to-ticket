@@ -22,7 +22,7 @@ import com.mcpcapstone.meettoticket.dto.LoginRequest;
 import com.mcpcapstone.meettoticket.dto.SignupRequest;
 import com.mcpcapstone.meettoticket.common.error.BusinessException;
 import com.mcpcapstone.meettoticket.common.error.ErrorCode;
-import com.mcpcapstone.meettoticket.domain.User;
+import com.mcpcapstone.meettoticket.entity.User;
 import com.mcpcapstone.meettoticket.repository.UserRepository;
 
 @ExtendWith(MockitoExtension.class)

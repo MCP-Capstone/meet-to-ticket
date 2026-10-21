@@ -25,7 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.mcpcapstone.meettoticket.common.error.BusinessException;
 import com.mcpcapstone.meettoticket.common.error.ErrorCode;
-import com.mcpcapstone.meettoticket.domain.User;
+import com.mcpcapstone.meettoticket.entity.User;
 
 @WebMvcTest(AuthController.class)
 class AuthControllerTest {

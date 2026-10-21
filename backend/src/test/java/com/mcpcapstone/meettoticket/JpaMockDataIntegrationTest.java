@@ -1,11 +1,11 @@
 package com.mcpcapstone.meettoticket;
 
-import com.mcpcapstone.meettoticket.domain.User;
-import com.mcpcapstone.meettoticket.domain.Project;
-import com.mcpcapstone.meettoticket.domain.ProjectMember;
-import com.mcpcapstone.meettoticket.domain.Meeting;
-import com.mcpcapstone.meettoticket.domain.AnalysisTask;
-import com.mcpcapstone.meettoticket.domain.TaskItem;
+import com.mcpcapstone.meettoticket.entity.User;
+import com.mcpcapstone.meettoticket.entity.Project;
+import com.mcpcapstone.meettoticket.entity.ProjectMember;
+import com.mcpcapstone.meettoticket.entity.Meeting;
+import com.mcpcapstone.meettoticket.entity.AnalysisTask;
+import com.mcpcapstone.meettoticket.entity.TaskItem;
 import com.mcpcapstone.meettoticket.mock.MockDataInitializer;
 import jakarta.persistence.EntityManager;
 import com.mcpcapstone.meettoticket.service.AuthService;

@@ -1,6 +1,6 @@
 package com.mcpcapstone.meettoticket.repository;
 
-import com.mcpcapstone.meettoticket.domain.User;
+import com.mcpcapstone.meettoticket.entity.User;
 
 import java.util.Optional;
 

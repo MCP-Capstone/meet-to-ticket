@@ -18,7 +18,7 @@ import com.mcpcapstone.meettoticket.dto.UserResponse;
 import com.mcpcapstone.meettoticket.common.error.BusinessException;
 import com.mcpcapstone.meettoticket.common.error.ErrorCode;
 import com.mcpcapstone.meettoticket.common.error.ErrorResponse;
-import com.mcpcapstone.meettoticket.domain.User;
+import com.mcpcapstone.meettoticket.entity.User;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;

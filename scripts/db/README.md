@@ -1,6 +1,6 @@
 # #25 JPA 엔티티와 개발용 목업 데이터
 
-6개 테이블은 `backend/src/main/java/com/mcpcapstone/meettoticket/domain/`의 JPA 엔티티가 정의한다. 생성 SQL·입력 SQL은 제거했다. `MockDataInitializer`가 EntityManager로 데이터를 넣으며 SQL 초기화는 사용하지 않는다.
+6개 테이블은 `backend/src/main/java/com/mcpcapstone/meettoticket/entity/`의 JPA 엔티티가 정의한다. 생성 SQL·입력 SQL은 제거했다. `MockDataInitializer`가 EntityManager로 데이터를 넣으며 SQL 초기화는 사용하지 않는다.
 
 ## 실행
 
@@ -20,14 +20,6 @@ DB 접속 사용자·비밀번호는 자신의 PostgreSQL 설정에 맞춘다. �
 - 프로필 미지정: 최신 develop의 `ddl-auto=update` 설정을 유지하며 엔티티로 테이블을 관리하지만 목업은 입력하지 않는다.
 - 같은 초기 데이터로 재실행하면 추가 입력을 생략한다. 대상 4개 테이블의 기존 값이 목업과 다르면 덮어쓰지 않고 시작에 실패한다. 사용 중인 DB에서는 mock 프로필을 해제한다.
 - 개발용 자동 DDL 설정이다. 사용자가 요청한 최신 develop 기반 #25 작업 브랜치에서 관리한다.
-
-입력 직후 검증은 저장소 루트에서 실행한다.
-
-```bash
-psql -X -v ON_ERROR_STOP=1 -d mock_meettoticket -f scripts/db/03_verify.sql
-```
-
-DB 호스트·포트·사용자는 필요에 따라 `-h`, `-p`, `-U` 옵션으로 지정한다. 분석 실행 후에는 결과 테이블이 비어 있어야 한다는 검증이 맞지 않으므로 이 검증은 최초 입력 직후에만 쓴다.
 
 ## 초기 데이터
 
@@ -88,7 +80,7 @@ TEST_DB_USERNAME=meettoticket TEST_DB_PASSWORD=meettoticket \
 
 ```text
 com.mcpcapstone.meettoticket
-├── domain
+├── entity
 │   ├── User.java
 │   ├── Project.java
 │   ├── ProjectMember.java
@@ -111,4 +103,4 @@ com.mcpcapstone.meettoticket
 └── common / config, error
 ```
 
-`domain`은 엔티티를 보관하는 계층이며 controller/service/dto/repository와 같은 레벨이다. 기존 인증 API 경로와 동작은 유지한다. API 명세가 없는 도메인에 빈 클래스나 가짜 메서드는 추가하지 않았다. UserRepository와 인증 기능이 동일한 User 엔티티를 사용한다. 최신 develop의 User.createdAt도 유지했으며 DBML에 맞게 login_id/name 100자, password_hash 255자로 컬럼 길이를 맞췄다. 회원가입 API의 입력 길이 제한은 기존 명세를 유지한다.
+`entity`은 엔티티를 보관하는 계층이며 controller/service/dto/repository와 같은 레벨이다. 기존 인증 API 경로와 동작은 유지한다. API 명세가 없는 도메인에 빈 클래스나 가짜 메서드는 추가하지 않았다. UserRepository와 인증 기능이 동일한 User 엔티티를 사용한다. 최신 develop의 User.createdAt도 유지했으며 DBML에 맞게 login_id/name 100자, password_hash 255자로 컬럼 길이를 맞췄다. 회원가입 API의 입력 길이 제한은 기존 명세를 유지한다.

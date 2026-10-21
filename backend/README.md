@@ -86,6 +86,6 @@ curl -b cookie.txt localhost:8080/api/auth/me
 
 ## #25 JPA 엔티티와 목업 데이터
 
-엔티티는 `domain/`에 두고 `controller/`, `service/`, `dto/`, `repository/`를 같은 레벨에 둔다. 인증 컨트롤러·서비스·DTO와 UserRepository도 각각 해당 계층에 배치했다. `auth/`에는 세션 상수·로그인 인터셉터·비밀번호 설정만 남긴다.
+엔티티는 `entity/`에 두고 `controller/`, `service/`, `dto/`, `repository/`를 같은 레벨에 둔다. 인증 컨트롤러·서비스·DTO와 UserRepository도 각각 해당 계층에 배치했다. `auth/`에는 세션 상수·로그인 인터셉터·비밀번호 설정만 남긴다.
 
 개발용 데이터 생성은 [목업 사용 안내](../scripts/db/README.md)를 따른다. 목업은 mock 프로필에서만 입력되며 기존 로그인 계정과 같은 User 엔티티·PasswordEncoder를 사용한다.
