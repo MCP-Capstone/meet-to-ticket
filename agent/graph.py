@@ -1,0 +1,25 @@
+"""LangGraph 그래프 조립."""
+
+from __future__ import annotations
+
+from langgraph.graph import END, START, StateGraph
+
+from nodes import AgentNodes, route_after_draft, route_after_prepare, route_after_review
+from state import AgentState
+
+
+def build_graph(nodes: AgentNodes):
+    g = StateGraph(AgentState)
+    g.add_node("prepare", nodes.prepare)
+    g.add_node("draft", nodes.draft)
+    g.add_node("review", nodes.review)
+    g.add_node("publish", nodes.publish)
+    g.add_node("finish", nodes.finish)
+
+    g.add_edge(START, "prepare")
+    g.add_conditional_edges("prepare", route_after_prepare, ["draft", "finish"])
+    g.add_conditional_edges("draft", route_after_draft, ["review", "finish"])
+    g.add_conditional_edges("review", route_after_review, ["draft", "publish", "finish"])
+    g.add_edge("publish", "finish")
+    g.add_edge("finish", END)
+    return g.compile()
