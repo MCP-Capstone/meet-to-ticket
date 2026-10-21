@@ -23,6 +23,8 @@ from schemas import ProjectMember, RunResult
 from state import (
     CHECK_NAMES,
     FATAL_PUBLISH_CODES,
+    INPUT_TOO_LONG,
+    TASK_TIMEOUT,
     ADVISORY_ITEMS,
     LLM_ITEMS,
     NO_TICKETS,
@@ -120,8 +122,28 @@ class AgentNodes:
 
     # ------------------------------------------------------------ 1. 추출 준비
 
+    def _past_deadline(self, state: AgentState) -> dict[str, Any] | None:
+        """마감이 지났으면 작업을 끝내는 상태 변경을 돌려준다. 초안·검수 노드 시작 시에만 확인한다.
+
+        발행은 시작하면 끝까지 한다. 중간에 끊으면 만들어진 이슈가 결과에서 빠질 수 있기 때문이다.
+        """
+        deadline_at = state.get("deadline_at")
+        if deadline_at is None or time.time() <= deadline_at:
+            return None
+        limit = self.settings.task_deadline_seconds
+        log.warning("작업 마감 초과 task=%s (%s초)", state.get("task_id"), limit)
+        return {"error_code": TASK_TIMEOUT, "error_message": f"작업 마감 시간({limit}초)을 넘겨 중단함"}
+
     async def prepare(self, state: AgentState) -> dict[str, Any]:
         await self._progress(state, STAGE_EXTRACTING)
+        limit = self.settings.max_source_chars
+        if limit > 0 and len(state["original_content"]) > limit:
+            # 너무 긴 회의록은 LLM을 부르지 않고 끝낸다 (Token 예산)
+            return {
+                "error_code": INPUT_TOO_LONG,
+                "error_message": f"회의 원문이 {len(state['original_content'])}자로 한도 {limit}자를 넘음",
+                "stage": STAGE_EXTRACTING,
+            }
         parsed = parse_summary(state["original_content"])
         meeting_date = (
             date.fromisoformat(state["meeting_date"]) if state.get("meeting_date") else parsed.meeting_date
@@ -164,6 +186,8 @@ class AgentNodes:
     # ------------------------------------------------------------ 2. 초안 작성 (보완 포함)
 
     async def draft(self, state: AgentState) -> dict[str, Any]:
+        if (stop := self._past_deadline(state)) is not None:
+            return stop
         tickets = _copy(state["tickets"])
         targets = [
             t for t in tickets
@@ -309,6 +333,8 @@ class AgentNodes:
         t["review_notes"] = t.get("review_notes", [])
 
     async def review(self, state: AgentState) -> dict[str, Any]:
+        if (stop := self._past_deadline(state)) is not None:
+            return stop
         await self._progress(state, STAGE_REVIEWING)
         tickets = _copy(state["tickets"])
         source = state["original_content"]
