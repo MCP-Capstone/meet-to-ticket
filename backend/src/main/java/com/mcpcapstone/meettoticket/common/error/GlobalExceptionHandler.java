@@ -28,4 +28,15 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.badRequest()
 				.body(new ErrorResponse(ErrorCode.VALIDATION_FAILED.name(), message));
 	}
+
+	@ExceptionHandler({
+		org.springframework.http.converter.HttpMessageNotReadableException.class,
+		org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class,
+		org.springframework.web.bind.MissingServletRequestParameterException.class,
+		org.springframework.web.multipart.support.MissingServletRequestPartException.class,
+		org.springframework.web.multipart.MaxUploadSizeExceededException.class
+	})
+	public ResponseEntity<ErrorResponse> handleMalformed(Exception e) {
+		return ResponseEntity.badRequest().body(ErrorResponse.of(ErrorCode.VALIDATION_FAILED));
+	}
 }

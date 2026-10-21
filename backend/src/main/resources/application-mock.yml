@@ -1,6 +1,0 @@
-# 전용 개발 DB에서 mock 프로필로 실행할 때만 스키마를 생성/갱신한다.
-# 목업 데이터 입력은 @Profile("mock")의 MockDataInitializer가 담당한다.
-spring:
-  jpa:
-    hibernate:
-      ddl-auto: update

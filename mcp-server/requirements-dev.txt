@@ -7,6 +7,7 @@ annotated-types==0.8.0
 anyio==4.15.1
     # via
     #   -c requirements.txt
+    #   httpx
     #   httpx2
     #   mcp
     #   sse-starlette
@@ -16,6 +17,11 @@ attrs==26.1.0
     #   -c requirements.txt
     #   jsonschema
     #   referencing
+certifi==2026.10.19
+    # via
+    #   -c requirements.txt
+    #   httpcore
+    #   httpx
 cffi==2.1.1 ; platform_python_implementation != 'PyPy'
     # via
     #   -c requirements.txt
@@ -30,15 +36,24 @@ cryptography==50.0.2
     # via
     #   -c requirements.txt
     #   pyjwt
-h11==0.16.0 ; sys_platform != 'emscripten'
+h11==0.16.0
     # via
     #   -c requirements.txt
+    #   httpcore
     #   httpcore2
     #   uvicorn
+httpcore==1.0.9
+    # via
+    #   -c requirements.txt
+    #   httpx
 httpcore2==2.15.1 ; sys_platform != 'emscripten'
     # via
     #   -c requirements.txt
     #   httpx2
+httpx==0.28.1
+    # via
+    #   -c requirements.txt
+    #   -r requirements.in
 httpx2==2.15.1
     # via
     #   -c requirements.txt
@@ -51,6 +66,7 @@ idna==3.20
     # via
     #   -c requirements.txt
     #   anyio
+    #   httpx
     #   httpx2
 iniconfig==2.3.1
     # via pytest
@@ -103,6 +119,10 @@ pytest==9.1.1
     #   pytest-asyncio
 pytest-asyncio==1.4.0
     # via -r requirements-dev.in
+python-dotenv==1.2.4
+    # via
+    #   -c requirements.txt
+    #   -r requirements.in
 python-multipart==0.0.32
     # via
     #   -c requirements.txt

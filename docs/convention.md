@@ -71,10 +71,3 @@ docs/14-xxx ─┘
 
 - 이슈: `<type>(<scope>): <subject>`
 - PR: `<type>(<scope>): <subject> (#<issue-number>)`
-
-## Java 코드 스타일
-
-- 기존 백엔드 코드와 동일하게 탭으로 들여쓴다. 탭 너비는 4칸이다.
-- 와일드카드 import 대신 사용하는 타입을 명시적으로 import한다.
-- 표준 컬렉션 타입은 import하고 단순 클래스 이름을 사용한다. 이름 충돌이 있을 때만 FQCN을 사용한다.
-- entity/controller/service/dto/repository는 같은 레벨의 계층 패키지로 둔다. 설정·상수·인터셉터·오류 처리는 common의 역할별 하위 패키지에 둔다.

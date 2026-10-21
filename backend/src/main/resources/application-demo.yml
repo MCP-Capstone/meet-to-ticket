@@ -1,0 +1,9 @@
+# 명시적으로 demo 프로필을 사용한 경우에만 모의 실행·시드 계정을 켠다.
+agent:
+  mode: mock
+app:
+  demo:
+    enabled: true
+    login-id: ${DEMO_LOGIN_ID:demo1}
+    password: ${DEMO_PASSWORD:password1}
+    github-logins: ${DEMO_GITHUB_LOGINS:}

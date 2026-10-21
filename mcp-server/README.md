@@ -9,6 +9,7 @@ GitHub 이슈 도구를 제공하는 MCP 서버의 **파이썬 환경 설정** �
 |---|---|
 | Python | 3.12 |
 | mcp | 2.3.0 |
+| httpx, python-dotenv | 0.28.1, 1.2.4 |
 | pytest, pytest-asyncio (개발용) | 9.1.1, 1.4.0 |
 
 ## 1. 이 폴더의 파일
@@ -134,30 +135,26 @@ uv pip check
 
 ## 5. 실행 방법
 
-서버를 HTTP로 띄웁니다. `server.py`가 만들어진 뒤에 사용하는 명령입니다.
-
-> **주의:** 이 문서를 쓰는 시점에는 `server.py`가 아직 저장소에 없습니다. 아래 명령의 `server.mcp` 변수명은 작업 지시서 기준이며 실제 코드와 맞는지 확인하지 못했습니다. `server.py`가 올라오면 명령을 한 번 실행해 보고 필요하면 이 문서를 고치세요.
+서버를 HTTP로 띄웁니다. `mcp-server/` 폴더에서 가상환경을 켠 뒤 실행합니다.
 
 ```bash
-python -c "import server; server.mcp.run(transport='streamable-http')"
+python server.py
 ```
-
-`server.py` 맨 아래에 `if __name__ == "__main__": mcp.run(transport="streamable-http")`가 있다면 `python server.py`로도 됩니다.
 
 **서버 주소: `http://127.0.0.1:8000/mcp`** (host 127.0.0.1, port 8000, 경로 `/mcp`)
 
 - mcp 2.3.0의 기본값이며, 임시 서버를 실제로 띄워 시작 로그와 접속으로 확인했습니다.
 - 같은 임시 서버에 `agent/` 환경(mcp 1.30.0)의 `MultiServerMCPClient`가 접속해 도구 목록 조회에 성공했습니다.
-- 도구 4개(`get_repo_context`, `search_issues`, `create_issue`, `get_issue_status`)가 노출되는지는 `server.py`가 없어서 **아직 확인하지 못했습니다.**
+- 1차 도구는 `create_issue`(이슈 생성)와 `list_issues`(이슈 목록 조회) 2개입니다. 자세한 내용은 아래 10번을 보세요.
 - 에이전트는 `agent/.env`의 `MCP_SERVER_URL`로 이 주소에 접속합니다.
 
-포트가 겹치면 `run`에 인자를 넘겨 바꿉니다. 이때는 에이전트의 `MCP_SERVER_URL`도 같이 바꿔야 합니다.
+포트가 겹치면 `.env`의 `MCP_PORT`(필요하면 `MCP_HOST`)를 바꿉니다. 이때는 에이전트의 `MCP_SERVER_URL`도 같이 바꿔야 합니다.
 
-```python
-mcp.run(transport="streamable-http", host="127.0.0.1", port=8010)
+```
+MCP_PORT=8010
 ```
 
-`.env`를 서버 코드가 읽는 방식은 `server.py`가 확정될 때 정합니다. 이 환경에는 현재 `python-dotenv`가 들어 있지 않으므로, `.env`를 코드에서 읽으려면 환경 담당이 패키지를 추가해야 합니다.
+`server.py`는 시작할 때 `python-dotenv`로 `mcp-server/.env`를 읽습니다. 터미널에 같은 이름의 환경 변수가 있어도 `.env` 값이 우선합니다.
 
 테스트 실행은 아래와 같습니다.
 
@@ -267,3 +264,40 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 - `agent/`와 `mcp-server/` 환경을 하나로 합치지 않는다. mcp 버전이 충돌한다.
 - `.env`와 실제 토큰을 커밋하거나 메신저, 이슈에 붙여넣지 않는다.
 - 패키지 추가와 compile을 환경 담당이 아닌 사람이 임의로 하지 않는다.
+
+## 10. 1차 구현 (이슈 생성·목록 조회 도구)
+
+1차 범위에서는 도구가 **`create_issue`, `list_issues` 2개**입니다. 기존 이슈 검색·닫기 도구는 2차에서 추가합니다.
+
+**추가 패키지**: `httpx`, `python-dotenv` (`requirements.in`과 `.txt`에 반영됨). 이 변경을 받은 뒤에는 한 번 다시 맞춥니다.
+
+```bash
+uv pip sync requirements-dev.txt
+```
+
+**환경 변수 (`.env`)**
+
+| 이름 | 설명 |
+|---|---|
+| `GITHUB_TOKEN` | 대상 저장소 이슈 쓰기 권한이 있는 토큰 |
+| `GITHUB_OWNER`, `GITHUB_REPO` | 이슈를 만들 저장소 (기본 허용 대상) |
+| `GITHUB_ALLOWED_REPOS` | 선택. 여러 저장소를 허용할 때 쉼표 구분 `owner/repo` |
+| `MCP_HOST`, `MCP_PORT` | 선택. 기본 `127.0.0.1`, `8000` |
+
+**실행**: `python server.py` → `http://127.0.0.1:8000/mcp`
+
+**도구 `create_issue(owner, repo, title, body, labels=None, assignees=None)`**
+- 허용 저장소가 아니면 `[REPOSITORY_NOT_ALLOWED]`
+- 성공: `{status: "created", number, url, assignees, dropped_assignees, retried_without_assignees}`
+- 담당자 지정이 거부(422)되면 담당자 없이 한 번 더 생성하고 `dropped_assignees`에 표시
+- 오류 태그: `INVALID_ARGUMENT`, `GITHUB_AUTH`(401·403), `GITHUB_RATE_LIMIT`, `GITHUB_NOT_FOUND`, `GITHUB_VALIDATION`(422), `GITHUB_ERROR`
+- 에이전트 쪽에는 `Error executing tool create_issue: [코드] 메시지` 형태로 전달됩니다.
+
+**도구 `list_issues(owner, repo, state="open", limit=10)`** (읽기 전용)
+- 최근 이슈를 최신순으로 돌려줍니다. PR은 빼고, `limit`은 1~50개로 제한합니다.
+- `state`: `open`, `closed`, `all` 중 하나 (그 외는 `[INVALID_ARGUMENT]`)
+- 성공: `{issues: [{number, title, state, url, assignees}]}`
+- 허용 저장소 검사와 오류 태그는 `create_issue`와 같습니다.
+- 에이전트의 MCP 연결과 토큰 권한을 확인할 때 씁니다.
+
+**테스트**: `pytest` (실제 GitHub 호출 없음, `httpx.MockTransport` 사용)

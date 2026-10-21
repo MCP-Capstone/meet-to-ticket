@@ -13,6 +13,12 @@ Closes #
 - [ ] 커밋 메시지가 `type(scope): subject` 컨벤션을 따른다
 - [ ] 로컬에서 동작을 확인했다
 - [ ] 필요한 경우 문서를 갱신했다
+- [ ] 패키지(의존성)를 바꿨다면 아래 참고 사항에 "패키지 업데이트 필요"와 실행할 명령을 적었다
 
 ## 참고 사항
 <!-- 리뷰어가 알아야 할 내용, 스크린샷 등 (없으면 삭제) -->
+<!-- 패키지를 바꿨다면 머지 후 팀원이 실행할 명령을 적는다.
+  - frontend: 패키지 업데이트 필요: `cd frontend && npm ci`
+  - backend: 패키지 업데이트 필요: `cd backend && ./gradlew build` (IDE는 Gradle 새로고침)
+  - agent / mcp-server: 패키지 업데이트 필요: `uv pip sync requirements-dev.txt`
+-->
