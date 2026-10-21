@@ -390,3 +390,7 @@ pytest
 ```
 
 가짜 LLM·가짜 도구를 쓰므로 OpenAI와 GitHub를 호출하지 않는다.
+
+## Spring·Agent Swagger 명세 (#58)
+
+[공개·내부 API 구분, Swagger 접속 및 전체 흐름 테스트 안내](../docs/api/README.md)를 참고한다.

@@ -145,7 +145,7 @@ AGENT_MODE=live ./gradlew bootRun --args='--spring.profiles.active=demo'
 - Agent 결과 변환(`agent/AgentRunMapper`)
   - `SUCCEEDED` → 항목 발행 결과에 따라 `COMPLETED / PARTIALLY_FAILED / FAILED`, Agent `FAILED` → `FAILED` + 오류 코드 / 메시지
   - 검수 `APPROVED`만 승인으로 저장한다. `REJECTED / NEEDS_CHECK / PENDING`은 반려(`BLOCKED`)로 저장하고 `NEEDS_CHECK`는 사유 앞에 `[확인 필요]`를 붙인다.
-  - 승인됐는데 발행하지 않은 항목(`NOT_STARTED` 등)은 `FAILED`로 보여준다. Agent `DRY_RUN`의 `SKIPPED`는 그대로 둔다.
+  - 승인됐는데 발행하지 않은 항목(`NOT_STARTED` 등)은 `FAILED`로 보여준다. `SKIPPED` 응답은 그대로 유지한다. 현재 Agent `DRY_RUN`은 `NOT_STARTED`를 반환하므로 Spring에서 `FAILED`로 보일 수 있다.
   - `contentJson`은 Agent가 준 그대로 저장한다.
 - 저장 전 확인: 항목 ID 중복, 제목 길이, 반려 항목에 이슈가 없는지, **발행 성공 항목의 이슈 URL이 프로젝트 저장소(`github_owner/github_repo`)인지**, 집계와 작업 상태가 맞는지.
 - Agent에 연결이 안 되면 분석 요청이 바로 502 `AGENT_ACCEPTANCE_FAILED`다. 응답이 늦거나 유실되면 재접수하지 않고 같은 taskId만 조회한다.
@@ -160,3 +160,7 @@ AGENT_MODE=live ./gradlew bootRun --args='--spring.profiles.active=demo'
 ```
 
 자동 테스트는 격리된 H2 PostgreSQL 호환 모드 DB를 사용해 로컬 업무 DB를 바꾸지 않는다. 파일 파싱, 로그인·접근 차단, 모의 전체 흐름, 빈 결과·반려·부분/전체 실패, HTTP Agent 계약, 잘못된 근거·계정/저장소 결과 차단 등을 확인한다. 실제 Agent·GitHub 연동 성공을 의미하지 않는다.
+
+## Spring·Agent Swagger 명세 (#58)
+
+[공개·내부 API 구분, Swagger 접속 및 전체 흐름 테스트 안내](../docs/api/README.md)를 참고한다.

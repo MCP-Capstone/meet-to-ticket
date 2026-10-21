@@ -3,6 +3,8 @@ package com.mcpcapstone.meettoticket.analysis;
 import com.mcpcapstone.meettoticket.agent.*;
 import com.mcpcapstone.meettoticket.common.error.*;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -72,5 +74,13 @@ public class AnalysisCoordinator {
         }
     }
 
-    public record Started(UUID taskId, Long meetingId, TaskStatus status, String executionMode) {}
+    public record Started(
+            @Schema(description = "Spring이 발급한 분석 UUID", requiredMode = Schema.RequiredMode.REQUIRED, example = "9b12ec5a-1423-4b71-8e20-f8f28d306c81")
+            UUID taskId,
+            @Schema(description = "회의 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "2")
+            Long meetingId,
+            @Schema(description = "접수 상태", requiredMode = Schema.RequiredMode.REQUIRED, example = "QUEUED")
+            TaskStatus status,
+            @Schema(description = "백엔드 실행 모드", requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"MOCK", "LIVE"}, example = "MOCK")
+            String executionMode) {}
 }
