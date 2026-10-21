@@ -91,11 +91,16 @@ def build_judge_graph(chat: Any, tools: list[Any], *, max_calls: int, max_same: 
 
 
 def _user_message(ticket: dict[str, Any]) -> str:
+    """판단 입력. 초안 설명은 넘기지 않는다.
+
+    초안에는 회의 전체 맥락이 덧붙어 있어, 모델이 "새 작업이 더 넓다"고 보고 같은 작업을 RELATED로 판단했다 (#107).
+    회의록 원문의 할 일과 근거 인용만 넘긴다.
+    """
     expected = ticket.get("expected") or {}
     return prompts.DEDUPE_USER.format(
         title=ticket.get("title") or ticket.get("action_text", ""),
         action=ticket.get("action_text", ""),
-        description=ticket.get("description") or "-",
+        evidence=" / ".join(ticket.get("evidence_quotes") or []) or "-",
         keys=", ".join(expected.get("keys") or []) or "없음",
         expected=expected.get("raw") or "없음",
     )
