@@ -107,6 +107,17 @@ async def test_other_errors_are_retried_not_dropped():
     assert FakeChat.built == [WRITER, REVIEWER]  # 설정을 빼고 다시 만들지 않음
 
 
+async def test_stats_count_calls_retries_and_dropped_settings():
+    FakeChat.reject = {("gpt-5.4-nano", "temperature")}
+    client = llm.OpenAILLM(Settings(llm_retries=1))
+    await client.extract_rows("요약")  # 거부 → 설정 빼고 재호출 (재시도 아님)
+    assert client.stats == {"llmCalls": 2, "llmRetries": 0, "droppedSettings": ["gpt-5.4-nano:temperature"]}
+    FakeChat.error = "Error code: 500 - server error"
+    with pytest.raises(AgentFatal):
+        await client.review("요약", [])
+    assert client.stats["llmCalls"] == 4 and client.stats["llmRetries"] == 1
+
+
 async def test_review_reasoning_effort_setting():
     llm.OpenAILLM(Settings(reasoning_effort="", review_reasoning_effort="high"))
     assert FakeChat.built == [{"model": "gpt-5.4-nano", "temperature": 0}, {**REVIEWER, "reasoning_effort": "high"}]

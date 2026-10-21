@@ -9,10 +9,12 @@ LLM, 발행 도구, 백엔드 보고는 생성자로 주입한다. 테스트에�
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import date
 from typing import Any
 
+import prompts
 from config import Settings
 from parsing import ActionRow, parse_summary
 from publisher import ToolCallError, build_issue_body
@@ -33,6 +35,7 @@ from state import (
     REVIEW_REVISE,
     STAGE_DONE,
     STAGE_EXTRACTING,
+    STAGE_NORMALIZING,
     STAGE_PUBLISHING,
     STAGE_REVIEWING,
     STATUS_FAILED,
@@ -52,6 +55,20 @@ def _chunks(items: list[Any], size: int) -> list[list[Any]]:
 
 def _copy(tickets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [dict(t) for t in tickets]
+
+
+def run_metrics(settings: Settings, llm: Any, started_at: float | None) -> dict[str, Any]:
+    """결과에 담는 실행 지표. 키는 백엔드 응답과 같은 camelCase."""
+    from langsmith.utils import tracing_is_enabled
+
+    return {
+        "durationMs": int((time.time() - started_at) * 1000) if started_at else None,
+        "promptVersion": prompts.PROMPT_VERSION,
+        "model": settings.openai_model,
+        "reviewModel": settings.review_model,
+        "tracing": bool(tracing_is_enabled()),
+        **dict(getattr(llm, "stats", {}) or {}),  # 가짜 LLM에는 없다
+    }
 
 
 def new_ticket(row: ActionRow, members: list[ProjectMember], meeting_date: date | None, source: str = "table") -> dict[str, Any]:
@@ -121,6 +138,8 @@ class AgentNodes:
                 ActionRow(f"{state['meeting_id']}-auto{i}", r.action, r.assignees, r.due, "")
                 for i, r in enumerate(extracted, start=1)
             ]
+        if rows:
+            await self._progress(state, STAGE_NORMALIZING)
         members = [ProjectMember(**m) for m in state.get("members", [])]
         tickets = [new_ticket(row, members, meeting_date, source) for row in rows]
         if source == "llm":
@@ -136,7 +155,8 @@ class AgentNodes:
             "open_questions": parsed.open_questions,
             "excluded": parsed.excluded,
             "meeting_date": meeting_date.isoformat() if meeting_date else None,
-            "stage": STAGE_EXTRACTING,
+            # 이후 초안 작성은 NORMALIZING 단계로 본다 (초안에서 실패하면 이 단계로 보고)
+            "stage": STAGE_NORMALIZING if tickets else STAGE_EXTRACTING,
             "error_code": None if tickets else NO_TICKETS,
             "error_message": None if tickets else "회의 요약에서 할 일을 찾지 못했습니다",
         }
@@ -464,6 +484,8 @@ class AgentNodes:
             "error_message": state.get("error_message"),
             "summary": summary,
             "items": items,
+            "trace_id": state.get("trace_id"),
+            "metrics": run_metrics(self.settings, self.llm, state.get("started_at")),
         }
 
     async def finish(self, state: AgentState) -> dict[str, Any]:

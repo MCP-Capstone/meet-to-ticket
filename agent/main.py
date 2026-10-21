@@ -3,7 +3,8 @@
 실행: uvicorn main:app --port 8001
 - POST /runs            : 접수 후 백그라운드 처리 (202)
 - POST /runs?wait=true  : 끝날 때까지 기다렸다가 결과 반환 (로컬 테스트용)
-- GET  /runs/{task_id}  : 이 프로세스에서 처리한 작업의 상태·결과 (로컬 테스트용)
+- GET  /runs/{task_id}  : 이 프로세스에서 처리한 작업의 상태·결과
+                          처리 중이면 {"taskId", "status": "RUNNING", "stage"}, 끝나면 결과 전체
 - GET  /health
 """
 
@@ -19,8 +20,10 @@ from fastapi.responses import JSONResponse
 from config import load_env, load_settings  # noqa: E402
 
 load_env()
+from reporter import BackendReporter  # noqa: E402
 from runner import run  # noqa: E402
 from schemas import RunRequest  # noqa: E402
+from state import STAGE_EXTRACTING  # noqa: E402
 from api_docs import DESCRIPTION, HEALTH_RESPONSES, JOB_RESPONSES, REQUEST_EXAMPLE, RUN_RESPONSES  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -43,15 +46,37 @@ def _settings():
     return app.state.overrides.get("settings") or load_settings()
 
 
+def _running(task_id: str) -> dict[str, Any]:
+    return {"taskId": task_id, "status": "RUNNING", "stage": STAGE_EXTRACTING}
+
+
+class JobReporter:
+    """진행 단계를 GET /runs/{taskId}에도 보이게 하고, 백엔드 보고는 그대로 넘긴다."""
+
+    def __init__(self, inner: Any):
+        self.inner = inner
+
+    async def progress(self, task_id: str, status: str, stage: str) -> None:
+        job = _jobs.get(task_id)
+        if job is not None and job.get("status") == "RUNNING":
+            job["stage"] = stage
+        await self.inner.progress(task_id, status, stage)
+
+    async def result(self, task_id: str, payload: dict[str, Any]) -> bool:
+        return await self.inner.result(task_id, payload)
+
+
 async def _execute(req: RunRequest) -> dict[str, Any]:
-    _jobs[req.task_id] = {"taskId": req.task_id, "status": "RUNNING"}
+    _jobs[req.task_id] = _running(req.task_id)
+    settings = _settings()
+    inner = app.state.overrides.get("reporter") or BackendReporter(settings.backend_base_url, settings.backend_token)
     try:
         result = await run(
             req,
-            _settings(),
+            settings,
             llm=app.state.overrides.get("llm"),
             publisher=app.state.overrides.get("publisher"),
-            reporter=app.state.overrides.get("reporter"),
+            reporter=JobReporter(inner),
         )
         data = result.model_dump(by_alias=True, mode="json")
     except Exception as exc:  # noqa: BLE001
@@ -75,7 +100,7 @@ async def create_run(
         raise HTTPException(status_code=409, detail="이미 처리 중인 task_id입니다")
     if wait:
         return await _execute(req)
-    _jobs[req.task_id] = {"taskId": req.task_id, "status": "RUNNING"}
+    _jobs[req.task_id] = _running(req.task_id)
     task = asyncio.create_task(_execute(req))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
@@ -85,7 +110,7 @@ async def create_run(
 @app.get(
     "/runs/{task_id}", tags=["분석 실행"], operation_id="getAgentRun",
     summary="진행·최종 결과 조회", response_model=None, responses=JOB_RESPONSES,
-    description="기존 메모리 작업만 조회한다. RUNNING이면 taskId/status만 반환한다. 종료 시 RunResult 또는 예외 결과를 반환하며, 이 GET은 재실행하지 않는다.",
+    description="기존 메모리 작업만 조회한다. RUNNING이면 taskId·status와 지금 진행 단계(stage)를 반환한다. 종료 시 RunResult 또는 예외 결과를 반환하며, 이 GET은 재실행하지 않는다.",
 )
 async def get_run(task_id: str = Path(description="POST에 보낸 taskId. Agent는 문자열을 받으며 Spring은 UUID 사용", examples=["9b12ec5a-1423-4b71-8e20-f8f28d306c81"])):
     if task_id not in _jobs:

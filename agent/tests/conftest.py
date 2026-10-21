@@ -21,6 +21,15 @@ MEMBERS = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def no_tracing():
+    """agent/.env에 LANGSMITH_TRACING=true가 있어도 테스트 중에는 trace를 보내지 않는다."""
+    from langsmith import tracing_context
+
+    with tracing_context(enabled=False):
+        yield
+
+
 @pytest.fixture
 def anyio_backend():
     return "asyncio"

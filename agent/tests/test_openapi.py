@@ -19,6 +19,11 @@ def test_agent_openapi_matches_implemented_routes():
     assert "anyOf" in doc["paths"]["/runs/{task_id}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
     assert doc["components"]["schemas"]["RunResult"]["properties"]["status"]["enum"] == ["SUCCEEDED", "FAILED"]
     assert "taskItemId" in doc["components"]["schemas"]["TaskItemOut"]["properties"]
+    # 실행 중 응답에는 진행 단계가 있고, 결과에는 traceId·metrics가 있다
+    running = doc["components"]["schemas"]["RunProgress"]
+    assert "stage" in running["required"]
+    assert running["properties"]["stage"]["enum"] == ["EXTRACTING", "NORMALIZING", "REVIEWING", "PUBLISHING"]
+    assert {"traceId", "metrics"} <= doc["components"]["schemas"]["RunResult"]["properties"].keys()
     RunRequest.model_validate(REQUEST_EXAMPLE)
     RunResult.model_validate(END_EXAMPLE)
 

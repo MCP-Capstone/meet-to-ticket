@@ -57,6 +57,8 @@ class OpenAILLM:
             "reviewer": {"model": settings.review_model, "reasoning_effort": settings.review_reasoning_effort},
         }
         self._dropped: dict[str, set[str]] = {"writer": set(), "reviewer": set()}  # 모델이 거부해 뺀 설정
+        # 실행 지표 (결과의 metrics로 나간다)
+        self.stats: dict[str, Any] = {"llmCalls": 0, "llmRetries": 0, "droppedSettings": []}
         self._build()
         log.info("LLM 준비: 초안 %s, 검수 %s, 프롬프트 버전 %s",
                  settings.openai_model, settings.review_model, prompts.PROMPT_VERSION)
@@ -84,6 +86,7 @@ class OpenAILLM:
     async def _invoke(self, kind: str, messages: list[tuple[str, str]]) -> Any:
         role = ROLE_OF[kind]
         while True:
+            self.stats["llmCalls"] += 1
             try:
                 return await self._runnables[kind].ainvoke(messages)
             except Exception as exc:  # noqa: BLE001
@@ -91,8 +94,10 @@ class OpenAILLM:
                 if param is None or param in self._dropped[role]:
                     raise
                 # 모델이 받지 않는 설정은 빼고 바로 다시 보낸다 (재시도 횟수에 넣지 않음)
-                log.warning("%s 모델이 %s 설정을 지원하지 않아 빼고 다시 호출", self._roles[role]["model"], param)
+                model = self._roles[role]["model"]
+                log.warning("%s 모델이 %s 설정을 지원하지 않아 빼고 다시 호출", model, param)
                 self._dropped[role].add(param)
+                self.stats["droppedSettings"].append(f"{model}:{param}")
                 self._build()
 
     async def _call(self, kind: str, messages: list[tuple[str, str]], what: str) -> Any:
@@ -105,7 +110,9 @@ class OpenAILLM:
                 log.warning("LLM %s 실패 (%d회차): %s", what, attempt + 1, exc)
                 if _is_auth_error(exc):
                     raise AgentFatal(LLM_ERROR, f"OpenAI 인증 실패 (API 키 확인 필요): {exc}") from exc
-                await asyncio.sleep(1.5 * (attempt + 1))
+                if attempt < self.settings.llm_retries:
+                    self.stats["llmRetries"] += 1
+                    await asyncio.sleep(1.5 * (attempt + 1))
         raise AgentFatal(LLM_ERROR, f"LLM {what} 호출 실패: {last}")
 
     async def extract_rows(self, summary: str) -> list[ActionRowOut]:

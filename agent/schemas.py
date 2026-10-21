@@ -76,6 +76,8 @@ class RunResult(CamelModel):
     error_message: str | None = Field(None, description="실행 또는 항목 오류 사유")
     summary: dict[str, int] = Field(default_factory=dict, description="Agent 집계. total/approved/rejected/needsCheck/published/publishFailed/publishUnknown. Spring은 항목에서 집계를 다시 계산")
     items: list[TaskItemOut] = Field(default_factory=list, description="최종 항목 목록")
+    trace_id: str | None = Field(None, description="LangSmith 실행 ID (Run ID). 동일한 값으로 추적(Trace)을 조회")
+    metrics: dict[str, Any] = Field(default_factory=dict, description="실행 지표. 소요 시간, 프롬프트 버전, 모델명, LLM 호출 및 재시도 횟수 포함")
 
 
 # ---------------------------------------------------------------- LLM 구조화 출력
