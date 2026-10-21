@@ -344,12 +344,40 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 |---|---|---|
 | Instructions | 프롬프트 md 분리, 구조화 출력, 작업별 모델·추론 설정 | `prompts/*.md`, `PROMPT_VERSION`, 위 "모델" 표 |
 | Tools | MCP `create_issue`·`list_issues`, `[코드] 메시지` 오류 태그, 제목·본문 길이 제한 | `MCP_SERVER_URL`, 허용 저장소는 mcp-server `.env` |
-| Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → publish → finish) | 보완 `MAX_REVISIONS`=2, recursion 50, 배치 10건 |
-| Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입 | `DRAFT_BATCH_SIZE`, `REVIEW_BATCH_SIZE` |
-| State·Memory | 그래프 상태와 티켓별 검수 이력, 실행 중 같은 taskId는 409 | - |
+| Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → publish → finish), 작업 마감, LLM 호출 시간 한도 | 보완 `MAX_REVISIONS`=2, recursion 50, `TASK_DEADLINE_SECONDS`=600, `LLM_TIMEOUT_SECONDS`=120 |
+| Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입, 원문 길이 한도 | `MAX_SOURCE_CHARS`=40000, `DRAFT_BATCH_SIZE`·`REVIEW_BATCH_SIZE`=10 |
+| State·Memory | 노드가 끝날 때마다 상태 저장(checkpointer, thread id = taskId), 발행한 taskId 재요청은 저장된 결과로 응답, 실행 중 같은 taskId는 409, `GET /runs/{id}/history` | 메모리 저장 (재시작 시 사라짐) |
 | Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
-| Recovery | LLM 재시도·인증 오류 즉시 중단, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단 | `LLM_RETRIES`=2 |
+| Recovery | LLM 오류를 종류별로 처리(아래 "LLM 오류 처리"), 대체 모델, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단, 검수 보완 한도 초과 시 기본 초안 | `LLM_RETRIES`=2, `OPENAI_FALLBACK_MODEL` |
 | Observability | LangSmith trace(작업 1건 = trace 1개), 결과의 `traceId`·`metrics`, `GET /runs/{id}` 진행 단계, 항목별 검수 이력 JSON, task·trace id가 붙은 로그 | `LANGSMITH_TRACING`, `LANGSMITH_PROJECT`, `BACKEND_BASE_URL` |
+
+### 실행 한도
+
+| 한도 | 기본값 | 넘으면 |
+|---|---|---|
+| `LLM_TIMEOUT_SECONDS` | 120초 | 그 호출을 실패로 보고 재시도 (`LLM_RETRIES`회까지) |
+| `TASK_DEADLINE_SECONDS` | 600초 | 초안·검수 노드에 들어가기 전에 `TASK_TIMEOUT`으로 끝냄. 발행은 하지 않음 |
+| `MAX_SOURCE_CHARS` | 40,000자 | LLM을 부르지 않고 `INPUT_TOO_LONG`으로 끝냄 |
+
+- 0 이하로 두면 마감·길이 한도를 끈다.
+- 평가 자료의 권장 작업 시간은 120초다. 60분 회의(24건)는 초안·검수를 10건씩 3번 나눠 호출하고, 추론 모델(gpt-5.4-mini) 응답이 느릴 수 있어 600초로 두었다. 실제 실행 시간을 보고 줄인다.
+- 마감은 "다음 단계에 들어가지 않는다"는 기준이다. 이미 시작한 노드와 발행은 끝까지 한다(발행을 중간에 끊으면 만들어진 이슈가 결과에서 빠질 수 있다). 그래서 끝나는 시각은 마감보다 늦을 수 있다.
+  - 진행 중인 노드 1개: 배치 1번에 최대 약 6분 (120초 × 3회 + 재시도 대기 4.5초)
+  - 발행: 이슈마다 mcp-server의 GitHub 호출 한도 20초
+- LLM 재시도는 Agent(`llm.py`)에서만 한다. OpenAI 클라이언트의 자체 재시도는 꺼서 재시도가 겹치지 않게 했다(전에는 최대 9번 호출될 수 있었다).
+
+### LLM 오류 처리
+
+| 오류 | 처리 |
+|---|---|
+| 인증 (401·403, 잘못된 키) | 즉시 중단, `LLM_ERROR` |
+| 요청 오류 (400·404·422, 예: 입력이 너무 김) | 다시 보내도 같아서 재시도하지 않고 중단, `LLM_ERROR` |
+| 모델이 temperature·추론 설정을 거부 (400) | 그 설정만 빼고 바로 다시 호출 (재시도 횟수에 넣지 않음) |
+| 일시적 오류 (429·5xx·타임아웃·연결 오류·응답 형식 오류) | `LLM_RETRIES`회 재시도 (1.5초, 3초 대기) → 그래도 실패하면 `OPENAI_FALLBACK_MODEL`로 1회 → 그래도 실패하면 `LLM_ERROR` |
+
+- 대체 모델은 비우면 쓰지 않는다. 인증·요청 오류에는 쓰지 않는다(모델을 바꿔도 해결되지 않음).
+- 이 오류 재시도는 검수 보완 루프(`review → draft`, `MAX_REVISIONS`)와 다르다. 보완 루프는 호출은 성공했지만 검수가 지적을 낸 경우다.
+- 재시도·대체 모델 사용·오류 종류별 횟수가 결과의 `metrics`에 남는다.
 
 ### 1) 추출·검수만 확인 (OpenAI 키만 필요)
 
@@ -391,7 +419,7 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 결과(응답·백엔드 보고)도 camelCase: `taskId`, `status`, `stage`, `errorCode`, `errorMessage`, `summary`, `items[].{taskItemId, workKey, title, contentJson, action, reason, reviewStatus, publishStatus, githubIssueNumber, githubIssueUrl, errorMessage}`, `traceId`, `metrics`
 
 - `traceId`: LangSmith run id. 성공·실패 모두 들어 있어 실패한 작업의 trace를 바로 찾을 수 있다.
-- `metrics`: `durationMs`, `promptVersion`, `model`, `reviewModel`, `tracing`(trace 수집 여부), `llmCalls`, `llmRetries`, `droppedSettings`(모델이 거부해 뺀 설정)
+- `metrics`: `durationMs`, `promptVersion`, `model`, `reviewModel`, `tracing`(trace 수집 여부), `llmCalls`, `llmRetries`, `fallbackUsed`(대체 모델 사용 수), `errors`(오류 종류별 수: transient·request·auth), `droppedSettings`(모델이 거부해 뺀 설정)
 
 `?wait=true` 없이 보내면 202로 접수하고 백그라운드에서 처리한다. 처리 중에 `GET /runs/{taskId}`를 부르면 지금 단계를 돌려준다.
 
@@ -400,6 +428,20 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 ```
 
 단계는 `EXTRACTING`(할 일 추출) → `NORMALIZING`(담당자·기한 정리, 초안 작성) → `REVIEWING`(검수, 보완 포함) → `PUBLISHING`(발행) 순서다. 끝나면 결과 전체가 나온다. `BACKEND_BASE_URL`이 있으면 같은 단계와 결과를 백엔드에도 보고한다(`/internal/tasks/{id}/progress`, `/result`).
+
+### 같은 taskId를 다시 보낼 때
+
+노드가 끝날 때마다 상태를 taskId 단위로 저장한다(LangGraph checkpointer). 그래서 같은 taskId가 다시 오면 이렇게 처리한다.
+
+| 이전 작업 | 처리 |
+|---|---|
+| 처리 중 | 409 (백엔드는 조회로 넘어감) |
+| 이슈를 발행했거나 발행 여부가 불명(UNKNOWN) | 다시 실행하지 않는다. 202로 받고 `GET /runs/{taskId}`에 저장된 결과를 돌려준다 (중복 이슈 방지) |
+| 발행 전에 끝남 (LLM 오류, 발행 0건, `--dry-run`) | 이전 기록을 지우고 다시 실행한다 |
+
+`GET /runs/{taskId}/history`는 노드별 기록을 시간 순서로 돌려준다 (노드, 다음 노드, 단계, 검수 상태별 티켓 수, 발행 수, 저장 시각). 검수 보완이 있었다면 `draft → review`가 반복돼 보인다.
+
+저장소는 프로세스 메모리(`InMemorySaver`)라 Agent를 재시작하면 기록과 중복 방지가 사라진다. 재시작 뒤에도 유지하려면 Postgres checkpointer(새 패키지 필요)로 바꿔야 한다(2차 과제).
 
 ### LangSmith trace
 
@@ -443,7 +485,7 @@ python mcp_check.py --owner MCP-Capstone --repo mcp-capstone --write   # 테스�
 - `APPROVED`만 발행 단계로 넘어간다.
 
 ### 1차 한계
-- 기존 GitHub 이슈를 조회하지 않는다. 같은 회의를 다시 실행하면 이슈가 다시 생성된다.
+- 기존 GitHub 이슈를 조회하지 않는다. 같은 taskId는 다시 발행하지 않지만(위 표), 같은 회의를 새 taskId로 다시 보내면 이슈가 다시 생성된다.
 - "기존 이슈 갱신(AUTH-112)" 같은 표기는 새 이슈 본문에 관련 키로만 남긴다.
 
 ### 테스트

@@ -3,7 +3,7 @@
 from fastapi.testclient import TestClient
 
 from conftest import FakeLLM, FakePublisher, FakeReporter, make_request
-from api_docs import END_EXAMPLE, REQUEST_EXAMPLE
+from api_docs import END_EXAMPLE, HISTORY_EXAMPLE, REQUEST_EXAMPLE, RunHistory
 from schemas import RunRequest, RunResult
 
 
@@ -12,7 +12,7 @@ def test_agent_openapi_matches_implemented_routes():
     with TestClient(main.app) as client:
         assert client.get("/docs").status_code == 200
         doc = client.get("/openapi.json").json()
-    assert set(doc["paths"]) == {"/runs", "/runs/{task_id}", "/health"}
+    assert set(doc["paths"]) == {"/runs", "/runs/{task_id}", "/runs/{task_id}/history", "/health"}
     assert not doc.get("security")  # 현 구현에 없는 API 키 인증을 문서에 가장하지 않음
     post = doc["paths"]["/runs"]["post"]
     assert {"200", "202", "409", "422"} <= post["responses"].keys()
@@ -26,6 +26,8 @@ def test_agent_openapi_matches_implemented_routes():
     assert {"traceId", "metrics"} <= doc["components"]["schemas"]["RunResult"]["properties"].keys()
     RunRequest.model_validate(REQUEST_EXAMPLE)
     RunResult.model_validate(END_EXAMPLE)
+    RunHistory.model_validate(HISTORY_EXAMPLE)
+    assert "404" in doc["paths"]["/runs/{task_id}/history"]["get"]["responses"]
 
 
 def test_documented_errors_and_wait_result(settings):
@@ -34,8 +36,9 @@ def test_documented_errors_and_wait_result(settings):
     old_jobs = dict(main._jobs)
     try:
         main._jobs.clear()
+        publisher = FakePublisher()
         main.app.state.overrides = {"settings": settings, "llm": FakeLLM(),
-                                    "publisher": FakePublisher(), "reporter": FakeReporter()}
+                                    "publisher": publisher, "reporter": FakeReporter()}
         with TestClient(main.app) as client:
             assert client.get("/runs/missing").json() == {"detail": "없는 task_id입니다"}
             assert client.get("/runs/missing").status_code == 404
@@ -47,10 +50,15 @@ def test_documented_errors_and_wait_result(settings):
             result = client.post("/runs?wait=true", json=req)
             assert result.status_code == 200
             RunResult.model_validate(result.json())
-            # A completed ID may be accepted again by the current implementation.
+            published = len(publisher.calls)
+            # 이미 발행까지 끝난 taskId는 202로 받되 다시 실행하지 않는다 (중복 이슈 방지)
             accepted = client.post("/runs", json=req)
             assert accepted.status_code == 202
             assert accepted.json() == {"taskId": req["taskId"], "status": "ACCEPTED"}
+            assert len(publisher.calls) == published
+            assert client.get(f"/runs/{req['taskId']}").json() == result.json()
+            assert client.get("/runs/missing/history").status_code == 404
+            RunHistory.model_validate(client.get(f"/runs/{req['taskId']}/history").json())
     finally:
         main.app.state.overrides = old_overrides
         main._jobs.clear()

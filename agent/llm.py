@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 import prompts
@@ -19,12 +20,27 @@ from state import LLM_ERROR, AgentFatal
 log = logging.getLogger("agent.llm")
 
 
-def _is_auth_error(exc: Exception) -> bool:
+def _status_code(exc: Exception) -> int | None:
     status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
-    if status in (401, 403):
-        return True
-    text = str(exc)
-    return "invalid_api_key" in text or "Error code: 401" in text
+    if isinstance(status, int):
+        return status
+    found = re.search(r"Error code: (\d{3})", str(exc))
+    return int(found.group(1)) if found else None
+
+
+def _error_kind(exc: Exception) -> str:
+    """LLM 오류를 처리 방식에 따라 나눈다.
+
+    auth: 401·403, 잘못된 키 → 즉시 중단 (다시 보내도 같다)
+    request: 400·404·422 → 요청 자체가 잘못돼 재시도하지 않는다
+    transient: 그 밖의 오류 (429·5xx·타임아웃·연결 오류·응답 형식 오류) → 재시도, 계속되면 대체 모델
+    """
+    status = _status_code(exc)
+    if status in (401, 403) or "invalid_api_key" in str(exc):
+        return "auth"
+    if status in (400, 404, 422):
+        return "request"
+    return "transient"
 
 
 def _unsupported_param(exc: Exception) -> str | None:
@@ -45,8 +61,9 @@ def _chat_model(**kwargs: Any) -> Any:
     return ChatOpenAI(**kwargs)
 
 
-# 추출·초안은 writer, 검수는 reviewer 역할의 모델을 쓴다
+# 추출·초안은 writer, 검수는 reviewer 역할의 모델을 쓴다. fallback은 재시도 후에도 실패할 때 쓰는 대체 모델
 ROLE_OF = {"rows": "writer", "draft": "writer", "review": "reviewer"}
+SCHEMA_OF = {"rows": ActionRowsOut, "draft": DraftBatch, "review": ReviewBatch}
 
 
 class OpenAILLM:
@@ -56,16 +73,25 @@ class OpenAILLM:
             "writer": {"model": settings.openai_model, "reasoning_effort": settings.reasoning_effort},
             "reviewer": {"model": settings.review_model, "reasoning_effort": settings.review_reasoning_effort},
         }
-        self._dropped: dict[str, set[str]] = {"writer": set(), "reviewer": set()}  # 모델이 거부해 뺀 설정
+        if settings.fallback_model:
+            self._roles["fallback"] = {"model": settings.fallback_model, "reasoning_effort": ""}
+        self._dropped: dict[str, set[str]] = {role: set() for role in self._roles}  # 모델이 거부해 뺀 설정
         # 실행 지표 (결과의 metrics로 나간다)
-        self.stats: dict[str, Any] = {"llmCalls": 0, "llmRetries": 0, "droppedSettings": []}
+        self.stats: dict[str, Any] = {
+            "llmCalls": 0,
+            "llmRetries": 0,
+            "fallbackUsed": 0,
+            "errors": {"transient": 0, "request": 0, "auth": 0},
+            "droppedSettings": [],
+        }
         self._build()
-        log.info("LLM 준비: 초안 %s, 검수 %s, 프롬프트 버전 %s",
-                 settings.openai_model, settings.review_model, prompts.PROMPT_VERSION)
+        log.info("LLM 준비: 초안 %s, 검수 %s, 대체 %s, 프롬프트 버전 %s", settings.openai_model,
+                 settings.review_model, settings.fallback_model or "없음", prompts.PROMPT_VERSION)
 
     def _chat(self, role: str) -> Any:
         conf = self._roles[role]
-        kwargs: dict[str, Any] = {"model": conf["model"]}
+        # 호출 1회 시간 한도. 재시도는 _call 한 곳에서만 하도록 OpenAI 클라이언트 자체 재시도는 끈다
+        kwargs: dict[str, Any] = {"model": conf["model"], "timeout": self.settings.llm_timeout_seconds, "max_retries": 0}
         # 같은 회의록이면 같은 결과가 나오도록 0을 요청한다. gpt-5 계열은 추론을 끈(reasoning_effort=none)
         # 경우에만 0을 받고, 추론을 켜면 langchain-openai가 temperature를 빼서 기본값(1)으로 호출된다
         if "temperature" not in self._dropped[role]:
@@ -75,20 +101,17 @@ class OpenAILLM:
         return _chat_model(**kwargs)
 
     def _build(self) -> None:
-        writer = self._chat("writer")
-        reviewer = self._chat("reviewer")
-        self._runnables = {
-            "rows": writer.with_structured_output(ActionRowsOut),
-            "draft": writer.with_structured_output(DraftBatch),
-            "review": reviewer.with_structured_output(ReviewBatch),
-        }
+        self._runnables: dict[str, dict[str, Any]] = {}
+        for role in self._roles:
+            chat = self._chat(role)
+            kinds = [k for k, r in ROLE_OF.items() if r == role] if role != "fallback" else list(SCHEMA_OF)
+            self._runnables[role] = {k: chat.with_structured_output(SCHEMA_OF[k]) for k in kinds}
 
-    async def _invoke(self, kind: str, messages: list[tuple[str, str]]) -> Any:
-        role = ROLE_OF[kind]
+    async def _invoke(self, kind: str, messages: list[tuple[str, str]], role: str) -> Any:
         while True:
             self.stats["llmCalls"] += 1
             try:
-                return await self._runnables[kind].ainvoke(messages)
+                return await self._runnables[role][kind].ainvoke(messages)
             except Exception as exc:  # noqa: BLE001
                 param = _unsupported_param(exc)
                 if param is None or param in self._dropped[role]:
@@ -101,18 +124,33 @@ class OpenAILLM:
                 self._build()
 
     async def _call(self, kind: str, messages: list[tuple[str, str]], what: str) -> Any:
+        role = ROLE_OF[kind]
         last: Exception | None = None
         for attempt in range(self.settings.llm_retries + 1):
             try:
-                return await self._invoke(kind, messages)
-            except Exception as exc:  # noqa: BLE001 - 어떤 LLM 오류든 재시도 후 실패 처리
+                return await self._invoke(kind, messages, role)
+            except Exception as exc:  # noqa: BLE001 - 종류를 나눠 처리한다
                 last = exc
-                log.warning("LLM %s 실패 (%d회차): %s", what, attempt + 1, exc)
-                if _is_auth_error(exc):
+                kind_of_error = _error_kind(exc)
+                self.stats["errors"][kind_of_error] += 1
+                log.warning("LLM %s 실패 (%d회차, %s): %s", what, attempt + 1, kind_of_error, exc)
+                if kind_of_error == "auth":
                     raise AgentFatal(LLM_ERROR, f"OpenAI 인증 실패 (API 키 확인 필요): {exc}") from exc
+                if kind_of_error == "request":
+                    raise AgentFatal(LLM_ERROR, f"LLM {what} 요청 오류 (재시도하지 않음): {exc}") from exc
                 if attempt < self.settings.llm_retries:
                     self.stats["llmRetries"] += 1
                     await asyncio.sleep(1.5 * (attempt + 1))
+        # 일시적 오류가 재시도 후에도 계속되면 대체 모델로 한 번 더 시도한다
+        fallback = self._roles.get("fallback")
+        if fallback and fallback["model"] != self._roles[role]["model"]:
+            log.warning("LLM %s 재시도 후에도 실패해 대체 모델 %s로 호출", what, fallback["model"])
+            self.stats["fallbackUsed"] += 1
+            try:
+                return await self._invoke(kind, messages, "fallback")
+            except Exception as exc:  # noqa: BLE001
+                self.stats["errors"][_error_kind(exc)] += 1
+                raise AgentFatal(LLM_ERROR, f"LLM {what} 호출 실패 (대체 모델 {fallback['model']} 포함): {exc}") from exc
         raise AgentFatal(LLM_ERROR, f"LLM {what} 호출 실패: {last}")
 
     async def extract_rows(self, summary: str) -> list[ActionRowOut]:

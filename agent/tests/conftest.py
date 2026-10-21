@@ -30,6 +30,16 @@ def no_tracing():
         yield
 
 
+@pytest.fixture(autouse=True)
+def fresh_checkpointer():
+    """테스트마다 같은 taskId를 쓰므로 실행 기록(checkpointer)을 테스트마다 새로 만든다."""
+    import runner
+
+    runner._checkpointer = None
+    yield
+    runner._checkpointer = None
+
+
 @pytest.fixture
 def anyio_backend():
     return "asyncio"

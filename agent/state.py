@@ -20,6 +20,8 @@ STATUS_FAILED = "FAILED"
 LLM_ERROR = "LLM_ERROR"
 NO_TICKETS = "NO_TICKETS"
 MCP_UNAVAILABLE = "MCP_UNAVAILABLE"
+TASK_TIMEOUT = "TASK_TIMEOUT"      # 작업 마감 시간을 넘김 (초안·검수 단계에 들어가기 전에 확인)
+INPUT_TOO_LONG = "INPUT_TOO_LONG"  # 회의 원문이 길이 한도를 넘음 (LLM을 호출하지 않음)
 REPOSITORY_NOT_ALLOWED = "REPOSITORY_NOT_ALLOWED"
 GITHUB_AUTH = "GITHUB_AUTH"
 PUBLISH_FAILED = "PUBLISH_FAILED"
@@ -64,6 +66,7 @@ class AgentState(TypedDict, total=False):
     task_id: str
     trace_id: str | None        # LangSmith run id (결과의 traceId)
     started_at: float           # 작업 시작 시각 (epoch 초, 소요 시간 계산용)
+    deadline_at: float | None   # 작업 마감 시각 (epoch 초). None이면 마감 없음
     meeting_id: str
     meeting_date: str | None
     original_content: str
