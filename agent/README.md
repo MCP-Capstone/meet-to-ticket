@@ -294,7 +294,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 | 파일 | 역할 |
 |---|---|
-| `main.py` | FastAPI (`POST /runs`, `GET /runs/{task_id}`, `GET /health`) |
+| `main.py` | FastAPI (`POST /runs`, `GET /runs/{task_id}` 진행 단계·결과, `GET /health`) |
 | `cli.py` | 백엔드 없이 회의 요약 파일로 바로 실행 |
 | `runner.py` | 요청 1건 실행 (MCP 연결, 그래프 실행) |
 | `graph.py` | LangGraph 그래프 (prepare → draft → review ⇄ draft → publish → finish) |
@@ -349,7 +349,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | State·Memory | 그래프 상태와 티켓별 검수 이력, 실행 중 같은 taskId는 409 | - |
 | Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
 | Recovery | LLM 재시도·인증 오류 즉시 중단, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단 | `LLM_RETRIES`=2 |
-| Observability | 단계별 진행 보고, 항목별 검수 이력 JSON, 로그 | `BACKEND_BASE_URL` |
+| Observability | LangSmith trace(작업 1건 = trace 1개), 결과의 `traceId`·`metrics`, `GET /runs/{id}` 진행 단계, 항목별 검수 이력 JSON, task·trace id가 붙은 로그 | `LANGSMITH_TRACING`, `LANGSMITH_PROJECT`, `BACKEND_BASE_URL` |
 
 ### 1) 추출·검수만 확인 (OpenAI 키만 필요)
 
@@ -388,9 +388,28 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 
 요청 주요 필드: `taskId`, `meeting.{meetingId, title, meetingDate, timezone, participantIds, originalFilename, originalContent}`, `project.{githubOwner, githubRepo}`, `projectMembers[].{projectMemberId, userId, name, githubName}`
 
-결과(응답·백엔드 보고)도 camelCase: `taskId`, `status`, `stage`, `errorCode`, `errorMessage`, `summary`, `items[].{taskItemId, workKey, title, contentJson, action, reason, reviewStatus, publishStatus, githubIssueNumber, githubIssueUrl, errorMessage}`
+결과(응답·백엔드 보고)도 camelCase: `taskId`, `status`, `stage`, `errorCode`, `errorMessage`, `summary`, `items[].{taskItemId, workKey, title, contentJson, action, reason, reviewStatus, publishStatus, githubIssueNumber, githubIssueUrl, errorMessage}`, `traceId`, `metrics`
 
-`?wait=true` 없이 보내면 202로 접수하고 백그라운드에서 처리한다. `BACKEND_BASE_URL`이 있으면 진행(`/internal/tasks/{id}/progress`)과 결과(`/internal/tasks/{id}/result`)를 보고한다(경로는 백엔드와 확정 전).
+- `traceId`: LangSmith run id. 성공·실패 모두 들어 있어 실패한 작업의 trace를 바로 찾을 수 있다.
+- `metrics`: `durationMs`, `promptVersion`, `model`, `reviewModel`, `tracing`(trace 수집 여부), `llmCalls`, `llmRetries`, `droppedSettings`(모델이 거부해 뺀 설정)
+
+`?wait=true` 없이 보내면 202로 접수하고 백그라운드에서 처리한다. 처리 중에 `GET /runs/{taskId}`를 부르면 지금 단계를 돌려준다.
+
+```json
+{"taskId": "…", "status": "RUNNING", "stage": "REVIEWING"}
+```
+
+단계는 `EXTRACTING`(할 일 추출) → `NORMALIZING`(담당자·기한 정리, 초안 작성) → `REVIEWING`(검수, 보완 포함) → `PUBLISHING`(발행) 순서다. 끝나면 결과 전체가 나온다. `BACKEND_BASE_URL`이 있으면 같은 단계와 결과를 백엔드에도 보고한다(`/internal/tasks/{id}/progress`, `/result`).
+
+### LangSmith trace
+
+`agent/.env`에 `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`(기본 `meet-to-ticket`)를 넣으면 작업 1건이 trace 하나로 수집된다.
+
+- 맨 위 run `meet-to-ticket`의 id가 결과의 `traceId`다. LangSmith에서 이 id로 찾는다.
+- 그 아래 `agent-graph` → 노드(prepare, draft, review, publish, finish) → LLM 호출이 붙고, Token·지연이 함께 기록된다.
+- metadata에 `task_id`, `meeting_id`, `prompt_version`, `model`, `review_model`이 있어 같은 회의나 같은 프롬프트 버전끼리 모아 볼 수 있다.
+- MCP 서버 연결 실패처럼 그래프 전에 끝난 작업도 `meet-to-ticket` run 하나로 남는다.
+- 켜지 않으면 아무것도 보내지 않고, `traceId`는 그대로 만들어져 로그·결과에 남는다. 테스트는 항상 끈 상태로 돈다.
 
 ### 4) MCP 연결 확인
 
