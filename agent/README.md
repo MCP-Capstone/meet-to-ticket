@@ -327,6 +327,8 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | `prompts/draft_system.md`, `draft_user.md` | 이슈 초안 작성 | `{summary}`, `{items}` |
 | `prompts/review_system.md`, `review_user.md` | 검수 | `{summary}`, `{source_note}`, `{excluded}`, `{drafts}` |
 
+검수 프롬프트의 2·3·4·7·8번은 아래 "검수 판정" 표의 번호다. LLM이 판정하는 항목만 넣었고, 1·5·6·9번은 코드가 확인한다.
+
 프롬프트를 고칠 때:
 
 1. `prompts/*.md`만 고친다. `prompts.py`와 `llm.py`는 건드리지 않는다.
