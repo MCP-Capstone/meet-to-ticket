@@ -32,3 +32,15 @@ def test_result_is_camel_case():
 
     out = RunResult(task_id="t", status="SUCCEEDED", stage="DONE", items=[]).model_dump(by_alias=True)
     assert set(out) >= {"taskId", "status", "stage", "errorCode", "errorMessage", "summary", "items"}
+
+
+def test_backend_request_sample_to_initial_state():
+    from runner import initial_state
+    from schemas import RunRequest
+
+    path = Path(__file__).resolve().parent.parent / "samples" / "requests" / "csv_check.json"
+    state = initial_state(RunRequest.model_validate_json(path.read_text(encoding="utf-8")))
+    assert state["task_id"] == "9b12ec5a-1423-4b71-8e20-f8f28d306c81"
+    assert state["meeting_id"] == "2" and state["meeting_date"] == "2026-10-22"
+    assert state["owner"] == "MCP-Capstone" and state["repo"] == "mcp-capstone"
+    assert state["members"][0]["github_name"] == "0unk0"
