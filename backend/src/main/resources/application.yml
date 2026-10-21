@@ -28,9 +28,13 @@ spring:
     show-sql: true
 
 springdoc:
-  # 명세에는 프론트가 쓰는 /api/** 만 싣는다. (Agent 콜백 /internal/** 제외)
+  # Spring 공개 API만 문서화한다. Agent의 /runs는 Agent 서버의 /docs에서 제공한다.
   paths-to-match: /api/**
   default-produces-media-type: application/json
+  override-with-generic-response: false
+  swagger-ui:
+    tags-sorter: alpha
+    operations-sorter: method
 
 agent:
   # Agent(FastAPI) 주소. 포트 규칙은 docs/dev-env.md 참고

@@ -5,6 +5,8 @@ import com.mcpcapstone.meettoticket.common.error.*;
 import com.mcpcapstone.meettoticket.project.*;
 import com.mcpcapstone.meettoticket.user.UserRepository;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Service;
@@ -95,11 +97,18 @@ public class MeetingService {
     }
 
     public record MeetingResponse(
+            @Schema(description = "회의 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "2")
             Long meetingId,
+            @Schema(description = "프로젝트 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
             Long projectId,
+            @Schema(description = "회의 제목", requiredMode = Schema.RequiredMode.REQUIRED, example = "CSV 내보내기 중간 점검")
             String title,
+            @Schema(description = "회의 날짜. 상대 기한 계산 기준", requiredMode = Schema.RequiredMode.REQUIRED, example = "2026-10-22")
             LocalDate meetingDate,
+            @Schema(description = "ProjectMember ID 배열. 이름은 팀원 조회로 연결", requiredMode = Schema.RequiredMode.REQUIRED)
             List<Long> participantIds,
+            @Schema(description = "원본 파일명", requiredMode = Schema.RequiredMode.REQUIRED, example = "meeting.txt")
             String originalFilename,
+            @Schema(description = "회의 등록이 완료되어 분석 요청 가능한지 여부", requiredMode = Schema.RequiredMode.REQUIRED, example = "true")
             boolean readyForAnalysis) {}
 }
