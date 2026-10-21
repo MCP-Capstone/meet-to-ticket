@@ -301,7 +301,8 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | `nodes.py` | 노드 구현, 검수 판정 규칙 |
 | `parsing.py` | 회의 요약 마크다운 해석 (액션 아이템 표 등) |
 | `resolve.py` | 담당자 매핑, 기한 계산, 예상 처리 분류 |
-| `llm.py`, `prompts.py` | OpenAI 호출과 프롬프트 |
+| `llm.py` | OpenAI 호출 (모델·추론 설정, 재시도) |
+| `prompts/*.md`, `prompts.py` | 프롬프트 본문(md)과 읽기·버전 계산 |
 | `publisher.py` | MCP 도구 호출, 이슈 본문 조립 |
 | `reporter.py` | 백엔드 진행·결과 보고 |
 | `mcp_check.py` | MCP 서버 연결 확인 (이슈 목록 읽기, `--write`면 테스트 이슈 생성) |
@@ -317,6 +318,38 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 - 초안은 같은 회의록이면 같은 결과가 나오도록 추론을 끄고 temperature 0으로 호출한다.
 - 검수는 판단이 중요해 추론을 켠다. gpt-5 계열은 추론을 켜면 temperature 0을 받지 않아 기본값 1로 호출된다(langchain-openai가 자동으로 뺀다).
 - 모델이 temperature나 추론 설정을 지원하지 않는다는 오류를 돌려주면, 그 설정만 빼고 바로 다시 호출한다. 이 재호출은 재시도 횟수에 넣지 않는다.
+
+### 프롬프트
+
+| 파일 | 쓰는 곳 | 채워 넣는 값 |
+|---|---|---|
+| `prompts/rows_system.md` | 표가 없을 때 본문에서 할 일 추출 | - |
+| `prompts/draft_system.md`, `draft_user.md` | 이슈 초안 작성 | `{summary}`, `{items}` |
+| `prompts/review_system.md`, `review_user.md` | 검수 | `{summary}`, `{source_note}`, `{excluded}`, `{drafts}` |
+
+검수 프롬프트의 2·3·4·7·8번은 아래 "검수 판정" 표의 번호다. LLM이 판정하는 항목만 넣었고, 1·5·6·9번은 코드가 확인한다.
+
+프롬프트를 고칠 때:
+
+1. `prompts/*.md`만 고친다. `prompts.py`와 `llm.py`는 건드리지 않는다.
+2. `pytest`로 파일과 자리표시자가 맞는지 확인한다.
+3. 샘플 3종을 `--dry-run`으로 다시 돌려 고치기 전 결과와 비교한다 (할 일 수, 승인·확인 필요 수, 보완 횟수).
+4. 프롬프트 버전(`PROMPT_VERSION`, 다섯 파일 내용의 해시 8자리)이 바뀐다. 실행 로그 `LLM 준비: … 프롬프트 버전 …`으로 어떤 프롬프트로 만든 결과인지 구분한다.
+
+### Harness 명세
+
+모델이 제안만 하고 실행·한도·기록·복구는 Agent 코드가 맡는다. 요소별 구현과 값은 아래와 같다. 값을 바꾸면 이 표도 고친다.
+
+| 요소 | 구현 | 값·설정 |
+|---|---|---|
+| Instructions | 프롬프트 md 분리, 구조화 출력, 작업별 모델·추론 설정 | `prompts/*.md`, `PROMPT_VERSION`, 위 "모델" 표 |
+| Tools | MCP `create_issue`·`list_issues`, `[코드] 메시지` 오류 태그, 제목·본문 길이 제한 | `MCP_SERVER_URL`, 허용 저장소는 mcp-server `.env` |
+| Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → publish → finish) | 보완 `MAX_REVISIONS`=2, recursion 50, 배치 10건 |
+| Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입 | `DRAFT_BATCH_SIZE`, `REVIEW_BATCH_SIZE` |
+| State·Memory | 그래프 상태와 티켓별 검수 이력, 실행 중 같은 taskId는 409 | - |
+| Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
+| Recovery | LLM 재시도·인증 오류 즉시 중단, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단 | `LLM_RETRIES`=2 |
+| Observability | 단계별 진행 보고, 항목별 검수 이력 JSON, 로그 | `BACKEND_BASE_URL` |
 
 ### 1) 추출·검수만 확인 (OpenAI 키만 필요)
 
