@@ -1,2 +1,4 @@
 # MCP 서버 전용 환경 (server.py가 쓰는 MCPServer는 mcp 2.x API)
 mcp>=2.3,<3
+httpx>=0.28,<1                          # GitHub REST API 호출
+python-dotenv>=1.0                      # .env에서 GITHUB_TOKEN 등 읽기
