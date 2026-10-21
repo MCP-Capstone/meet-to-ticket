@@ -74,7 +74,7 @@ class RunResult(CamelModel):
     stage: str = Field(description="Agent 단계. 종료 시 DONE. Spring 종료 단계는 VERIFYING으로 변환")
     error_code: str | None = Field(None, description="전체 실행 오류 코드. 없으면 null")
     error_message: str | None = Field(None, description="실행 또는 항목 오류 사유")
-    summary: dict[str, int] = Field(default_factory=dict, description="Agent 집계. total/approved/rejected/needsCheck/published/publishFailed/publishUnknown. Spring은 항목에서 집계를 다시 계산")
+    summary: dict[str, int] = Field(default_factory=dict, description="Agent 집계. total/approved/rejected/needsCheck/published/publishFailed/publishUnknown/linked(published 중 기존 이슈 연결). Spring은 항목에서 집계를 다시 계산")
     items: list[TaskItemOut] = Field(default_factory=list, description="최종 항목 목록")
     trace_id: str | None = Field(None, description="LangSmith 실행 ID (Run ID). 동일한 값으로 추적(Trace)을 조회")
     metrics: dict[str, Any] = Field(default_factory=dict, description="실행 지표. 소요 시간, 프롬프트 버전, 모델명, LLM 호출 및 재시도 횟수 포함")
