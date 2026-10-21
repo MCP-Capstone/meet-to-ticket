@@ -17,6 +17,10 @@ EFFORT_ERROR = (
     "Error code: 400 - {'error': {'message': \"Unsupported value: 'reasoning_effort' does not support "
     "'none' with this model.\", 'param': 'reasoning_effort'}}"
 )
+UNRECOGNIZED_ERROR = (
+    "Error code: 400 - {'error': {'message': 'Unrecognized request argument supplied: reasoning_effort', "
+    "'type': 'invalid_request_error', 'param': None, 'code': None}}"
+)
 EMPTY = {ActionRowsOut: ActionRowsOut(rows=[]), DraftBatch: DraftBatch(tickets=[]), ReviewBatch: ReviewBatch(reviews=[])}
 
 
@@ -112,6 +116,17 @@ async def test_model_rejecting_reasoning_none_drops_it():
     assert await client.extract_rows("요약") == []
     assert FakeChat.calls == ["gpt-5.4-nano", "gpt-5.4-nano"]
     assert FakeChat.built[-3] == {"model": "gpt-5.4-nano", **LIMITS, "temperature": 0}
+
+
+@pytest.mark.parametrize("message", [UNRECOGNIZED_ERROR, "Error code: 400 - Unknown parameter: 'reasoning_effort'."])
+async def test_unrecognized_argument_wording_drops_reasoning_effort(message):
+    # reasoning_effort를 모르는 모델(gpt-4o-mini 등)은 "Unsupported"가 아닌 다른 문구로 거부한다
+    FakeChat.script = {"gpt-5.4-nano": [message]}
+    client = llm.OpenAILLM(Settings())
+    assert await client.extract_rows("요약") == []
+    assert FakeChat.calls == ["gpt-5.4-nano", "gpt-5.4-nano"]  # 빼고 바로 다시 보냄, 치명 오류 아님
+    assert FakeChat.built[-3] == {"model": "gpt-5.4-nano", **LIMITS, "temperature": 0}
+    assert client.stats["droppedSettings"] == ["gpt-5.4-nano:reasoning_effort"]
 
 
 async def test_other_request_errors_fail_without_retry_or_drop():

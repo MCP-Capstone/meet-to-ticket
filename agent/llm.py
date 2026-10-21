@@ -46,7 +46,8 @@ def _error_kind(exc: Exception) -> str:
 def _unsupported_param(exc: Exception) -> str | None:
     """모델이 거부한 설정 이름 (예: "Unsupported value: 'temperature' does not support 0 with this model")."""
     text = str(exc).lower()
-    if "unsupported" not in text and "not support" not in text:
+    # 모델에 따라 "Unsupported value"나 "Unrecognized request argument"처럼 다르게 답한다
+    if not any(w in text for w in ("unsupported", "not support", "unrecognized request argument", "unknown parameter")):
         return None
     if "reasoning_effort" in text or "reasoning.effort" in text:  # Chat Completions / Responses API 표기
         return "reasoning_effort"
