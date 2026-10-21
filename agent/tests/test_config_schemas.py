@@ -8,12 +8,19 @@ def test_empty_env_values_use_defaults(monkeypatch):
     monkeypatch.setenv("OPENAI_MODEL", "")
     monkeypatch.setenv("OPENAI_REVIEW_MODEL", "")
     monkeypatch.setenv("MCP_SERVER_URL", "")
+    monkeypatch.setenv("OPENAI_REASONING_EFFORT", "")
+    monkeypatch.setenv("OPENAI_REVIEW_REASONING_EFFORT", "")
     s = load_settings()
-    assert s.openai_model == "gpt-4o-mini"
-    assert s.review_model == "gpt-4o-mini"
+    assert s.openai_model == "gpt-5.4-nano"
+    assert s.review_model == "gpt-5.4-mini"
+    assert s.reasoning_effort == "none"  # 추출·초안은 추론을 끄고 temperature 0
+    assert s.review_reasoning_effort == ""  # 검수는 모델 기본 추론
     assert s.mcp_server_url == "http://127.0.0.1:8000/mcp"
-    monkeypatch.setenv("OPENAI_MODEL", "gpt-4.1-mini")
-    assert load_settings().review_model == "gpt-4.1-mini"
+    # 검수 모델은 추출·초안 모델을 따라가지 않는다
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.4-mini")
+    assert load_settings().review_model == "gpt-5.4-mini"
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.4")
+    assert load_settings().review_model == "gpt-5.4-mini"
 
 
 def test_backend_request_sample_parses():
