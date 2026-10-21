@@ -78,6 +78,8 @@ class RunResult(CamelModel):
     error_message: str | None = None
     summary: dict[str, int] = Field(default_factory=dict)
     items: list[TaskItemOut] = Field(default_factory=list)
+    trace_id: str | None = None  # LangSmith run id. 같은 값으로 trace를 찾는다
+    metrics: dict[str, Any] = Field(default_factory=dict)  # 소요 시간, 프롬프트 버전, 모델, LLM 호출·재시도 수
 
 
 # ---------------------------------------------------------------- LLM 구조화 출력

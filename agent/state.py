@@ -61,6 +61,8 @@ class AgentFatal(Exception):
 
 class AgentState(TypedDict, total=False):
     task_id: str
+    trace_id: str | None        # LangSmith run id (결과의 traceId)
+    started_at: float           # 작업 시작 시각 (epoch 초, 소요 시간 계산용)
     meeting_id: str
     meeting_date: str | None
     original_content: str

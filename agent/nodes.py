@@ -9,10 +9,12 @@ LLM, 발행 도구, 백엔드 보고는 생성자로 주입한다. 테스트에�
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import date
 from typing import Any
 
+import prompts
 from config import Settings
 from parsing import ActionRow, parse_summary
 from publisher import ToolCallError, build_issue_body
@@ -52,6 +54,20 @@ def _chunks(items: list[Any], size: int) -> list[list[Any]]:
 
 def _copy(tickets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [dict(t) for t in tickets]
+
+
+def run_metrics(settings: Settings, llm: Any, started_at: float | None) -> dict[str, Any]:
+    """결과에 담는 실행 지표. 키는 백엔드 응답과 같은 camelCase."""
+    from langsmith.utils import tracing_is_enabled
+
+    return {
+        "durationMs": int((time.time() - started_at) * 1000) if started_at else None,
+        "promptVersion": prompts.PROMPT_VERSION,
+        "model": settings.openai_model,
+        "reviewModel": settings.review_model,
+        "tracing": bool(tracing_is_enabled()),
+        **dict(getattr(llm, "stats", {}) or {}),  # 가짜 LLM에는 없다
+    }
 
 
 def new_ticket(row: ActionRow, members: list[ProjectMember], meeting_date: date | None, source: str = "table") -> dict[str, Any]:
@@ -464,6 +480,8 @@ class AgentNodes:
             "error_message": state.get("error_message"),
             "summary": summary,
             "items": items,
+            "trace_id": state.get("trace_id"),
+            "metrics": run_metrics(self.settings, self.llm, state.get("started_at")),
         }
 
     async def finish(self, state: AgentState) -> dict[str, Any]:
