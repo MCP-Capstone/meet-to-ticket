@@ -105,7 +105,7 @@ async def test_semantic_search_then_read_issue(settings):
     assert [c["tool"] for c in d["tool_calls"]] == ["search_similar_issues", "read_issue"]
     tool_results = [m.content for m in chat.seen["비동기 사용자 CSV 내보내기 API"] if m.type == "tool"]
     assert "CSV 빈 결과 오류 수정" in tool_results[0] and tool_results[1].startswith("제목: CSV")
-    assert len(pub.calls) == 6  # 이 단계는 판단만 기록하고 발행은 그대로 (#94에서 판단에 따라 발행)
+    assert len(pub.calls) == 6  # CHANGE는 새로 발행한다 (본문에 이전 이슈 링크, test_dedupe_publish)
 
 
 async def test_no_candidates_submits_without_tools(settings):
