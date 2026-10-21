@@ -23,6 +23,8 @@ GitHub 이슈 도구를 제공하는 MCP 서버의 **파이썬 환경 설정** �
 | `.python-version` | 이 폴더의 Python 버전(3.12). uv가 읽는다 | 올림 |
 | `.env.example` | `.env`에 어떤 값이 필요한지 보여 주는 빈 양식 | 올림 |
 | `.env` | 실제 GitHub 토큰 등 비밀 값. 직접 만든다 | **안 올림** |
+| `Dockerfile` | 컨테이너 이미지 설정 (11번) | 올림 |
+| `.dockerignore` | 이미지에 넣지 않을 파일 목록 (`.env`, `.venv/`, `tests/` 등) | 올림 |
 | `.venv/` | 가상환경 폴더. 설치된 패키지가 들어 있다 | **안 올림** |
 
 커밋하지 않을 파일(`.env`, `.venv/` 등)의 규칙은 이 폴더가 아니라 저장소 루트의 `.gitignore`가 담당합니다.
@@ -301,3 +303,41 @@ uv pip sync requirements-dev.txt
 - 에이전트의 MCP 연결과 토큰 권한을 확인할 때 씁니다.
 
 **테스트**: `pytest` (실제 GitHub 호출 없음, `httpx.MockTransport` 사용)
+
+## 11. Docker로 실행
+
+가상환경 없이 컨테이너로 서버를 띄울 수 있습니다. 저장소 루트(`meet-to-ticket/`)에서 실행합니다.
+
+**1) 이미지 빌드**
+
+```bash
+docker build -t meet-to-ticket-mcp ./mcp-server
+```
+
+**2) 실행**
+
+```bash
+docker run --rm -p 127.0.0.1:8000:8000 --env-file mcp-server/.env meet-to-ticket-mcp
+```
+
+- 주소는 로컬 실행과 같은 `http://127.0.0.1:8000/mcp`입니다. 에이전트의 `MCP_SERVER_URL`은 바꾸지 않아도 됩니다.
+- `-p 127.0.0.1:8000:8000`은 내 PC에서만 접속하게 합니다. `-p 8000:8000`으로 쓰면 같은 네트워크의 다른 PC에서도 접속할 수 있습니다.
+- 로컬에서 `python server.py`가 이미 8000번을 쓰고 있으면 실행이 실패합니다. 먼저 끄거나 `-p 127.0.0.1:8010:8000`처럼 바깥 포트를 바꿉니다.
+- 끌 때는 실행한 터미널에서 Ctrl+C를 누릅니다.
+
+**이미지 구성**
+
+| 항목 | 내용 |
+|---|---|
+| 기반 이미지 | `python:3.12-slim` |
+| 설치 패키지 | `requirements.txt` (실행용 잠금 파일. 테스트 도구는 넣지 않음) |
+| 들어가는 소스 | `server.py`, `github.py` |
+| 서버 주소 | 컨테이너 안에서 `0.0.0.0:8000` (`MCP_HOST`, `MCP_PORT` 기본값) |
+| 실행 사용자 | root가 아닌 `app` |
+
+**주의**
+
+- `.env`(GitHub 토큰)는 이미지에 들어가지 않습니다(`.dockerignore`). 실행할 때 `--env-file`로 넣습니다.
+- `mcp-server/.env`에 `MCP_HOST=127.0.0.1`을 적어 두면 컨테이너 밖에서 접속할 수 없습니다. 컨테이너로 실행할 때는 `.env`에 `MCP_HOST`를 적지 않습니다.
+- `requirements.txt`나 소스를 바꾸면 이미지를 다시 빌드해야 반영됩니다.
+- 다른 서비스와 함께 띄우는 `docker-compose.yml` 설정은 이 폴더 범위 밖입니다. compose에서는 서비스 이름으로 접속합니다(예: 에이전트에서 `http://mcp-server:8000/mcp`).
