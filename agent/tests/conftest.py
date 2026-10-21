@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from config import Settings
+from publisher import ToolCallError
 from schemas import ActionRowOut, DraftTicket, ProjectMember, ReviewCheck, TicketReview
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
@@ -119,6 +120,36 @@ class FakeLLM:
         return out
 
 
+class FakePublisher:
+    def __init__(self, fail: dict[str, ToolCallError] | None = None):
+        self.fail = fail or {}
+        self.calls: list[dict[str, Any]] = []
+        self.next_number = 100
+
+    async def create_issue(self, **args: Any) -> dict[str, Any]:
+        self.calls.append(args)
+        for needle, err in self.fail.items():
+            if needle in args["title"]:
+                raise err
+        self.next_number += 1
+        return {"status": "created", "number": self.next_number,
+                "url": f"https://github.com/o/r/issues/{self.next_number}",
+                "assignees": args.get("assignees", []), "dropped_assignees": []}
+
+
+class FakeReporter:
+    def __init__(self):
+        self.progress_calls: list[tuple[str, str, str]] = []
+        self.results: list[dict[str, Any]] = []
+
+    async def progress(self, task_id: str, status: str, stage: str) -> None:
+        self.progress_calls.append((task_id, status, stage))
+
+    async def result(self, task_id: str, payload: dict[str, Any]) -> bool:
+        self.results.append(payload)
+        return True
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings(max_revisions=2)
@@ -139,4 +170,19 @@ async def run_review(nodes, state, max_steps: int = 50):
         step = routes[step](current)
         if step not in routes:
             return current, step
+    raise RuntimeError("최대 단계 수 초과")
+
+
+async def run_plain(nodes, state, max_steps: int = 50):
+    """LangGraph 없이 그래프와 같은 순서로 노드를 실행한다 (테스트용)."""
+    from nodes import route_after_draft, route_after_prepare, route_after_review
+
+    current = dict(state)
+    step = "prepare"
+    routes = {"prepare": route_after_prepare, "draft": route_after_draft, "review": route_after_review}
+    for _ in range(max_steps):
+        current.update(await getattr(nodes, step)(current))
+        if step == "finish":
+            return current
+        step = routes[step](current) if step in routes else "finish"
     raise RuntimeError("최대 단계 수 초과")
