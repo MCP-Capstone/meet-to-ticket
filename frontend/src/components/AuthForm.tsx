@@ -132,7 +132,7 @@ export function AuthForm({ onLogin, notice }: Props) {
         )}
       </button>
 
-      {useMock && !isSignup && <p className="muted hint">mock 모드 데모 계정: demo / demo1234</p>}
+      {useMock && !isSignup && <p className="muted hint">데모 계정: demo1 / password1</p>}
     </form>
   )
 }
