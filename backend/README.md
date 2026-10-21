@@ -5,7 +5,7 @@ Java 21 + Spring Boot 4.1 + Gradle + Spring Data JPA + PostgreSQL
 ## 실행
 
 1. 루트에서 PostgreSQL을 띄운다. (`docker compose up -d`)
-2. 이 폴더에서 실행한다.
+2. 아래 명령은 스키마가 이미 준비된 DB에서 실행한다. 처음 만든 빈 개발 DB에서는 [목업 사용 안내](../scripts/db/README.md)에 따라 `mock` 프로필로 먼저 초기화한다.
 
 ```bash
 ./gradlew bootRun
@@ -50,7 +50,7 @@ Windows는 `gradlew.bat`을 사용한다.
 - 모든 API는 `/api`로 시작한다. 프론트의 Vite 프록시가 `/api`만 백엔드로 전달한다.
 - 패키지 기준: `com.mcpcapstone.meettoticket`
 - DB 접속 정보는 `application.yml`의 기본값을 쓰고, 다르면 환경 변수(`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`)로 덮어쓴다.
-- 테이블은 `ddl-auto: update`로 엔티티 기준 자동 생성된다.
+- 기본 `ddl-auto: validate`는 기존 스키마만 검증한다. 전용 개발 DB에서는 `mock` 프로필의 `update`로 테이블을 생성/갱신하고 목업 데이터를 넣는다.
 
 ## 로그인 (세션)
 
@@ -86,6 +86,6 @@ curl -b cookie.txt localhost:8080/api/auth/me
 
 ## #25 JPA 엔티티와 목업 데이터
 
-엔티티는 `entity/`에 두고 `controller/`, `service/`, `dto/`, `repository/`를 같은 레벨에 둔다. 인증 컨트롤러·서비스·DTO와 UserRepository도 각각 해당 계층에 배치했다. `auth/`에는 세션 상수·로그인 인터셉터·비밀번호 설정만 남긴다.
+엔티티는 `entity/`에 두고 `controller/`, `service/`, `dto/`, `repository/`를 같은 레벨에 둔다. 인증 컨트롤러·서비스·DTO와 UserRepository도 각각 해당 계층에 배치했다. 세션 상수는 `common/constant`, 로그인 인터셉터는 `common/interceptor`, 비밀번호 설정은 `common/config`에 둔다.
 
-개발용 데이터 생성은 [목업 사용 안내](../scripts/db/README.md)를 따른다. 목업은 mock 프로필에서만 입력되며 기존 로그인 계정과 같은 User 엔티티·PasswordEncoder를 사용한다.
+개발용 데이터 생성은 [목업 사용 안내](../scripts/db/README.md)를 따른다. **운영 DB에서 mock 프로필 사용 금지.** 목업은 전용 개발 DB의 mock 프로필에서만 입력되며 기존 로그인 계정과 같은 User 엔티티·PasswordEncoder를 사용한다.

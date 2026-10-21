@@ -1,6 +1,6 @@
 package com.mcpcapstone.meettoticket.controller;
 
-import com.mcpcapstone.meettoticket.auth.SessionConst;
+import com.mcpcapstone.meettoticket.common.constant.SessionConst;
 import com.mcpcapstone.meettoticket.service.AuthService;
 
 import org.springframework.http.HttpStatus;

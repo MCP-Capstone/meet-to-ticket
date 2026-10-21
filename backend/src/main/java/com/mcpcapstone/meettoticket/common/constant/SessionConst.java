@@ -1,4 +1,4 @@
-package com.mcpcapstone.meettoticket.auth;
+package com.mcpcapstone.meettoticket.common.constant;
 
 public final class SessionConst {
 

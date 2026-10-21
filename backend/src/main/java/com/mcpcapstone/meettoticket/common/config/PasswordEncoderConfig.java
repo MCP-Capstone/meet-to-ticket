@@ -1,4 +1,4 @@
-package com.mcpcapstone.meettoticket.auth;
+package com.mcpcapstone.meettoticket.common.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

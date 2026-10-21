@@ -1,6 +1,8 @@
-package com.mcpcapstone.meettoticket.auth;
+package com.mcpcapstone.meettoticket.common.interceptor;
 
 import org.springframework.web.servlet.HandlerInterceptor;
+
+import com.mcpcapstone.meettoticket.common.constant.SessionConst;
 
 import com.mcpcapstone.meettoticket.common.error.BusinessException;
 import com.mcpcapstone.meettoticket.common.error.ErrorCode;

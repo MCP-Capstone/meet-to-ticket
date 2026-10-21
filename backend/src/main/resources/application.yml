@@ -15,8 +15,8 @@ spring:
     password: ${DB_PASSWORD:meettoticket}
   jpa:
     hibernate:
-      # 개발 단계라 엔티티 기준으로 테이블을 자동 생성/갱신한다.
-      ddl-auto: update
+      # 기본 실행은 기존 스키마만 검증한다. 개발용 자동 DDL은 mock 프로필에서 활성화한다.
+      ddl-auto: validate
     open-in-view: false
     properties:
       hibernate:
