@@ -8,8 +8,10 @@ LLM, 발행 도구, 백엔드 보고는 생성자로 주입한다. 테스트에�
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
+from collections import Counter
 import uuid
 from datetime import date
 from typing import Any
@@ -59,6 +61,19 @@ def _copy(tickets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [dict(t) for t in tickets]
 
 
+def _dedupe_metrics(tickets: list[dict[str, Any]]) -> dict[str, Any]:
+    """중복 판단 지표: 판단 수, 건너뜀 수, 모델이 부른 도구 수, 관계별 수."""
+    done = [t["dedupe"] for t in tickets if t.get("dedupe")]
+    if not done:
+        return {}
+    return {"dedupe": {
+        "judged": sum(1 for d in done if d["relation"]),
+        "skipped": sum(1 for d in done if d["skipped"]),
+        "toolCalls": sum(len(d["tool_calls"]) for d in done),
+        "relations": dict(Counter(d["relation"] for d in done if d["relation"])),
+    }}
+
+
 def run_metrics(settings: Settings, llm: Any, started_at: float | None, rag: dict[str, Any] | None = None) -> dict[str, Any]:
     """결과에 담는 실행 지표. 키는 백엔드 응답과 같은 camelCase."""
     from langsmith.utils import tracing_is_enabled
@@ -105,6 +120,7 @@ def new_ticket(row: ActionRow, members: list[ProjectMember], meeting_date: date 
         "github_issue_url": None,
         "error_message": None,
         "warnings": [],
+        "dedupe": None,  # 중복 판단 결과 (dedupe.py). None이면 판단하지 않음
     }
 
 
@@ -124,13 +140,17 @@ class AgentNodes:
 
     # ------------------------------------------------------------ 1. 추출 준비
 
+    @staticmethod
+    def _deadline_passed(state: AgentState) -> bool:
+        deadline_at = state.get("deadline_at")
+        return deadline_at is not None and time.time() > deadline_at
+
     def _past_deadline(self, state: AgentState) -> dict[str, Any] | None:
         """마감이 지났으면 작업을 끝내는 상태 변경을 돌려준다. 초안·검수 노드 시작 시에만 확인한다.
 
         발행은 시작하면 끝까지 한다. 중간에 끊으면 만들어진 이슈가 결과에서 빠질 수 있기 때문이다.
         """
-        deadline_at = state.get("deadline_at")
-        if deadline_at is None or time.time() <= deadline_at:
+        if not self._deadline_passed(state):
             return None
         limit = self.settings.task_deadline_seconds
         log.warning("작업 마감 초과 task=%s (%s초)", state.get("task_id"), limit)
@@ -402,6 +422,48 @@ class AgentNodes:
         log.info("검수 결과: %s", counts)
         return {"tickets": tickets, "stage": STAGE_REVIEWING}
 
+    # ------------------------------------------------------------ 3-1. 중복 판단
+
+    async def dedupe(self, state: AgentState) -> dict[str, Any]:
+        """승인된 티켓마다 모델이 조회 도구를 골라 기존 이슈와의 관계를 판단한다 (dedupe.py).
+
+        판단만 기록하고 발행 방식은 바꾸지 않는다. 판단이 없거나 실패한 티켓은 지금처럼 새로 발행한다.
+        """
+        tickets = _copy(state["tickets"])
+        targets = [t for t in tickets if t["review_status"] == REVIEW_APPROVED]
+        rag = (state.get("rag") or {}).get("status", "disabled")
+        if not targets or rag == "disabled":
+            return {"tickets": tickets}
+        skipped = None
+        if self.issue_tools is None:
+            skipped = "rag_unavailable"
+        elif not hasattr(self.llm, "tool_chat"):
+            skipped = "no_tool_model"
+        elif self._deadline_passed(state):
+            skipped = "deadline"  # 마감이 지나면 판단은 건너뛰고 발행은 그대로 한다
+        if skipped:
+            from dedupe import _result
+
+            for t in targets:
+                t["dedupe"] = _result(skipped=skipped)
+            log.info("중복 판단 건너뜀: %s", skipped)
+            return {"tickets": tickets}
+
+        from dedupe import build_judge_graph, judge_ticket
+
+        graph = build_judge_graph(
+            self.llm.tool_chat(), self.issue_tools.judge_tools(),
+            max_calls=self.settings.dedupe_max_tool_calls, max_same=self.settings.dedupe_max_same_tool)
+        gate = asyncio.Semaphore(max(1, self.settings.dedupe_concurrency))
+
+        async def one(t: dict[str, Any]) -> None:
+            async with gate:
+                t["dedupe"] = await judge_ticket(graph, t, self.settings)
+
+        await asyncio.gather(*(one(t) for t in targets))
+        log.info("중복 판단: %s", dict(Counter(t["dedupe"]["relation"] or t["dedupe"]["skipped"] for t in targets)))
+        return {"tickets": tickets}
+
     # ------------------------------------------------------------ 4. 발행
 
     async def publish(self, state: AgentState) -> dict[str, Any]:
@@ -487,6 +549,7 @@ class AgentNodes:
                         "notes": t.get("review_notes", []),
                     },
                     "warnings": t["warnings"],
+                    "dedupe": t.get("dedupe"),
                 },
                 "action": t["action"],
                 "reason": t["reason"],
@@ -514,7 +577,8 @@ class AgentNodes:
             "summary": summary,
             "items": items,
             "trace_id": state.get("trace_id"),
-            "metrics": run_metrics(self.settings, self.llm, state.get("started_at"), state.get("rag")),
+            "metrics": {**run_metrics(self.settings, self.llm, state.get("started_at"), state.get("rag")),
+                        **_dedupe_metrics(tickets)},
         }
 
     async def finish(self, state: AgentState) -> dict[str, Any]:
@@ -543,5 +607,5 @@ def route_after_review(state: AgentState) -> str:
         return "finish"
     if any(t["review_status"] == REVIEW_REVISE for t in state["tickets"]):
         return "draft"
-    return "publish"
+    return "dedupe"
 
