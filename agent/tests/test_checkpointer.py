@@ -51,8 +51,8 @@ async def test_dry_run_runs_again(settings):
 async def test_history_follows_graph(settings):
     result = await run_once(settings)
     steps = await history(result.task_id)
-    assert [s["node"] for s in steps] == ["start", "prepare", "draft", "review", "publish", "finish"]
-    assert [s["stage"] for s in steps[1:]] == ["NORMALIZING", "NORMALIZING", "REVIEWING", "PUBLISHING", "DONE"]
+    assert [s["node"] for s in steps] == ["start", "prepare", "draft", "review", "dedupe", "publish", "finish"]
+    assert [s["stage"] for s in steps[1:]] == ["NORMALIZING", "NORMALIZING", "REVIEWING", "REVIEWING", "PUBLISHING", "DONE"]
     review = steps[3]
     assert review["tickets"] == 8 and review["reviewStatus"] == {"APPROVED": 6, "NEEDS_CHECK": 2}
     assert steps[-1]["next"] == [] and steps[-1]["published"] == 6
@@ -62,7 +62,7 @@ async def test_history_shows_revision_loop(settings):
     llm = FakeLLM(review_plan={"10m1-a1": [[(4, "원문에 없는 표현")]]})
     result = await run_once(settings, llm=llm)
     nodes = [s["node"] for s in await history(result.task_id)]
-    assert nodes == ["start", "prepare", "draft", "review", "draft", "review", "publish", "finish"]
+    assert nodes == ["start", "prepare", "draft", "review", "draft", "review", "dedupe", "publish", "finish"]
 
 
 async def test_history_unknown_task():

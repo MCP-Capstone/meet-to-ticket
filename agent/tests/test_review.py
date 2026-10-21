@@ -20,7 +20,7 @@ def by_key(state):
 async def test_10min_review(settings):
     state, nxt = await run_case(settings)
     tickets = by_key(state)
-    assert nxt == "publish"
+    assert nxt == "dedupe"  # 검수 다음은 중복 판단, 그다음 발행
     assert len(tickets) == 8
     # 조건부 기존 이슈 갱신(a2, a8)은 확인 필요, 나머지 6건 승인
     for key in ("10m1-a2", "10m1-a8"):

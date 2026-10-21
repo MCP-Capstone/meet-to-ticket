@@ -197,7 +197,8 @@ async def run_plain(nodes, state, max_steps: int = 50):
 
     current = dict(state)
     step = "prepare"
-    routes = {"prepare": route_after_prepare, "draft": route_after_draft, "review": route_after_review}
+    routes = {"prepare": route_after_prepare, "draft": route_after_draft, "review": route_after_review,
+              "dedupe": lambda _: "publish"}
     for _ in range(max_steps):
         current.update(await getattr(nodes, step)(current))
         if step == "finish":
