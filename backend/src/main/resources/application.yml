@@ -13,6 +13,10 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/meettoticket}
     username: ${DB_USERNAME:meettoticket}
     password: ${DB_PASSWORD:meettoticket}
+  servlet:
+    multipart:
+      max-file-size: ${MAX_UPLOAD_SIZE:10MB}
+      max-request-size: ${MAX_UPLOAD_SIZE:10MB}
   jpa:
     hibernate:
       # 개발 단계라 엔티티 기준으로 테이블을 자동 생성/갱신한다.
@@ -26,3 +30,10 @@ spring:
 agent:
   # Agent(FastAPI) 주소. 포트 규칙은 docs/dev-env.md 참고
   base-url: ${AGENT_BASE_URL:http://localhost:8001}
+  mode: ${AGENT_MODE:live}
+  api-key: ${AGENT_INTERNAL_API_KEY:}
+  poll-interval-ms: ${AGENT_POLL_INTERVAL_MS:2000}
+  connect-timeout: 3s
+  read-timeout: 5s
+  task-timeout: ${AGENT_TASK_TIMEOUT:10m}
+  mock-scenario: ${AGENT_MOCK_SCENARIO:approved}
