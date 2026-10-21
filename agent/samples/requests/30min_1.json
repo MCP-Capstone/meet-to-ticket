@@ -1,0 +1,69 @@
+{
+  "taskId": "c92fff8a-ea02-5176-9a77-f87115d77bb5",
+  "meeting": {
+    "meetingId": 11,
+    "title": "엔터프라이즈 SSO 도입 범위 및 출시 계획",
+    "meetingDate": "2026-10-22",
+    "timezone": "Asia/Seoul",
+    "participantIds": [
+      21,
+      22,
+      23,
+      24,
+      25,
+      26
+    ],
+    "originalFilename": "30min_1_summary.md",
+    "originalContent": "# 회의 요약 — 엔터프라이즈 SSO 도입 범위 및 출시 계획\n\n- 회의 ID: 30min_1\n- 회의 일시: 2026-10-22 10:00~10:30\n- 원본 회의록: 30min_1.md\n\n## 배경 및 논의 요약\n\n미래금융의 11월 20일 SAML SSO 데모와 12월 운영 전환을 분리해 범위, 보안, 권한, 화면, 모니터링과 롤백을 결정했다. AUTH-112를 상위 작업으로 재개하고 11월 데모에는 SAML 로그인, member JIT, 전용 URL, 오류 처리, 감사 로그, 모니터링과 수동 설정 CLI만 포함한다.\n\nSCIM, 그룹 기반 문서 권한, 고객 관리자용 인증서 UI는 운영 단계로 미뤘다. 새 JIT 계정은 모두 member로 만들며 관리자 자동 승격은 허용하지 않는다. 메타데이터 설정은 암호화·버전 관리하고 테스트 로그인을 통과해야 활성화한다. SAML assertion 원문은 로그에서 제거한다.\n\n## 핵심 결정\n\n- AUTH-112를 SSO 상위 작업으로 재개하고 데모와 운영 마일스톤을 분리한다.\n- 데모는 전용 URL, SAML, member JIT, 오류 화면, 감사 로그, 모니터링, 내부 CLI까지만 포함한다.\n- 그룹별 문서 권한과 SCIM 즉시 비활성화는 12월 운영 단계로 미룬다.\n- RelayState는 서버 nonce로 저장하고 5분·일회용·허용 경로만 지원한다.\n- 신규 JIT 사용자는 모두 member이며 관리자 승격은 수동으로만 한다.\n- SSO 설정 유효성 검증과 테스트 로그인 전에는 기능 플래그를 활성화하지 않는다.\n- 비상 접근 절차는 고객 승인 전 임의로 만들지 않으며 운영 출시 차단 조건으로 둔다.\n\n## 액션 아이템\n\n| ID | 액션 | 담당자 | 기한 | 예상 티켓 처리 |\n|---|---|---|---|---|\n| 30m1-a1 | AUTH-112 재개와 SSO 데모·운영 마일스톤 정리 | 김민준 | 2026-10-22 | 기존 이슈 갱신 (AUTH-112) |\n| 30m1-a2 | SAML 실험 코드 보안 점검과 assertion 원문 로그 제거 | 박서연 | 2026-10-22 | 기존 이슈의 하위 티켓 (AUTH-112) |\n| 30m1-a3 | 미래금융 SSO 기술 범위 문서 작성 | 김민준 | 2026-10-23 오전 | 신규 티켓 |\n| 30m1-a4 | SAML 콜백·검증·nonce·member JIT 구현 | 박서연 | 2026-11-09 | 기존 이슈의 하위 티켓 (AUTH-112) |\n| 30m1-a5 | 조직별 SSO 설정 모델·내부 CLI·감사 로그 구현 | 김민준 | 2026-11-09 | 기존 이슈의 하위 티켓 (AUTH-112) |\n| 30m1-a6 | SSO 리다이렉트·실패 화면과 테스트 매트릭스 구현 | 이도윤 | 2026-11-13 | 기존 이슈의 하위 티켓 (AUTH-112) |\n| 30m1-a7 | SSO 설정 상태 카드·접근성·비밀번호 경로 정책 초안 | 최유진 | 2026-10-30 | 신규 티켓 (AUTH-87) |\n| 30m1-a8 | AI 문서 권한의 현재 제약과 그룹 권한 후속 범위 문서화 | 정하늘 | 2026-10-28 | 신규 티켓 |\n| 30m1-a9 | 고객 인증서 비밀 저장 재사용 가능성 검토 | 오지훈 | 2026-10-23 | 기존 이슈 갱신 (SECRET-27) |\n| 30m1-a10 | Entra ID 테스트 테넌트와 사용자 준비 | 오지훈 | 2026-10-23 | 기존 이슈 갱신 (INFRA-96) |\n| 30m1-a11 | SSO 대시보드·알람·런북과 롤백 훈련 | 오지훈 | 2026-11-18 15:00 | 신규 티켓 |\n| 30m1-a12 | SCIM 요구사항 인터뷰와 데이터 모델·API 범위 확정 | 김민준 | 2026-11-03 | 신규 티켓 |\n| 30m1-a13 | 미래금융 비상 접근 방식 확인 | 김민준 | 운영 전 | 발행 보류 |\n\n## 미결 질문\n\n- 비상 관리자 계정을 허용할지 또는 별도 SSO 장애 절차를 쓸지\n- 12월 SCIM 구현 담당자\n- 고객 관리자용 메타데이터 UI의 최종 운영 범위\n\n## 이번 범위에서 제외하거나 보류한 항목\n\n- 11월 데모의 SCIM\n- Azure 그룹 기반 문서 접근 제어\n- 11월 고객 관리자용 인증서 업로드 UI\n- 이메일 도메인 자동 SSO 탐색\n"
+  },
+  "project": {
+    "projectId": 1,
+    "name": "기업용 문서 협업 서비스",
+    "githubOwner": "MCP-Capstone",
+    "githubRepo": "mcp-capstone"
+  },
+  "projectMembers": [
+    {
+      "projectMemberId": 21,
+      "userId": null,
+      "name": "김민준",
+      "githubName": null
+    },
+    {
+      "projectMemberId": 22,
+      "userId": null,
+      "name": "박서연",
+      "githubName": null
+    },
+    {
+      "projectMemberId": 23,
+      "userId": null,
+      "name": "이도윤",
+      "githubName": null
+    },
+    {
+      "projectMemberId": 24,
+      "userId": null,
+      "name": "최유진",
+      "githubName": null
+    },
+    {
+      "projectMemberId": 25,
+      "userId": null,
+      "name": "정하늘",
+      "githubName": null
+    },
+    {
+      "projectMemberId": 26,
+      "userId": null,
+      "name": "오지훈",
+      "githubName": null
+    },
+    {
+      "projectMemberId": 30,
+      "userId": null,
+      "name": "최윤경",
+      "githubName": "0unk0"
+    }
+  ]
+}
