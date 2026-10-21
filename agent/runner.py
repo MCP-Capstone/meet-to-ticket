@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -10,6 +11,7 @@ from typing import Any
 
 import prompts
 from config import Settings
+from issue_tools import IssueTools
 from nodes import AgentNodes, run_metrics
 from publisher import DryRunPublisher, McpPublisher
 from reporter import BackendReporter
@@ -107,17 +109,66 @@ def initial_state(req: RunRequest, trace_id: str | None = None, deadline_seconds
     }
 
 
-async def make_mcp_publisher(settings: Settings) -> McpPublisher:
+def _mcp_client(name: str, url: str) -> Any:
     from langchain_mcp_adapters.client import MultiServerMCPClient
 
-    client = MultiServerMCPClient(
-        {"github": {"transport": "streamable_http", "url": settings.mcp_server_url}}
+    return MultiServerMCPClient({name: {"transport": "streamable_http", "url": url}})
+
+
+async def github_tools(settings: Settings) -> dict[str, Any]:
+    """mcp-server의 도구 (create_issue, search_issues 등). 연결이 안 되면 예외."""
+    tools = await _mcp_client("github", settings.mcp_server_url).get_tools(server_name="github")
+    return {t.name: t for t in tools}
+
+
+def make_mcp_publisher(tools: dict[str, Any]) -> McpPublisher:
+    if "create_issue" not in tools:
+        raise RuntimeError(f"create_issue 도구를 찾지 못함: {sorted(tools)}")
+    return McpPublisher(tools["create_issue"])
+
+
+async def make_issue_tools(
+    settings: Settings, owner: str, repo: str, github: dict[str, Any] | None
+) -> tuple[IssueTools | None, str]:
+    """중복 판단용 도구를 준비한다. (도구, 상태: disabled | unavailable | ready)
+
+    rag-mcp는 github 서버와 따로 연결한다. rag-mcp가 꺼져 있어도 발행은 그대로 해야 하기 때문이다.
+    """
+    if not settings.rag_enabled:
+        return None, "disabled"
+    client = _mcp_client("rag", settings.rag_mcp_url)
+    try:
+        rag = {t.name: t for t in await client.get_tools(server_name="rag")}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("rag-mcp 연결 실패 (%s), 중복 확인 없이 진행: %s", settings.rag_mcp_url, exc)
+        return None, "unavailable"
+    if "search_similar_issues" not in rag:
+        log.warning("rag-mcp에 search_similar_issues가 없어 중복 확인 없이 진행: %s", sorted(rag))
+        return None, "unavailable"
+
+    async def read_resource(uri: str) -> str:
+        blobs = await client.get_resources("rag", uris=[uri])
+        return "\n".join(b.as_string() for b in blobs)
+
+    tools = IssueTools(
+        owner, repo,
+        similar=rag["search_similar_issues"],
+        keyword=(github or {}).get("search_issues"),
+        reader=read_resource,
+        sync_tool=rag.get("sync_issues"),
+        index_tool=rag.get("index_issue"),
+        max_chars=settings.tool_result_max_chars,
     )
-    tools = await client.get_tools()
-    tool = next((t for t in tools if t.name == "create_issue"), None)
-    if tool is None:
-        raise RuntimeError(f"create_issue 도구를 찾지 못함: {[t.name for t in tools]}")
-    return McpPublisher(tool)
+    return tools, "ready"
+
+
+async def sync_index(tools: IssueTools, settings: Settings) -> dict[str, Any] | None:
+    """실행마다 1회 색인을 최신 상태로 맞춘다 (바뀐 이슈만). 시간 안에 끝나지 않으면 건너뛴다."""
+    try:
+        return await asyncio.wait_for(tools.sync(), timeout=settings.rag_sync_timeout_seconds)
+    except asyncio.TimeoutError:
+        log.warning("색인 갱신이 %s초 안에 끝나지 않아 건너뜀", settings.rag_sync_timeout_seconds)
+        return None
 
 
 def _failed(req: RunRequest, code: str, message: str) -> dict[str, Any]:
@@ -139,6 +190,7 @@ async def run(
     llm: Any | None = None,
     publisher: Any | None = None,
     reporter: Any | None = None,
+    issue_tools: IssueTools | None = None,
 ) -> RunResult:
     """요청 1건을 하나의 trace로 실행한다.
 
@@ -171,7 +223,8 @@ async def run(
         metadata=metadata,
         tags=["meet-to-ticket"],
     ) as run_tree:
-        result = await _run(req, settings, trace_id, metadata, llm=llm, publisher=publisher, reporter=reporter)
+        result = await _run(req, settings, trace_id, metadata, llm=llm, publisher=publisher, reporter=reporter,
+                            issue_tools=issue_tools)
         run_tree.end(outputs={"status": result.status, "errorCode": result.error_code, "summary": result.summary})
     log.info("작업 끝 task=%s trace=%s status=%s error=%s %sms", req.task_id, trace_id,
              result.status, result.error_code, result.metrics.get("durationMs"))
@@ -187,19 +240,23 @@ async def _run(
     llm: Any | None,
     publisher: Any | None,
     reporter: Any | None,
+    issue_tools: IssueTools | None = None,
 ) -> RunResult:
     state = initial_state(req, trace_id, settings.task_deadline_seconds)
+    publisher_was_injected = publisher is not None  # 테스트에서 가짜 발행 도구를 넣은 경우
     reporter = reporter or BackendReporter(settings.backend_base_url, settings.backend_token)
     if llm is None:
         from llm import OpenAILLM
 
         llm = OpenAILLM(settings)
+    github: dict[str, Any] | None = None
     if publisher is None:
         if settings.dry_run:
             publisher = DryRunPublisher()
         else:
             try:
-                publisher = await make_mcp_publisher(settings)
+                github = await github_tools(settings)
+                publisher = make_mcp_publisher(github)
             except Exception as exc:  # noqa: BLE001
                 log.error("MCP 서버 연결 실패 task=%s: %s", req.task_id, exc)
                 result = RunResult(
@@ -210,9 +267,22 @@ async def _run(
                 await reporter.result(req.task_id, result.model_dump(by_alias=True, mode="json"))
                 return result
 
+    if issue_tools is None:
+        if settings.rag_enabled and github is None and not publisher_was_injected:
+            # dry run이어도 조회 도구(search_issues)는 쓸 수 있게 github 서버에 붙어 본다
+            try:
+                github = await github_tools(settings)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("mcp-server 조회 도구를 쓰지 못함 (키워드 검색 없이 진행): %s", exc)
+        issue_tools, rag_status = await make_issue_tools(
+            settings, req.project.github_owner, req.project.github_repo, github)
+    else:
+        rag_status = "ready"
+    state["rag"] = {"status": rag_status, "sync": await sync_index(issue_tools, settings) if issue_tools else None}
+
     from graph import build_graph
 
-    nodes = AgentNodes(llm=llm, publisher=publisher, reporter=reporter, settings=settings)
+    nodes = AgentNodes(llm=llm, publisher=publisher, reporter=reporter, settings=settings, issue_tools=issue_tools)
     app = build_graph(nodes, checkpointer())
     config = {"recursion_limit": 50, "run_name": "agent-graph", "tags": ["meet-to-ticket"], "metadata": metadata,
               **_thread(req.task_id)}

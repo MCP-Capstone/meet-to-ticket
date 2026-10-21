@@ -67,6 +67,7 @@ class AgentState(TypedDict, total=False):
     trace_id: str | None        # LangSmith run id (결과의 traceId)
     started_at: float           # 작업 시작 시각 (epoch 초, 소요 시간 계산용)
     deadline_at: float | None   # 작업 마감 시각 (epoch 초). None이면 마감 없음
+    rag: dict[str, Any]         # rag-mcp 상태 {"status": disabled|unavailable|ready, "sync": 색인 갱신 결과}
     meeting_id: str
     meeting_date: str | None
     original_content: str
