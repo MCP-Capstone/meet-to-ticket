@@ -103,6 +103,22 @@ def _shorten(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+def dedupe_link(dedupe: dict[str, Any] | None) -> str | None:
+    """중복 판단 결과를 새 이슈 본문의 "관련" 줄로 바꾼다. 연결할 기존 이슈가 없으면 None.
+
+    같은 작업의 열린 이슈는 새로 발행하지 않으므로(nodes.publish) 여기에는 오지 않는다.
+    """
+    if not dedupe or not dedupe.get("relation") or not dedupe.get("issue_number"):
+        return None
+    n = dedupe["issue_number"]
+    closed = dedupe.get("issue_state") == "closed"
+    return {
+        "SAME": f"이전 작업: #{n}",
+        "CHANGE": f"변경 전 작업: #{n}" if closed else f"#{n}과 다른 변경",
+        "RELATED": f"관련 이슈: #{n}",
+    }.get(dedupe["relation"])
+
+
 def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str) -> str:
     lines: list[str] = []
     if background:
@@ -134,12 +150,15 @@ def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str) -
     lines += [""]
 
     expected = ticket.get("expected") or {}
-    if expected.get("raw") or expected.get("keys"):
+    link = dedupe_link(ticket.get("dedupe"))
+    if expected.get("raw") or expected.get("keys") or link:
         lines += ["## 관련"]
         if expected.get("raw"):
             lines += [f"- 회의록 예상 처리: {expected['raw']}"]
         if expected.get("keys"):
             lines += [f"- 관련 키: {', '.join(expected['keys'])}"]
+        if link:
+            lines += [f"- {link}"]
         lines += [""]
 
     notes = ticket.get("review_notes") or []

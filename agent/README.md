@@ -351,8 +351,8 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → dedupe → publish → finish), 중복 판단은 티켓마다 model ⇄ tools 루프(모델이 도구 선택), 작업 마감, LLM 호출 시간 한도 | 보완 `MAX_REVISIONS`=2, recursion 50, `TASK_DEADLINE_SECONDS`=600, `LLM_TIMEOUT_SECONDS`=120, 판단 `DEDUPE_MAX_TOOL_CALLS`=4·`DEDUPE_MAX_SAME_TOOL`=3·`DEDUPE_TIMEOUT_SECONDS`=30·`DEDUPE_CONCURRENCY`=4 |
 | Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입, 원문 길이 한도 | `MAX_SOURCE_CHARS`=40000, `DRAFT_BATCH_SIZE`·`REVIEW_BATCH_SIZE`=10 |
 | State·Memory | 노드가 끝날 때마다 상태 저장(checkpointer, thread id = taskId), 발행한 taskId 재요청은 저장된 결과로 응답, 실행 중 같은 taskId는 409, `GET /runs/{id}/history` | 메모리 저장 (재시작 시 사라짐) |
-| Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행, 중복 판단 도구 호출 수·같은 도구 수·시간 한도, 도구 결과에서 본 이슈 번호만 인정 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
-| Recovery | LLM 오류를 종류별로 처리(아래 "LLM 오류 처리"), 대체 모델, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단, 검수 보완 한도 초과 시 기본 초안 | `LLM_RETRIES`=2, `OPENAI_FALLBACK_MODEL` |
+| Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행, 중복 판단 도구 호출 수·같은 도구 수·시간 한도, 도구 결과에서 본 이슈 번호만 인정, 기존 이슈는 연결만 하고 수정·닫기·댓글 안 함 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
+| Recovery | LLM 오류를 종류별로 처리(아래 "LLM 오류 처리"), 대체 모델, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단, 검수 보완 한도 초과 시 기본 초안, 중복 판단·색인 추가가 실패해도 새로 발행 | `LLM_RETRIES`=2, `OPENAI_FALLBACK_MODEL` |
 | Observability | LangSmith trace(작업 1건 = trace 1개), 결과의 `traceId`·`metrics`, `GET /runs/{id}` 진행 단계, 항목별 검수 이력 JSON, task·trace id가 붙은 로그 | `LANGSMITH_TRACING`, `LANGSMITH_PROJECT`, `BACKEND_BASE_URL` |
 
 ### 실행 한도
@@ -422,7 +422,7 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 
 결과(응답·백엔드 보고)도 camelCase: `taskId`, `status`, `stage`, `errorCode`, `errorMessage`, `summary`, `items[].{taskItemId, workKey, title, contentJson, action, reason, reviewStatus, publishStatus, githubIssueNumber, githubIssueUrl, errorMessage}`, `traceId`, `metrics`
 
-- `publishStatus`: `SUCCEEDED`(발행), `FAILED`(실패), `UNKNOWN`(응답 불명), `BLOCKED`(검수 미통과로 발행 안 함), `SKIPPED`(DRY_RUN이라 발행 생략, 이슈 번호 없음)
+- `publishStatus`: `SUCCEEDED`(발행, 또는 같은 작업의 열린 기존 이슈로 연결 — 아래 "중복 판단"), `FAILED`(실패), `UNKNOWN`(응답 불명), `BLOCKED`(검수 미통과로 발행 안 함), `SKIPPED`(DRY_RUN이라 발행 생략, 이슈 번호 없음)
 
 - `traceId`: LangSmith run id. 성공·실패 모두 들어 있어 실패한 작업의 trace를 바로 찾을 수 있다.
 - `metrics`: `durationMs`, `promptVersion`, `model`, `reviewModel`, `tracing`(trace 수집 여부), `llmCalls`, `llmRetries`, `fallbackUsed`(대체 모델 사용 수), `errors`(오류 종류별 수: transient·request·auth), `droppedSettings`(모델이 거부해 뺀 설정)
@@ -483,7 +483,7 @@ python mcp_check.py --owner MCP-Capstone --repo mcp-capstone --rag "CSV 빈 결�
 - 저장소(owner/repo)는 백엔드 요청 값으로 고정한다. 모델용 도구에는 저장소 인자가 없어서 모델이 바꿀 수 없다.
 - 도구 결과는 `TOOL_RESULT_MAX_CHARS`(2000자)로 자르고, 오류는 예외 대신 `[코드] 메시지`로 모델에게 돌려준다. `INDEX_EMPTY`(색인 없음)는 "후보 없음"으로 준다.
 - rag-mcp에 연결하지 못하면 경고만 남기고 중복 확인 없이 기존처럼 발행한다. 결과 `metrics.rag.status`는 `disabled` / `unavailable` / `ready`이고, `metrics.rag.sync`에 색인 갱신 결과가 남는다.
-- 판단 결과에 따른 발행(같은 작업이면 기존 이슈에 연결 등)은 #94에서 추가한다. 지금은 판단만 기록하고 기존처럼 발행한다.
+- 판단 결과에 따른 발행은 아래 "중복 판단 (dedupe)"의 "발행 처리" 표를 본다.
 
 ### 중복 판단 (dedupe)
 
@@ -515,7 +515,23 @@ model ──(조회 도구 호출)──▶ tools ──▶ model ── … ─
 - 도구 오류는 판단을 멈추지 않는다. `[코드] 메시지`로 모델에게 돌려주고, 모델이 다른 도구를 고르거나 UNRELATED로 끝낸다.
 - 24건 회의도 4건씩 동시에 판단해 최악 약 3분 안에 끝난다 (30초 × 24 / 4).
 - `RAG_ENABLED=false`(기본)면 이 단계를 건너뛰고 기존처럼 발행한다.
-- 결과: 항목 `contentJson.dedupe`에 `relation`, `issue_number`, `issue_state`, `issue_title`, `reason`, `tool_calls`(모델이 고른 도구와 인자), `skipped`가 남는다. `metrics.dedupe`에 판단 수, 건너뛴 수, 도구 호출 수, 관계별 수가 남는다.
+- 결과: 항목 `contentJson.dedupe`에 `relation`, `issue_number`, `issue_state`, `issue_title`, `reason`, `tool_calls`(모델이 고른 도구와 인자), `skipped`가 남는다. 연결했으면 `linked_existing: true`, 새로 발행해 색인에 넣었으면 `indexed`가 붙는다. `metrics.dedupe`에 판단 수, 건너뛴 수, 도구 호출 수, 관계별 수, 색인한 수가 남는다.
+
+#### 발행 처리
+
+| 판단 | 기존 이슈가 열려 있음 | 기존 이슈가 닫혀 있음 |
+|---|---|---|
+| `SAME` | 새로 만들지 않고 연결 | 새로 발행, 본문 "관련"에 `이전 작업: #N` |
+| `CHANGE` | 새로 발행, `#N과 다른 변경` | 새로 발행, `변경 전 작업: #N` |
+| `RELATED` | 새로 발행, `관련 이슈: #N` | 새로 발행, `관련 이슈: #N` |
+| `UNRELATED` / 판단 없음 | 새로 발행 | 새로 발행 |
+
+- 연결은 `publishStatus=SUCCEEDED`, `githubIssueNumber`·`githubIssueUrl`은 기존 이슈(`https://github.com/{owner}/{repo}/issues/{N}`), `reason`은 `기존 이슈 #N과 같은 작업이라 새로 만들지 않음`이다. 백엔드 계약은 바뀌지 않는다(생성 성공 조건인 번호와 프로젝트 저장소 URL을 만족).
+- `summary.linked`는 연결한 수다. `summary.published`(SUCCEEDED 수)에 들어 있다.
+- 연결은 GitHub에 쓰지 않으므로 `DRY_RUN`이어도 한다.
+- 기존 이슈는 수정·닫기·댓글을 하지 않는다.
+- 새로 발행한 이슈는 바로 색인에 넣어(`index_issue`) 다음 실행에서 찾을 수 있게 한다. 실패하거나 10초 안에 끝나지 않아도 경고만 남기고 발행 결과는 그대로다. DRY_RUN이면 하지 않는다.
+- 그래서 같은 회의록을 새 taskId로 다시 보내면, 모델이 첫 실행에서 만든 열린 이슈를 찾아 `SAME`으로 판단하고 새 이슈 없이 연결한다.
 - 진행 단계는 `REVIEWING`을 유지한다(백엔드 단계 값에 새 값이 없음). `GET /runs/{id}/history`와 LangSmith trace에는 `dedupe` 노드와 티켓별 `dedupe` 실행(model → tools …)이 보인다.
 
 ### 검수 판정
@@ -543,7 +559,7 @@ model ──(조회 도구 호출)──▶ tools ──▶ model ── … ─
 - `APPROVED`만 발행 단계로 넘어간다.
 
 ### 1차 한계
-- `RAG_ENABLED=false`(기본)면 기존 GitHub 이슈를 조회하지 않는다. 켜도 #94 전까지는 판단만 기록한다. 같은 taskId는 다시 발행하지 않지만(위 표), 같은 회의를 새 taskId로 다시 보내면 이슈가 다시 생성된다.
+- `RAG_ENABLED=false`(기본)면 기존 GitHub 이슈를 조회하지 않는다. 같은 taskId는 다시 발행하지 않지만(위 표), 같은 회의를 새 taskId로 다시 보내면 이슈가 다시 생성된다. 켜면 같은 작업의 열린 이슈로 연결한다("중복 판단").
 - "기존 이슈 갱신(AUTH-112)" 같은 표기는 새 이슈 본문에 관련 키로만 남긴다.
 
 ### 테스트

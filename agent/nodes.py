@@ -51,6 +51,9 @@ from state import (
 
 log = logging.getLogger("agent.nodes")
 
+# 새 이슈를 색인에 넣을 때 기다리는 시간. 넘으면 색인 없이 넘어간다 (발행 결과는 그대로)
+INDEX_TIMEOUT_SECONDS = 10
+
 
 def _chunks(items: list[Any], size: int) -> list[list[Any]]:
     size = max(1, size)
@@ -71,7 +74,16 @@ def _dedupe_metrics(tickets: list[dict[str, Any]]) -> dict[str, Any]:
         "skipped": sum(1 for d in done if d["skipped"]),
         "toolCalls": sum(len(d["tool_calls"]) for d in done),
         "relations": dict(Counter(d["relation"] for d in done if d["relation"])),
+        "indexed": sum(1 for d in done if d.get("indexed")),
     }}
+
+
+def _open_same_issue(ticket: dict[str, Any]) -> int | None:
+    """같은 작업(SAME)으로 판단된 열린 기존 이슈 번호. 없으면 None (새로 발행)."""
+    d = ticket.get("dedupe") or {}
+    if d.get("relation") == "SAME" and d.get("issue_state") == "open" and d.get("issue_number"):
+        return d["issue_number"]
+    return None
 
 
 def run_metrics(settings: Settings, llm: Any, started_at: float | None, rag: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -427,7 +439,8 @@ class AgentNodes:
     async def dedupe(self, state: AgentState) -> dict[str, Any]:
         """승인된 티켓마다 모델이 조회 도구를 골라 기존 이슈와의 관계를 판단한다 (dedupe.py).
 
-        판단만 기록하고 발행 방식은 바꾸지 않는다. 판단이 없거나 실패한 티켓은 지금처럼 새로 발행한다.
+        판단은 발행 노드가 쓴다: 같은 작업의 열린 이슈는 연결, 나머지는 새로 발행하고 본문에 관련 이슈를 남긴다.
+        판단이 없거나 실패한 티켓은 그냥 새로 발행한다.
         """
         tickets = _copy(state["tickets"])
         targets = [t for t in tickets if t["review_status"] == REVIEW_APPROVED]
@@ -475,6 +488,15 @@ class AgentNodes:
             if t["review_status"] != REVIEW_APPROVED:
                 t["publish_status"] = "BLOCKED"
                 continue
+            existing = _open_same_issue(t)
+            if existing:
+                # 같은 작업의 열린 이슈가 있으면 새로 만들지 않고 그 이슈로 연결한다 (GitHub에 쓰지 않음)
+                t["publish_status"] = "SUCCEEDED"
+                t["github_issue_number"] = existing
+                t["github_issue_url"] = f"https://github.com/{state['owner']}/{state['repo']}/issues/{existing}"
+                t["reason"] = f"기존 이슈 #{existing}과 같은 작업이라 새로 만들지 않음"
+                t["dedupe"] = {**t["dedupe"], "linked_existing": True}
+                continue
             if fatal:
                 t["publish_status"] = "FAILED"
                 t["error_message"] = f"[{fatal}] 앞선 오류로 발행을 중단함"
@@ -506,11 +528,24 @@ class AgentNodes:
             dropped = res.get("dropped_assignees") or []
             if dropped:
                 t["warnings"].append(f"GitHub에서 담당자 지정이 안 됨: {', '.join(dropped)}")
+            if self.issue_tools is not None and t["github_issue_number"]:
+                # 다음 실행의 중복 판단에서 찾을 수 있게 색인에 넣는다. 실패해도 발행 결과는 그대로
+                indexed = await self._index(t["github_issue_number"])
+                if t.get("dedupe") is not None:
+                    t["dedupe"] = {**t["dedupe"], "indexed": indexed}
         update: dict[str, Any] = {"tickets": tickets, "stage": STAGE_PUBLISHING}
         if fatal:
             update["error_code"] = fatal
             update["error_message"] = fatal_message
         return update
+
+    async def _index(self, number: int) -> bool:
+        """새 이슈를 색인에 넣는다. rag-mcp가 응답하지 않아도 발행이 멈추지 않게 시간 한도를 둔다."""
+        try:
+            return await asyncio.wait_for(self.issue_tools.index(number), timeout=INDEX_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            log.warning("이슈 색인이 %s초 안에 끝나지 않아 건너뜀 #%s", INDEX_TIMEOUT_SECONDS, number)
+            return False
 
     # ------------------------------------------------------------ 5. 결과 정리·보고
 
@@ -567,6 +602,7 @@ class AgentNodes:
             "published": sum(1 for i in items if i["publish_status"] == "SUCCEEDED"),
             "publishFailed": sum(1 for i in items if i["publish_status"] == "FAILED"),
             "publishUnknown": sum(1 for i in items if i["publish_status"] == "UNKNOWN"),
+            "linked": sum(1 for i in items if (i["content_json"]["dedupe"] or {}).get("linked_existing")),
         }
         return {
             "task_id": state["task_id"],
