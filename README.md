@@ -28,6 +28,17 @@
 
 ## 실행 방법
 
+### 전체 서비스를 Docker로 실행
+
+Docker Desktop만으로 5개 서비스를 함께 실행할 수 있다. 환경 변수 초기 설정 후:
+
+```bash
+docker compose -f compose.full.yml up -d --build
+```
+
+초기 설정·포트·로그·종료·검증 방법은 [전체 Docker 실행 안내](docs/docker-compose.md)를 참고한다.
+아래 내용은 각 서비스를 직접 실행하는 개발 방식이다.
+
 ### 준비물
 
 | 항목 | 용도 |

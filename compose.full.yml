@@ -1,0 +1,114 @@
+# 기존 DB 전용 docker-compose.yml과 별도로 사용한다.
+# docker compose -f compose.full.yml up -d --build
+name: meet-to-ticket-full
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-meettoticket}
+      POSTGRES_USER: ${POSTGRES_USER:-meettoticket}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meettoticket}
+      TZ: Asia/Seoul
+    volumes:
+      - full-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [app]
+
+  mcp-server:
+    build: ./mcp-server
+    restart: unless-stopped
+    env_file:
+      - path: ./mcp-server/.env
+        required: false
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), timeout=2).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [app]
+
+  agent:
+    build: ./agent
+    restart: unless-stopped
+    env_file:
+      - path: ./agent/.env
+        required: false
+    environment:
+      MCP_SERVER_URL: http://mcp-server:8000/mcp
+      BACKEND_BASE_URL: http://backend:8080
+      BACKEND_INTERNAL_TOKEN: ${BACKEND_INTERNAL_TOKEN:?루트 .env에 BACKEND_INTERNAL_TOKEN을 설정하세요}
+      # 루트 값이 agent/.env보다 우선한다. 기본값은 실제 이슈 생성 없음.
+      DRY_RUN: ${DRY_RUN:-true}
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [app]
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: demo
+      AGENT_MODE: ${AGENT_MODE:-live}
+      AGENT_BASE_URL: http://agent:8001
+      BACKEND_INTERNAL_TOKEN: ${BACKEND_INTERNAL_TOKEN:?루트 .env에 BACKEND_INTERNAL_TOKEN을 설정하세요}
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-meettoticket}
+      DB_USERNAME: ${POSTGRES_USER:-meettoticket}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-meettoticket}
+      DEMO_LOGIN_ID: ${DEMO_LOGIN_ID:-demo1}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-password1}
+      TZ: Asia/Seoul
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "3", "http://127.0.0.1:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks: [app]
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [app]
+
+networks:
+  # 호스트 공개는 ports가 있는 두 서비스뿐이며 OpenAI·GitHub 외부 호출은 유지한다.
+  app:
+    driver: bridge
+
+volumes:
+  # 기존 로컬 postgres-data와 분리해 같은 DB 영역의 동시 사용을 피한다.
+  full-postgres-data:
