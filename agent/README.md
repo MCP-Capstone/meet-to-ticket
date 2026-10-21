@@ -297,7 +297,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | `main.py` | FastAPI (`POST /runs`, `GET /runs/{task_id}` 진행 단계·결과, `GET /health`) |
 | `cli.py` | 백엔드 없이 회의 요약 파일로 바로 실행 |
 | `runner.py` | 요청 1건 실행 (MCP 연결, 그래프 실행) |
-| `graph.py` | LangGraph 그래프 (prepare → draft → review ⇄ draft → publish → finish) |
+| `graph.py` | LangGraph 그래프 (prepare → draft → review ⇄ draft → dedupe → publish → finish) |
 | `nodes.py` | 노드 구현, 검수 판정 규칙 |
 | `parsing.py` | 회의 요약 마크다운 해석 (액션 아이템 표 등) |
 | `resolve.py` | 담당자 매핑, 기한 계산, 예상 처리 분류 |
@@ -307,6 +307,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | `reporter.py` | 백엔드 진행·결과 보고 |
 | `mcp_check.py` | MCP 서버 연결 확인 (이슈 목록 읽기, `--write`면 테스트 이슈 생성, `--rag`면 rag-mcp와 판단용 도구 확인) |
 | `issue_tools.py` | 중복 판단용 기존 이슈 조회 도구 (모델용 3개, 코드용 색인 갱신·색인) |
+| `dedupe.py` | 중복 판단 루프 (모델이 조회 도구를 골라 부르고 관계를 제출) |
 | `samples/` | 회의 요약 예시 3종, 팀원 명단, 요청 목데이터 |
 
 ### 모델
@@ -315,6 +316,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 |---|---|---|---|---|
 | 액션 아이템 추출, 이슈 초안 | `gpt-5.4-nano` | 끔 (`none`) | 0 | `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` |
 | 검수 | `gpt-5.4-mini` | 모델 기본값 | 1 | `OPENAI_REVIEW_MODEL`, `OPENAI_REVIEW_REASONING_EFFORT` |
+| 중복 판단 (도구 선택) | `gpt-5.4-mini` | 검수와 같음 | 1 | `OPENAI_DEDUPE_MODEL` |
 
 - 초안은 같은 회의록이면 같은 결과가 나오도록 추론을 끄고 temperature 0으로 호출한다.
 - 검수는 판단이 중요해 추론을 켠다. gpt-5 계열은 추론을 켜면 temperature 0을 받지 않아 기본값 1로 호출된다(langchain-openai가 자동으로 뺀다).
@@ -327,6 +329,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | `prompts/rows_system.md` | 표가 없을 때 본문에서 할 일 추출 | - |
 | `prompts/draft_system.md`, `draft_user.md` | 이슈 초안 작성 | `{summary}`, `{items}` |
 | `prompts/review_system.md`, `review_user.md` | 검수 | `{summary}`, `{source_note}`, `{excluded}`, `{drafts}` |
+| `prompts/dedupe_system.md`, `dedupe_user.md` | 중복 판단 (도구 고르기, 관계 판단) | `{title}`, `{action}`, `{description}`, `{keys}`, `{expected}` |
 
 검수 프롬프트의 2·3·4·7·8번은 아래 "검수 판정" 표의 번호다. LLM이 판정하는 항목만 넣었고, 1·5·6·9번은 코드가 확인한다.
 
@@ -335,7 +338,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 1. `prompts/*.md`만 고친다. `prompts.py`와 `llm.py`는 건드리지 않는다.
 2. `pytest`로 파일과 자리표시자가 맞는지 확인한다.
 3. 샘플 3종을 `--dry-run`으로 다시 돌려 고치기 전 결과와 비교한다 (할 일 수, 승인·확인 필요 수, 보완 횟수).
-4. 프롬프트 버전(`PROMPT_VERSION`, 다섯 파일 내용의 해시 8자리)이 바뀐다. 실행 로그 `LLM 준비: … 프롬프트 버전 …`으로 어떤 프롬프트로 만든 결과인지 구분한다.
+4. 프롬프트 버전(`PROMPT_VERSION`, 프롬프트 파일 내용의 해시 8자리)이 바뀐다. 실행 로그 `LLM 준비: … 프롬프트 버전 …`으로 어떤 프롬프트로 만든 결과인지 구분한다.
 
 ### Harness 명세
 
@@ -345,10 +348,10 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 |---|---|---|
 | Instructions | 프롬프트 md 분리, 구조화 출력, 작업별 모델·추론 설정 | `prompts/*.md`, `PROMPT_VERSION`, 위 "모델" 표 |
 | Tools | MCP 서버 2개(mcp-server, rag-mcp) 연결, 모델용 조회 도구 3개(저장소 고정, 결과 길이 제한, 오류는 `[코드] 메시지`로 모델에게 전달), 쓰기 도구는 코드만 호출 | `MCP_SERVER_URL`, `RAG_MCP_URL`, `TOOL_RESULT_MAX_CHARS` |
-| Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → publish → finish), 작업 마감, LLM 호출 시간 한도 | 보완 `MAX_REVISIONS`=2, recursion 50, `TASK_DEADLINE_SECONDS`=600, `LLM_TIMEOUT_SECONDS`=120 |
+| Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → dedupe → publish → finish), 중복 판단은 티켓마다 model ⇄ tools 루프(모델이 도구 선택), 작업 마감, LLM 호출 시간 한도 | 보완 `MAX_REVISIONS`=2, recursion 50, `TASK_DEADLINE_SECONDS`=600, `LLM_TIMEOUT_SECONDS`=120, 판단 `DEDUPE_MAX_TOOL_CALLS`=4·`DEDUPE_MAX_SAME_TOOL`=3·`DEDUPE_TIMEOUT_SECONDS`=30·`DEDUPE_CONCURRENCY`=4 |
 | Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입, 원문 길이 한도 | `MAX_SOURCE_CHARS`=40000, `DRAFT_BATCH_SIZE`·`REVIEW_BATCH_SIZE`=10 |
 | State·Memory | 노드가 끝날 때마다 상태 저장(checkpointer, thread id = taskId), 발행한 taskId 재요청은 저장된 결과로 응답, 실행 중 같은 taskId는 409, `GET /runs/{id}/history` | 메모리 저장 (재시작 시 사라짐) |
-| Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
+| Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행, 중복 판단 도구 호출 수·같은 도구 수·시간 한도, 도구 결과에서 본 이슈 번호만 인정 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
 | Recovery | LLM 오류를 종류별로 처리(아래 "LLM 오류 처리"), 대체 모델, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단, 검수 보완 한도 초과 시 기본 초안 | `LLM_RETRIES`=2, `OPENAI_FALLBACK_MODEL` |
 | Observability | LangSmith trace(작업 1건 = trace 1개), 결과의 `traceId`·`metrics`, `GET /runs/{id}` 진행 단계, 항목별 검수 이력 JSON, task·trace id가 붙은 로그 | `LANGSMITH_TRACING`, `LANGSMITH_PROJECT`, `BACKEND_BASE_URL` |
 
@@ -480,7 +483,40 @@ python mcp_check.py --owner MCP-Capstone --repo mcp-capstone --rag "CSV 빈 결�
 - 저장소(owner/repo)는 백엔드 요청 값으로 고정한다. 모델용 도구에는 저장소 인자가 없어서 모델이 바꿀 수 없다.
 - 도구 결과는 `TOOL_RESULT_MAX_CHARS`(2000자)로 자르고, 오류는 예외 대신 `[코드] 메시지`로 모델에게 돌려준다. `INDEX_EMPTY`(색인 없음)는 "후보 없음"으로 준다.
 - rag-mcp에 연결하지 못하면 경고만 남기고 중복 확인 없이 기존처럼 발행한다. 결과 `metrics.rag.status`는 `disabled` / `unavailable` / `ready`이고, `metrics.rag.sync`에 색인 갱신 결과가 남는다.
-- 중복 판단 단계(모델이 위 도구를 골라 호출)는 #93, 판단 결과에 따른 발행은 #94에서 추가한다.
+- 판단 결과에 따른 발행(같은 작업이면 기존 이슈에 연결 등)은 #94에서 추가한다. 지금은 판단만 기록하고 기존처럼 발행한다.
+
+### 중복 판단 (dedupe)
+
+검수 다음, 발행 전에 승인(APPROVED)된 티켓마다 기존 이슈와의 관계를 판단한다. 모델이 조회 도구를 골라 부르고, 근거를 보고 `submit_decision`으로 관계를 제출한다.
+
+```
+model ──(조회 도구 호출)──▶ tools ──▶ model ── … ──(submit_decision)──▶ 끝
+```
+
+| 관계 | 뜻 |
+|---|---|
+| `SAME` | 같은 대상에 같은 변경 (이미 있는 작업) |
+| `CHANGE` | 같은 대상이지만 방향·값이 다른 변경 |
+| `RELATED` | 같은 영역의 다른 작업 |
+| `UNRELATED` | 관계 없음 (후보가 없을 때도) |
+
+- 모델에게는 조회 도구 3개(`search_similar_issues`, `search_issues`, `read_issue`)와 `submit_decision`만 준다. 이슈 생성 도구는 주지 않는다. 매 턴 도구를 하나 이상 부르게 한다(`tool_choice="required"`).
+- 회의록에 관련 키(예: AUTH-112)가 있으면 키워드 검색을, 없으면 유사 검색을 먼저 고르도록 프롬프트로 안내한다. 어느 도구를 몇 번 부를지는 모델이 정한다.
+- 한도는 코드가 센다. 넘으면 판단 없이 끝내고(`skipped`) 새로 발행한다.
+
+| 한도 | 기본값 | `skipped` |
+|---|---|---|
+| 티켓당 도구 호출 수 `DEDUPE_MAX_TOOL_CALLS` | 4 | `tool_limit` |
+| 같은 도구 호출 수 `DEDUPE_MAX_SAME_TOOL` | 3 | `same_tool_limit` |
+| 티켓당 시간 `DEDUPE_TIMEOUT_SECONDS` | 30초 | `timeout` |
+| 동시에 판단하는 티켓 수 `DEDUPE_CONCURRENCY` | 4 | - |
+
+- 그 밖에 판단 없이 끝나는 경우: 도구 결과에서 보지 않은 이슈 번호를 고름(`unverified_issue`), 제출 형식이 틀림(`invalid_decision`), LLM 오류(`error: …`), rag-mcp 연결 실패(`rag_unavailable`), 작업 마감이 지남(`deadline`).
+- 도구 오류는 판단을 멈추지 않는다. `[코드] 메시지`로 모델에게 돌려주고, 모델이 다른 도구를 고르거나 UNRELATED로 끝낸다.
+- 24건 회의도 4건씩 동시에 판단해 최악 약 3분 안에 끝난다 (30초 × 24 / 4).
+- `RAG_ENABLED=false`(기본)면 이 단계를 건너뛰고 기존처럼 발행한다.
+- 결과: 항목 `contentJson.dedupe`에 `relation`, `issue_number`, `issue_state`, `issue_title`, `reason`, `tool_calls`(모델이 고른 도구와 인자), `skipped`가 남는다. `metrics.dedupe`에 판단 수, 건너뛴 수, 도구 호출 수, 관계별 수가 남는다.
+- 진행 단계는 `REVIEWING`을 유지한다(백엔드 단계 값에 새 값이 없음). `GET /runs/{id}/history`와 LangSmith trace에는 `dedupe` 노드와 티켓별 `dedupe` 실행(model → tools …)이 보인다.
 
 ### 검수 판정
 
@@ -507,7 +543,7 @@ python mcp_check.py --owner MCP-Capstone --repo mcp-capstone --rag "CSV 빈 결�
 - `APPROVED`만 발행 단계로 넘어간다.
 
 ### 1차 한계
-- 기존 GitHub 이슈를 조회하지 않는다. 같은 taskId는 다시 발행하지 않지만(위 표), 같은 회의를 새 taskId로 다시 보내면 이슈가 다시 생성된다.
+- `RAG_ENABLED=false`(기본)면 기존 GitHub 이슈를 조회하지 않는다. 켜도 #94 전까지는 판단만 기록한다. 같은 taskId는 다시 발행하지 않지만(위 표), 같은 회의를 새 taskId로 다시 보내면 이슈가 다시 생성된다.
 - "기존 이슈 갱신(AUTH-112)" 같은 표기는 새 이슈 본문에 관련 키로만 남긴다.
 
 ### 테스트
