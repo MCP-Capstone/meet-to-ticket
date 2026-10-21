@@ -30,6 +30,7 @@
 | `.env` | GitHub 토큰, OpenAI 키 등 비밀 값. 직접 만든다 | **안 올림** |
 | `.venv/` | 가상환경 | **안 올림** |
 | `chroma-data/` | Vector DB 저장 폴더. 색인하면 생긴다 | **안 올림** |
+| `Dockerfile`, `.dockerignore` | 컨테이너 이미지 설정 (9번) | 올림 |
 
 ## 2. 왜 mcp-server와 환경을 따로 두나
 
@@ -128,7 +129,49 @@ pytest
 
 `tests/conftest.py`가 테스트 중 실제 GitHub·OpenAI 호출을 막습니다. 색인 테스트는 가짜 GitHub(`tests/fakes.py`), 가짜 임베딩, 임시 Chroma 폴더를 씁니다. 도구 테스트는 서버를 띄우지 않고 `mcp.call_tool`, `mcp.read_resource`로 부릅니다 (인메모리). 토큰과 키가 `.env`에 있어도 테스트에서는 지워집니다.
 
-## 8. 패키지 추가 규칙
+## 9. Docker로 실행
+
+가상환경 없이 컨테이너로 실행할 수 있습니다. 저장소 루트(`meet-to-ticket/`)에서 실행합니다.
+
+**1) 이미지 빌드** (처음 한 번, 그리고 코드나 패키지가 바뀌었을 때)
+
+```bash
+docker build -t meet-to-ticket-rag ./rag-mcp
+```
+
+**2) 색인** (처음 한 번. 이후에는 Agent가 실행할 때 `sync_issues`로 바뀐 이슈만 반영합니다)
+
+```bash
+docker run --rm --env-file rag-mcp/.env -v meet-to-ticket-rag-data:/data meet-to-ticket-rag python index.py
+```
+
+**3) 서버 실행**
+
+```bash
+docker run --rm -p 127.0.0.1:8002:8002 --env-file rag-mcp/.env -v meet-to-ticket-rag-data:/data meet-to-ticket-rag
+```
+
+- 주소는 로컬 실행과 같은 `http://127.0.0.1:8002/mcp`입니다. Agent 설정은 바꾸지 않아도 됩니다.
+- 색인은 Docker 볼륨 `meet-to-ticket-rag-data`(컨테이너 안 `/data/chroma`)에 저장됩니다. 컨테이너를 다시 띄워도 남고, 로컬 `rag-mcp/chroma-data/`와는 따로입니다.
+- 로컬에서 `python server.py`가 이미 8002번을 쓰고 있으면 먼저 끄거나 `-p 127.0.0.1:8012:8002`처럼 바깥 포트를 바꿉니다.
+- 끌 때는 실행한 터미널에서 Ctrl+C를 누릅니다.
+
+| 항목 | 내용 |
+|---|---|
+| 기반 이미지 | `python:3.12-slim` (이미지 크기 약 780MB, 대부분 chromadb 의존 패키지) |
+| 설치 패키지 | `requirements.txt` (테스트 도구는 넣지 않음) |
+| 들어가는 소스 | `*.py` (tests는 제외) |
+| 서버 주소 | 컨테이너 안에서 `0.0.0.0:8002` |
+| 색인 저장 | `/data/chroma` (볼륨) |
+| 실행 사용자 | root가 아닌 `app` |
+
+**주의**
+
+- `.env`(토큰·키)와 로컬 `chroma-data/`는 이미지에 들어가지 않습니다(`.dockerignore`).
+- `.env`의 `MCP_HOST`, `CHROMA_PATH`가 비어 있으면 컨테이너 기본값(`0.0.0.0`, `/data/chroma`)을 씁니다. 값을 적으면 그 값이 우선하므로, 컨테이너로 실행할 때는 `MCP_HOST=127.0.0.1`을 적지 않습니다.
+- 다른 서비스와 함께 띄우는 `compose.full.yml`에서는 서비스 이름으로 접속합니다(예: Agent에서 `http://rag-mcp:8002/mcp`).
+
+## 10. 패키지 추가 규칙
 
 `mcp-server/README.md` 6절과 같습니다. 패키지 추가와 compile은 환경 담당이 하며, 이 폴더에서 아래 두 줄로 `.txt`를 만듭니다.
 
