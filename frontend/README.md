@@ -50,8 +50,10 @@ http://localhost:5173 에서 열린다.
 
 백엔드 없이 화면을 개발할 수 있도록 기본값은 가짜 API(mock)를 사용한다. 화면 제목 옆에 `MOCK` 표시가 나온다.
 
-- 데모 계정 `demo` / `demo1234`로 바로 로그인할 수 있다.
+- 데모 계정 `demo1` / `password1`로 바로 로그인할 수 있다. (백엔드 demo 프로필과 같은 계정)
 - mock에서 가입한 계정과 로그인 상태는 브라우저 탭을 닫기 전까지(sessionStorage) 유지된다.
+
+백엔드가 `executionMode=MOCK`(demo 프로필)이면 헤더에 "모의 실행", 결과 화면에 "실제 GitHub 이슈는 만들지 않았습니다" 안내가 나온다.
 
 실제 백엔드에 연결하려면 `.env.example`을 `.env.local`로 복사하고 값을 바꾼 뒤 개발 서버를 다시 실행한다.
 
@@ -83,17 +85,25 @@ src/
 | POST | `/api/auth/login` | 로그인 |
 | POST | `/api/auth/logout` | 로그아웃 |
 | GET | `/api/auth/me` | 로그인 상태 확인 (새로고침 시) |
+| GET | `/api/projects` | 내 프로젝트 목록 + 백엔드 실행 모드(`MOCK` / `LIVE`). 지금은 첫 프로젝트를 쓴다 |
+| GET | `/api/projects/{projectId}/members` | 팀원 목록. 참여자 ID를 이름으로 표시 |
 | POST | `/api/projects/{projectId}/meetings` | .txt 회의록 업로드 (multipart, `file`) |
-| POST | `/api/meetings/{meetingId}/analysis` | 분석 시작 (202, `jobId`) |
-| GET | `/api/analysis/{jobId}` | 분석 상태 / 현재 단계 (2초 간격 조회) |
-| GET | `/api/analysis/{jobId}/results` | 항목별 결과 |
+| POST | `/api/meetings/{meetingId}/analysis-tasks` | 분석 시작 (202, `taskId`) |
+| GET | `/api/analysis-tasks/{taskId}` | 분석 상태 / 단계 (2초 간격 조회) |
+| GET | `/api/analysis-tasks/{taskId}/items` | 항목별 검수 / 발행 결과 + 집계 (작업이 끝난 뒤) |
 
-> 업로드 / 분석 / 결과 API의 경로와 필드는 임시다. 확정 스키마와 Swagger 명세가 나오면 `src/api/types.ts`, `src/api/real.ts`를 맞춘다.
+자세한 요청 / 응답은 백엔드 Swagger(http://localhost:8080/swagger-ui.html)와 `backend/README.md` 참고.
+
+| 값 | 의미 |
+|---|---|
+| 작업 상태 | `QUEUED` 대기 / `RUNNING` 진행 / `COMPLETED` 완료 / `PARTIALLY_FAILED` 일부 발행 실패 / `FAILED` 실패 |
+| 단계 | `EXTRACTING` 추출 / `NORMALIZING` 담당자 / 기한 정리 / `REVIEWING` 검수 / `PUBLISHING` 발행 / `VERIFYING` 확인 |
+| 발행 상태 | `SUCCEEDED` 발행됨 / `FAILED` 실패 / `UNKNOWN` 확인 필요 / `SKIPPED` 생략(모의 실행) / `BLOCKED` 검수 반려로 제외 |
 
 ## 분석 상태 조회 (polling)
 
-- `useAnalysisPolling`이 2초마다 `GET /api/analysis/{jobId}`를 호출한다. SSE는 쓰지 않는다.
-- `COMPLETED` / `FAILED`가 되면 멈추고 결과를 불러온다.
+- `useAnalysisPolling`이 2초마다 `GET /api/analysis-tasks/{taskId}`를 호출한다. SSE는 쓰지 않는다.
+- `COMPLETED` / `PARTIALLY_FAILED` / `FAILED`가 되면 멈추고 결과를 불러온다. (`FAILED`여도 항목이 있으면 결과 화면을 보여준다)
 - 처리 중 화면을 벗어나면(로그아웃, 처음으로) 조회를 정리한다.
 - 서버 오류 / 네트워크 오류가 3번 연속되면 멈추고 안내한다. 4xx는 바로 멈춘다.
 

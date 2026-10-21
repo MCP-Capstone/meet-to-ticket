@@ -12,6 +12,8 @@ const PREVIEW_LINES = 12
 
 interface Props {
   projectId: number
+  // 참여자 ID를 이름으로 바꾼다.
+  toNames: (ids: number[]) => string[]
   starting: boolean
   onStart: (meeting: Meeting) => void
 }
@@ -28,7 +30,7 @@ function validate(file: File) {
   return null
 }
 
-export function UploadForm({ projectId, starting, onStart }: Props) {
+export function UploadForm({ projectId, toNames, starting, onStart }: Props) {
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState('')
   const [meeting, setMeeting] = useState<Meeting | null>(null)
@@ -101,7 +103,7 @@ export function UploadForm({ projectId, starting, onStart }: Props) {
       >
         <input type="file" accept=".txt,text/plain" onChange={handleChange} disabled={busy} hidden />
         <strong>{file ? '다른 파일 선택' : '.txt 파일을 끌어놓거나 클릭해서 선택하세요'}</strong>
-        <span className="muted">최대 1MB, 제목 / 날짜 / 참여자가 적힌 회의록</span>
+        <span className="muted">최대 1MB, 제목 / 회의 일시 / 회의 참여자가 적힌 회의록 (참여자는 팀원 이름과 같아야 합니다)</span>
       </label>
 
       {error && <p className="error">{error}</p>}
@@ -126,7 +128,7 @@ export function UploadForm({ projectId, starting, onStart }: Props) {
               <dt>날짜</dt>
               <dd>{meeting.meetingDate}</dd>
               <dt>참여자</dt>
-              <dd>{meeting.participants.length > 0 ? meeting.participants.join(', ') : '없음'}</dd>
+              <dd>{meeting.participantIds.length > 0 ? toNames(meeting.participantIds).join(', ') : '없음'}</dd>
             </dl>
           )}
 

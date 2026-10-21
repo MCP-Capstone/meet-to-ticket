@@ -1,20 +1,25 @@
 import { useEffect, useState } from 'react'
-import type { AnalysisJob, AnalysisStep } from '../api'
+import type { AnalysisTask, TaskStage } from '../api'
 import { useAnalysisPolling } from '../hooks/useAnalysisPolling'
 import { Spinner } from './Spinner'
 
 interface Props {
-  jobId: number
+  taskId: string
   meetingTitle: string
-  onFinish: (job: AnalysisJob) => void
+  onFinish: (task: AnalysisTask) => void
   onCancel: () => void
 }
 
-const steps: { step: AnalysisStep; label: string; doing: string }[] = [
-  { step: 'EXTRACTING', label: '할 일 추출', doing: '회의록에서 할 일을 추출하고 있습니다' },
-  { step: 'REVIEWING', label: '검수', doing: '검수 Agent가 근거 / 담당자 / 기한을 검수하고 있습니다' },
-  { step: 'PUBLISHING', label: 'GitHub 이슈 발행', doing: '검수를 통과한 항목을 GitHub 이슈로 발행하고 있습니다' },
+const stages: { stage: TaskStage; label: string; doing: string }[] = [
+  { stage: 'EXTRACTING', label: '할 일 추출', doing: '회의록에서 할 일을 추출하고 있습니다' },
+  { stage: 'NORMALIZING', label: '담당자 / 기한 정리', doing: '담당자와 기한을 팀원 / 회의 날짜 기준으로 정리하고 있습니다' },
+  { stage: 'REVIEWING', label: '검수', doing: '검수 Agent가 근거 / 담당자 / 기한을 검수하고 있습니다' },
+  { stage: 'PUBLISHING', label: 'GitHub 이슈 발행', doing: '검수를 통과한 항목을 GitHub 이슈로 발행하고 있습니다' },
+  { stage: 'VERIFYING', label: '발행 결과 확인', doing: '생성된 이슈를 확인하고 있습니다' },
 ]
+
+const isFinished = (task: AnalysisTask | null) =>
+  task?.status === 'COMPLETED' || task?.status === 'PARTIALLY_FAILED' || task?.status === 'FAILED'
 
 function useElapsed(startedAt: string | undefined) {
   const [now, setNow] = useState(() => Date.now())
@@ -27,13 +32,17 @@ function useElapsed(startedAt: string | undefined) {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
 }
 
-export function AnalysisProgress({ jobId, meetingTitle, onFinish, onCancel }: Props) {
-  const { job, error } = useAnalysisPolling(jobId, onFinish)
-  const elapsed = useElapsed(job?.startedAt)
+export function AnalysisProgress({ taskId, meetingTitle, onFinish, onCancel }: Props) {
+  const { task, error } = useAnalysisPolling(taskId, onFinish)
+  const elapsed = useElapsed(task?.createdAt)
 
-  const currentIndex = job?.currentStep ? steps.findIndex((s) => s.step === job.currentStep) : -1
-  const heading =
-    currentIndex >= 0 ? steps[currentIndex].doing : job?.status === 'COMPLETED' ? '결과를 불러오고 있습니다' : '분석을 준비하고 있습니다'
+  const finished = isFinished(task)
+  const currentIndex = task?.stage ? stages.findIndex((s) => s.stage === task.stage) : -1
+  const heading = finished
+    ? '결과를 불러오고 있습니다'
+    : task?.status === 'RUNNING' && currentIndex >= 0
+      ? stages[currentIndex].doing
+      : '분석 순서를 기다리고 있습니다'
 
   if (error) {
     return (
@@ -57,11 +66,11 @@ export function AnalysisProgress({ jobId, meetingTitle, onFinish, onCancel }: Pr
       </div>
 
       <ol className="progress-steps">
-        {steps.map(({ step, label }, i) => {
-          const done = job?.status === 'COMPLETED' || (currentIndex >= 0 && i < currentIndex)
-          const active = i === currentIndex
+        {stages.map(({ stage, label }, i) => {
+          const done = finished || (currentIndex >= 0 && i < currentIndex)
+          const active = !finished && i === currentIndex
           return (
-            <li key={step} className={done ? 'done' : active ? 'active' : ''}>
+            <li key={stage} className={done ? 'done' : active ? 'active' : ''}>
               <span className="dot">{done ? '✓' : active ? <Spinner size="sm" label={label} /> : i + 1}</span>
               {label}
             </li>
