@@ -55,3 +55,16 @@ def test_api(settings):
     assert data["items"][0]["taskItemId"] and "publishStatus" in data["items"][0]
     assert client.get(f"/runs/{body['taskId']}").json()["status"] == "SUCCEEDED"
     main.app.state.overrides = {}
+
+
+@pytest.mark.anyio
+async def test_runner_mcp_unavailable(settings):
+    from runner import run
+
+    settings.mcp_server_url = "http://127.0.0.1:9/mcp"  # 아무것도 듣지 않는 포트
+    settings.dry_run = False
+    rep = FakeReporter()
+    result = await run(make_request(), settings, llm=FakeLLM(), reporter=rep)
+    assert result.status == "FAILED"
+    assert result.error_code == "MCP_UNAVAILABLE"
+    assert rep.results and rep.results[-1]["errorCode"] == "MCP_UNAVAILABLE"
