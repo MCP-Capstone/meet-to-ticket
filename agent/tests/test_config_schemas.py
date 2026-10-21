@@ -9,6 +9,8 @@ def test_empty_env_values_use_defaults(monkeypatch):
     monkeypatch.setenv("OPENAI_REVIEW_MODEL", "")
     monkeypatch.setenv("MCP_SERVER_URL", "")
     monkeypatch.setenv("OPENAI_REASONING_EFFORT", "")
+    monkeypatch.setenv("OPENAI_FALLBACK_MODEL", "")
+    assert load_settings().fallback_model == ""  # 대체 모델은 기본으로 끔
     for name in ("LLM_TIMEOUT_SECONDS", "TASK_DEADLINE_SECONDS", "MAX_SOURCE_CHARS"):
         monkeypatch.setenv(name, "")
     limits = load_settings()

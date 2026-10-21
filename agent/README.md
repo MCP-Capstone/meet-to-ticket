@@ -348,7 +348,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입, 원문 길이 한도 | `MAX_SOURCE_CHARS`=40000, `DRAFT_BATCH_SIZE`·`REVIEW_BATCH_SIZE`=10 |
 | State·Memory | 노드가 끝날 때마다 상태 저장(checkpointer, thread id = taskId), 발행한 taskId 재요청은 저장된 결과로 응답, 실행 중 같은 taskId는 409, `GET /runs/{id}/history` | 메모리 저장 (재시작 시 사라짐) |
 | Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
-| Recovery | LLM 재시도(Agent 한 곳에서만, OpenAI 클라이언트 재시도는 끔)·인증 오류 즉시 중단, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단 | `LLM_RETRIES`=2 |
+| Recovery | LLM 오류를 종류별로 처리(아래 "LLM 오류 처리"), 대체 모델, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단, 검수 보완 한도 초과 시 기본 초안 | `LLM_RETRIES`=2, `OPENAI_FALLBACK_MODEL` |
 | Observability | LangSmith trace(작업 1건 = trace 1개), 결과의 `traceId`·`metrics`, `GET /runs/{id}` 진행 단계, 항목별 검수 이력 JSON, task·trace id가 붙은 로그 | `LANGSMITH_TRACING`, `LANGSMITH_PROJECT`, `BACKEND_BASE_URL` |
 
 ### 실행 한도
@@ -365,6 +365,19 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
   - 진행 중인 노드 1개: 배치 1번에 최대 약 6분 (120초 × 3회 + 재시도 대기 4.5초)
   - 발행: 이슈마다 mcp-server의 GitHub 호출 한도 20초
 - LLM 재시도는 Agent(`llm.py`)에서만 한다. OpenAI 클라이언트의 자체 재시도는 꺼서 재시도가 겹치지 않게 했다(전에는 최대 9번 호출될 수 있었다).
+
+### LLM 오류 처리
+
+| 오류 | 처리 |
+|---|---|
+| 인증 (401·403, 잘못된 키) | 즉시 중단, `LLM_ERROR` |
+| 요청 오류 (400·404·422, 예: 입력이 너무 김) | 다시 보내도 같아서 재시도하지 않고 중단, `LLM_ERROR` |
+| 모델이 temperature·추론 설정을 거부 (400) | 그 설정만 빼고 바로 다시 호출 (재시도 횟수에 넣지 않음) |
+| 일시적 오류 (429·5xx·타임아웃·연결 오류·응답 형식 오류) | `LLM_RETRIES`회 재시도 (1.5초, 3초 대기) → 그래도 실패하면 `OPENAI_FALLBACK_MODEL`로 1회 → 그래도 실패하면 `LLM_ERROR` |
+
+- 대체 모델은 비우면 쓰지 않는다. 인증·요청 오류에는 쓰지 않는다(모델을 바꿔도 해결되지 않음).
+- 이 오류 재시도는 검수 보완 루프(`review → draft`, `MAX_REVISIONS`)와 다르다. 보완 루프는 호출은 성공했지만 검수가 지적을 낸 경우다.
+- 재시도·대체 모델 사용·오류 종류별 횟수가 결과의 `metrics`에 남는다.
 
 ### 1) 추출·검수만 확인 (OpenAI 키만 필요)
 
@@ -406,7 +419,7 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 결과(응답·백엔드 보고)도 camelCase: `taskId`, `status`, `stage`, `errorCode`, `errorMessage`, `summary`, `items[].{taskItemId, workKey, title, contentJson, action, reason, reviewStatus, publishStatus, githubIssueNumber, githubIssueUrl, errorMessage}`, `traceId`, `metrics`
 
 - `traceId`: LangSmith run id. 성공·실패 모두 들어 있어 실패한 작업의 trace를 바로 찾을 수 있다.
-- `metrics`: `durationMs`, `promptVersion`, `model`, `reviewModel`, `tracing`(trace 수집 여부), `llmCalls`, `llmRetries`, `droppedSettings`(모델이 거부해 뺀 설정)
+- `metrics`: `durationMs`, `promptVersion`, `model`, `reviewModel`, `tracing`(trace 수집 여부), `llmCalls`, `llmRetries`, `fallbackUsed`(대체 모델 사용 수), `errors`(오류 종류별 수: transient·request·auth), `droppedSettings`(모델이 거부해 뺀 설정)
 
 `?wait=true` 없이 보내면 202로 접수하고 백그라운드에서 처리한다. 처리 중에 `GET /runs/{taskId}`를 부르면 지금 단계를 돌려준다.
 
