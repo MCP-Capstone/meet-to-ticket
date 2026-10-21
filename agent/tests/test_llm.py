@@ -81,12 +81,13 @@ def fake_chat(monkeypatch):
 LIMITS = {"timeout": 120, "max_retries": 0}
 WRITER = {"model": "gpt-5.4-nano", **LIMITS, "temperature": 0, "reasoning_effort": "none"}
 REVIEWER = {"model": "gpt-5.4-mini", **LIMITS, "temperature": 0}
+DEDUPER = {"model": "gpt-5.4-mini", **LIMITS, "temperature": 0}  # 중복 판단 (도구 고르기)
 
 
 async def test_default_roles():
     client = llm.OpenAILLM(Settings())
-    # 추출·초안은 추론을 끄고 temperature 0, 검수는 모델 기본 추론
-    assert FakeChat.built == [WRITER, REVIEWER]
+    # 추출·초안은 추론을 끄고 temperature 0, 검수·중복 판단은 모델 기본 추론
+    assert FakeChat.built == [WRITER, REVIEWER, DEDUPER]
     await client.extract_rows("요약")
     await client.draft("요약", [])
     await client.review("요약", [])
@@ -99,7 +100,7 @@ async def test_model_rejecting_temperature_uses_default():
     assert await client.extract_rows("요약") == []
     # 거부한 writer만 temperature 없이 다시 만들고, 재시도 없이 바로 다시 보낸다
     assert FakeChat.calls == ["gpt-5.4-nano", "gpt-5.4-nano"]
-    assert FakeChat.built[-2:] == [{"model": "gpt-5.4-nano", **LIMITS, "reasoning_effort": "none"}, REVIEWER]
+    assert FakeChat.built[-3:] == [{"model": "gpt-5.4-nano", **LIMITS, "reasoning_effort": "none"}, REVIEWER, DEDUPER]
     FakeChat.calls.clear()
     await client.draft("요약", [])
     assert FakeChat.calls == ["gpt-5.4-nano"]  # 이후 호출은 처음부터 바뀐 설정으로
@@ -110,7 +111,7 @@ async def test_model_rejecting_reasoning_none_drops_it():
     client = llm.OpenAILLM(Settings())
     assert await client.extract_rows("요약") == []
     assert FakeChat.calls == ["gpt-5.4-nano", "gpt-5.4-nano"]
-    assert FakeChat.built[-2] == {"model": "gpt-5.4-nano", **LIMITS, "temperature": 0}
+    assert FakeChat.built[-3] == {"model": "gpt-5.4-nano", **LIMITS, "temperature": 0}
 
 
 async def test_other_request_errors_fail_without_retry_or_drop():
@@ -119,7 +120,7 @@ async def test_other_request_errors_fail_without_retry_or_drop():
     with pytest.raises(AgentFatal, match="요청 오류"):
         await client.extract_rows("요약")
     assert FakeChat.calls == ["gpt-5.4-nano"]  # 같은 요청은 다시 보내도 같아서 재시도하지 않음
-    assert FakeChat.built == [WRITER, REVIEWER]  # 설정을 빼고 다시 만들지 않음
+    assert FakeChat.built == [WRITER, REVIEWER, DEDUPER]  # 설정을 빼고 다시 만들지 않음
 
 
 async def test_stats_count_calls_retries_and_dropped_settings():
@@ -137,7 +138,8 @@ async def test_stats_count_calls_retries_and_dropped_settings():
 
 async def test_review_reasoning_effort_setting():
     llm.OpenAILLM(Settings(reasoning_effort="", review_reasoning_effort="high"))
-    assert FakeChat.built == [{"model": "gpt-5.4-nano", **LIMITS, "temperature": 0}, {**REVIEWER, "reasoning_effort": "high"}]
+    assert FakeChat.built == [{"model": "gpt-5.4-nano", **LIMITS, "temperature": 0}, {**REVIEWER, "reasoning_effort": "high"},
+                              {**DEDUPER, "reasoning_effort": "high"}]
 
 
 async def test_timeout_setting_is_passed():
@@ -200,3 +202,9 @@ async def test_auth_and_request_errors_do_not_use_fallback():
         with pytest.raises(AgentFatal, match=label):
             await client.review("요약", [])
         assert FakeChat.calls == ["gpt-5.4-mini"] and client.stats["fallbackUsed"] == 0
+
+
+async def test_tool_chat_for_dedupe():
+    client = llm.OpenAILLM(Settings(dedupe_model="gpt-5.4"))
+    chat = client.tool_chat()
+    assert chat.kwargs == {"model": "gpt-5.4", **LIMITS, "temperature": 0}  # 도구를 묶기 전 채팅 모델

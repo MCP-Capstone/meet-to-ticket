@@ -72,6 +72,8 @@ class OpenAILLM:
         self._roles = {
             "writer": {"model": settings.openai_model, "reasoning_effort": settings.reasoning_effort},
             "reviewer": {"model": settings.review_model, "reasoning_effort": settings.review_reasoning_effort},
+            # 중복 판단: 모델이 조회 도구를 골라 부른다 (구조화 출력 대신 도구 바인딩)
+            "deduper": {"model": settings.dedupe_model, "reasoning_effort": settings.review_reasoning_effort},
         }
         if settings.fallback_model:
             self._roles["fallback"] = {"model": settings.fallback_model, "reasoning_effort": ""}
@@ -101,11 +103,16 @@ class OpenAILLM:
         return _chat_model(**kwargs)
 
     def _build(self) -> None:
+        self._chats: dict[str, Any] = {}
         self._runnables: dict[str, dict[str, Any]] = {}
         for role in self._roles:
-            chat = self._chat(role)
+            chat = self._chats[role] = self._chat(role)
             kinds = [k for k, r in ROLE_OF.items() if r == role] if role != "fallback" else list(SCHEMA_OF)
             self._runnables[role] = {k: chat.with_structured_output(SCHEMA_OF[k]) for k in kinds}
+
+    def tool_chat(self) -> Any:
+        """중복 판단용 채팅 모델 (도구를 묶기 전). dedupe.py가 bind_tools로 판단 도구를 묶어 쓴다."""
+        return self._chats["deduper"]
 
     async def _invoke(self, kind: str, messages: list[tuple[str, str]], role: str) -> Any:
         while True:
