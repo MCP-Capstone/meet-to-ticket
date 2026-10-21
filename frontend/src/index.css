@@ -463,6 +463,10 @@ button.primary {
   color: var(--muted);
 }
 
+.count.failed strong {
+  color: var(--danger);
+}
+
 .items {
   list-style: none;
   margin: 0;
@@ -491,8 +495,10 @@ button.primary {
   color: var(--muted);
 }
 
-.item.excluded,
-.item.failed {
+.item.blocked,
+.item.skipped,
+.item.failed,
+.item.unknown {
   background: var(--bg);
 }
 
@@ -501,7 +507,8 @@ button.primary {
   color: var(--warn);
 }
 
-.item.failed .reason {
+.item.failed .reason,
+.item.unknown .reason {
   color: var(--danger);
 }
 
@@ -538,17 +545,19 @@ button.primary {
   border: 1px solid transparent;
 }
 
-.badge.published {
+.badge.succeeded {
   color: var(--ok);
   background: var(--ok-soft);
 }
 
-.badge.excluded {
+.badge.blocked,
+.badge.skipped {
   color: var(--warn);
   background: var(--warn-soft);
 }
 
-.badge.failed {
+.badge.failed,
+.badge.unknown {
   color: var(--danger);
   background: var(--danger-soft);
 }
