@@ -76,3 +76,16 @@ class FakeEmbedder:
     @property
     def embedded(self) -> int:
         return sum(len(c) for c in self.calls)
+
+
+class KeywordEmbedder(FakeEmbedder):
+    """단어가 겹칠수록 벡터가 가까워지는 가짜 임베딩. 검색 순서를 예측할 수 있게 한다.
+
+    벡터 = 사전 단어마다 문장에 나온 횟수 (+ 모든 벡터가 0이 되지 않도록 작은 값)
+    """
+
+    VOCAB = ["로그인", "버튼", "세모", "네모", "csv", "내보내기", "권한", "감사", "로그", "결제"]
+
+    def embed(self, texts):
+        self.calls.append(list(texts))
+        return [[t.lower().count(w) + 0.01 for w in self.VOCAB] for t in texts]
