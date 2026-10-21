@@ -1,25 +1,30 @@
 import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
-import type { AnalysisJob, AnalysisStep, Meeting, User } from '../api/types'
-import { mockResults } from './data'
+import type { AnalysisTask, ExecutionMode, Meeting, TaskStage, User } from '../api/types'
+import { mockItems, mockMembers, mockProject } from './data'
 
 // 백엔드 없이 화면을 개발하기 위한 가짜 API. realApi와 같은 형태를 유지한다.
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 let nextMeetingId = 1
-let nextJobId = 1
+
+// 화면 확인용이라 실제 Agent 결과처럼 보이게 LIVE로 둔다. (모의 실행 안내를 보려면 'MOCK')
+const EXECUTION_MODE: ExecutionMode = 'LIVE'
 
 // 작업별 시작 시각. 경과 시간으로 상태를 흉내 낸다.
-const jobs = new Map<number, { meetingId: number; startedAt: number }>()
+const tasks = new Map<string, { meetingId: number; startedAt: number }>()
+const analyzedMeetings = new Set<number>()
 
 // 분석 단계별 소요 시간 (ms). 합계가 지나면 COMPLETED
-const stepDurations: [AnalysisStep, number][] = [
-  ['EXTRACTING', 3000],
-  ['REVIEWING', 3000],
-  ['PUBLISHING', 2000],
+const stageDurations: [TaskStage, number][] = [
+  ['EXTRACTING', 2500],
+  ['NORMALIZING', 1500],
+  ['REVIEWING', 2500],
+  ['PUBLISHING', 1500],
+  ['VERIFYING', 1000],
 ]
-const PENDING_MS = 1000
+const QUEUED_MS = 1000
 
 // 새로고침해도 가입 정보와 로그인이 유지되는 것을 흉내 내려고 sessionStorage에 저장한다.
 type MockUser = User & { password: string }
@@ -28,7 +33,7 @@ const USERS_KEY = 'mock-users'
 const SESSION_KEY = 'mock-login-user'
 
 // 바로 쓸 수 있는 데모 계정
-const demoUser: MockUser = { userId: 1, loginId: 'demo', name: '데모', password: 'demo1234' }
+const demoUser: MockUser = { userId: 1, loginId: 'demo1', name: '함주헌', password: 'password1' }
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -57,17 +62,16 @@ const requireLogin = () => {
   if (!load<User | null>(SESSION_KEY, null)) throw fail(401, 'UNAUTHORIZED', '로그인이 필요합니다.')
 }
 
-// 머리말 "제목: / 날짜: / 참여자:" 를 읽는다. 없으면 파일 이름 / 오늘 날짜로 채운다.
-function parseMeeting(fileName: string, text: string) {
-  const field = (name: string) => text.match(new RegExp(`^${name}\\s*:\\s*(.+)$`, 'm'))?.[1].trim()
-  return {
-    title: field('제목') ?? fileName.replace(/\.txt$/i, ''),
-    meetingDate: field('날짜') ?? new Date().toISOString().slice(0, 10),
-    participants: (field('참여자') ?? '')
-      .split(',')
-      .map((p) => p.trim())
-      .filter(Boolean),
-  }
+// 백엔드 파서와 같은 규칙: 첫 Markdown 제목, "회의 일시 / 날짜"의 ISO 날짜, "회의 참여자 / 참석자"의 이름 목록
+function parseMeeting(text: string) {
+  const field = (names: string) => text.match(new RegExp(`^(?:-\\s*)?(?:${names})\\s*:\\s*(.+)$`, 'm'))?.[1].trim()
+  const title = field('제목') ?? text.match(/^#\s+(.+)$/m)?.[1].trim()
+  const meetingDate = field('회의 일시|회의 날짜|날짜')?.match(/\d{4}-\d{2}-\d{2}/)?.[0]
+  const names = (field('회의 참여자|회의 참석자|참여자|참석자') ?? '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)
+  return { title, meetingDate, names }
 }
 
 const toUser = ({ userId, loginId, name }: User): User => ({ userId, loginId, name })
@@ -107,17 +111,37 @@ export const mockApi: typeof realApi = {
     return user
   },
 
+  async listProjects() {
+    await delay(200)
+    requireLogin()
+    return { projects: [mockProject], executionMode: EXECUTION_MODE }
+  },
+
+  async listMembers(projectId) {
+    await delay(150)
+    requireLogin()
+    return { projectId, members: mockMembers }
+  },
+
   async uploadMeeting(projectId, file) {
     await delay(500)
     requireLogin()
-    const text = await file.text()
-    if (text.trim() === '') throw fail(400, 'INVALID_FILE', '빈 파일입니다.')
+    const { title, meetingDate, names } = parseMeeting(await file.text())
+    if (!title || !meetingDate) {
+      throw fail(400, 'INVALID_MEETING_FILE', 'UTF-8 .txt 파일의 제목 / 날짜 / 참여자를 확인해 주세요.')
+    }
+    const ids = names.map((n) => mockMembers.find((m) => m.name === n)?.projectMemberId)
+    if (ids.some((id) => id === undefined)) {
+      throw fail(400, 'PARTICIPANT_MAPPING_FAILED', '미등록 또는 동명이인 참여자가 있어 연결할 수 없습니다.')
+    }
     const meeting: Meeting = {
-      ...parseMeeting(file.name, text),
       meetingId: nextMeetingId++,
       projectId,
-      fileName: file.name,
-      createdAt: new Date().toISOString(),
+      title,
+      meetingDate,
+      participantIds: ids as number[],
+      originalFilename: file.name,
+      readyForAnalysis: true,
     }
     return meeting
   },
@@ -125,38 +149,59 @@ export const mockApi: typeof realApi = {
   async startAnalysis(meetingId) {
     await delay(300)
     requireLogin()
-    const jobId = nextJobId++
-    jobs.set(jobId, { meetingId, startedAt: Date.now() })
-    return { jobId, status: 'PENDING' }
+    if (analyzedMeetings.has(meetingId)) {
+      throw fail(409, 'ANALYSIS_ALREADY_REQUESTED', '이미 분석을 요청한 회의입니다.')
+    }
+    analyzedMeetings.add(meetingId)
+    const taskId = crypto.randomUUID()
+    tasks.set(taskId, { meetingId, startedAt: Date.now() })
+    return { taskId, meetingId, status: 'QUEUED', executionMode: EXECUTION_MODE }
   },
 
-  async getAnalysis(jobId) {
+  async getAnalysis(taskId) {
     await delay(150)
     requireLogin()
-    const job = jobs.get(jobId)
-    if (!job) throw fail(404, 'JOB_NOT_FOUND', '분석 작업을 찾을 수 없습니다.')
+    const task = tasks.get(taskId)
+    if (!task) throw fail(404, 'TASK_NOT_FOUND', '분석 작업을 찾을 수 없습니다.')
 
-    const base: AnalysisJob = {
-      jobId,
-      meetingId: job.meetingId,
-      status: 'PENDING',
-      currentStep: null,
-      failureReason: null,
-      startedAt: new Date(job.startedAt).toISOString(),
+    const base: AnalysisTask = {
+      taskId,
+      meetingId: task.meetingId,
+      status: 'QUEUED',
+      stage: null,
+      executionMode: EXECUTION_MODE,
+      createdAt: new Date(task.startedAt).toISOString(),
       finishedAt: null,
+      errorMessage: null,
     }
-    let elapsed = Date.now() - job.startedAt - PENDING_MS
+    let elapsed = Date.now() - task.startedAt - QUEUED_MS
     if (elapsed < 0) return base
-    for (const [step, ms] of stepDurations) {
-      if (elapsed < ms) return { ...base, status: 'RUNNING', currentStep: step }
+    for (const [stage, ms] of stageDurations) {
+      if (elapsed < ms) return { ...base, status: 'RUNNING', stage }
       elapsed -= ms
     }
-    return { ...base, status: 'COMPLETED', finishedAt: new Date().toISOString() }
+    return { ...base, status: 'COMPLETED', stage: 'VERIFYING', finishedAt: new Date().toISOString() }
   },
 
-  async getAnalysisResults(jobId) {
+  async getAnalysisItems(taskId) {
     await delay(300)
     requireLogin()
-    return { jobId, results: mockResults.map((r, i) => ({ ...r, resultId: jobId * 10 + i })) }
+    const items = mockItems.map((item) => ({ ...item, itemId: crypto.randomUUID() }))
+    const count = (key: 'SUCCEEDED' | 'FAILED' | 'UNKNOWN' | 'SKIPPED') => items.filter((i) => i.publishStatus === key).length
+    return {
+      taskId,
+      status: 'COMPLETED',
+      executionMode: EXECUTION_MODE,
+      items,
+      summary: {
+        total: items.length,
+        approved: items.filter((i) => i.reviewStatus === 'APPROVED').length,
+        rejected: items.filter((i) => i.reviewStatus === 'REJECTED').length,
+        succeeded: count('SUCCEEDED'),
+        failed: count('FAILED'),
+        unknown: count('UNKNOWN'),
+        skipped: count('SKIPPED'),
+      },
+    }
   },
 }
