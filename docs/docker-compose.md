@@ -58,7 +58,7 @@ Agent는 Spring이 실행될 때까지 기다리도록 설정하지 않아 진�
 
 | 서비스 | 컨테이너 주소 | 기본 호스트 공개 |
 |---|---|---|
-| frontend | `frontend:80` | 5173 |
+| frontend | `frontend:80` | `127.0.0.1:5173` (로컬 컴퓨터에서만 접근) |
 | backend | `backend:8080` | `127.0.0.1:8080` (로컬 컴퓨터에서만 접근) |
 | agent | `agent:8001` | 없음 |
 | mcp-server | `mcp-server:8000` | 없음 |
@@ -74,6 +74,8 @@ Agent와 MCP 이미지 안에는 `.env` 파일을 넣지 않으므로 dotenv의 
 프론트는 Vite 개발 서버 대신 Nginx로 빌드된 화면을 제공한다. `/api/`는 Spring에 전달하고 세션 쿠키를 유지한다.
 브라우저에서 컨테이너 이름을 직접 사용하지 않는다. Spring의 호스트 포트는 `127.0.0.1`에만 바인딩하므로 같은 컴퓨터에서 `http://127.0.0.1:8080`으로 직접 접근할 수 있다.
 다른 컴퓨터에서 Spring 호스트 포트로 직접 접근할 수 없으며, Nginx는 내부 주소 `backend:8080`으로 계속 연결한다.
+프론트 호스트 포트도 `127.0.0.1`에만 바인딩한다. 기본 demo 계정이 켜져 있어 같은 네트워크의 다른 컴퓨터에 열지 않기 위해서다.
+다른 컴퓨터에서 꼭 접속해야 하면 `compose.full.yml`의 frontend `ports`에서 `127.0.0.1:`을 빼고, 먼저 `DEMO_PASSWORD`를 바꾼다.
 `/internal/**`은 프론트 프록시 대상이 아니지만 로컬 Spring 포트에서 접근 가능하므로 기존 공유 토큰 검증이 적용된다.
 Agent·MCP·DB·RabbitMQ에는 호스트 포트 매핑을 만들지 않는다. 브리지 네트워크는 Agent의 OpenAI 호출과 MCP의 GitHub 호출을 허용한다.
 MCP healthcheck는 TCP 기동 확인이며 GitHub 토큰의 유효성까지 검사하지 않는다.
@@ -114,7 +116,7 @@ docker compose -f compose.full.yml down
 docker compose -f compose.full.yml up -d --wait --wait-timeout 180
 ```
 
-`full-postgres-data`, `full-rabbitmq-data`, `full-rag-data` 볼륨은 컨테이너 종료·재생성 시 유지된다.
+`full-postgres-data`, `full-rabbitmq-data`, `full-rag-data` 볼륨은 컨테이너 종료/재생성 시 유지된다.
 RabbitMQ는 고정 hostname을 사용해 재생성 후에도 저장된 큐를 같은 노드로 읽는다. 기존 로컬 개발 구성의 `postgres-data`와 별개이므로
 로컬 개발 DB가 이 구성으로 자동 이전되지는 않는다. 기존 로컬 데이터도 변경하지 않는다.
 데이터를 유지하려면 `down -v`를 사용하지 않는다.

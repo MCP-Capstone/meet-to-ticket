@@ -62,7 +62,7 @@ services:
       - path: ./rag-mcp/.env
         required: false
     environment:
-      # rag-mcp/.env에 로컬용 주소·색인 경로가 있어도 컨테이너 값으로 덮어쓴다
+      # rag-mcp/.env에 로컬용 주소/색인 경로가 있어도 컨테이너 값으로 덮어쓴다
       MCP_HOST: 0.0.0.0
       MCP_PORT: "8002"
       CHROMA_PATH: /data/chroma
@@ -148,7 +148,7 @@ services:
     build: ./frontend
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-5173}:80"
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:80"
     depends_on:
       backend:
         condition: service_healthy
