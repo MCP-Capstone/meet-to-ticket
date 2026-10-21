@@ -64,8 +64,10 @@ def fake_chat(monkeypatch):
     monkeypatch.setattr(llm.asyncio, "sleep", no_sleep)
 
 
-WRITER = {"model": "gpt-5.4-nano", "temperature": 0, "reasoning_effort": "none"}
-REVIEWER = {"model": "gpt-5.4-mini", "temperature": 0}
+# 모든 호출에 시간 한도를 두고, OpenAI 클라이언트 자체 재시도는 끈다 (재시도는 _call 한 곳에서)
+LIMITS = {"timeout": 120, "max_retries": 0}
+WRITER = {"model": "gpt-5.4-nano", **LIMITS, "temperature": 0, "reasoning_effort": "none"}
+REVIEWER = {"model": "gpt-5.4-mini", **LIMITS, "temperature": 0}
 
 
 async def test_default_roles():
@@ -84,7 +86,7 @@ async def test_model_rejecting_temperature_uses_default():
     assert await client.extract_rows("요약") == []
     # 거부한 writer만 temperature 없이 다시 만들고, 재시도 없이 바로 다시 보낸다
     assert FakeChat.calls == ["gpt-5.4-nano", "gpt-5.4-nano"]
-    assert FakeChat.built[-2:] == [{"model": "gpt-5.4-nano", "reasoning_effort": "none"}, REVIEWER]
+    assert FakeChat.built[-2:] == [{"model": "gpt-5.4-nano", **LIMITS, "reasoning_effort": "none"}, REVIEWER]
     FakeChat.calls.clear()
     await client.draft("요약", [])
     assert FakeChat.calls == ["gpt-5.4-nano"]  # 이후 호출은 처음부터 바뀐 설정으로
@@ -95,7 +97,7 @@ async def test_model_rejecting_reasoning_none_drops_it():
     client = llm.OpenAILLM(Settings())
     assert await client.extract_rows("요약") == []
     assert FakeChat.calls == ["gpt-5.4-nano", "gpt-5.4-nano"]
-    assert FakeChat.built[-2] == {"model": "gpt-5.4-nano", "temperature": 0}
+    assert FakeChat.built[-2] == {"model": "gpt-5.4-nano", **LIMITS, "temperature": 0}
 
 
 async def test_other_errors_are_retried_not_dropped():
@@ -120,4 +122,9 @@ async def test_stats_count_calls_retries_and_dropped_settings():
 
 async def test_review_reasoning_effort_setting():
     llm.OpenAILLM(Settings(reasoning_effort="", review_reasoning_effort="high"))
-    assert FakeChat.built == [{"model": "gpt-5.4-nano", "temperature": 0}, {**REVIEWER, "reasoning_effort": "high"}]
+    assert FakeChat.built == [{"model": "gpt-5.4-nano", **LIMITS, "temperature": 0}, {**REVIEWER, "reasoning_effort": "high"}]
+
+
+async def test_timeout_setting_is_passed():
+    llm.OpenAILLM(Settings(llm_timeout_seconds=30))
+    assert all(k["timeout"] == 30 and k["max_retries"] == 0 for k in FakeChat.built)
