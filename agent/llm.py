@@ -65,7 +65,8 @@ class OpenAILLM:
 
     def _chat(self, role: str) -> Any:
         conf = self._roles[role]
-        kwargs: dict[str, Any] = {"model": conf["model"]}
+        # 호출 1회 시간 한도. 재시도는 _call 한 곳에서만 하도록 OpenAI 클라이언트 자체 재시도는 끈다
+        kwargs: dict[str, Any] = {"model": conf["model"], "timeout": self.settings.llm_timeout_seconds, "max_retries": 0}
         # 같은 회의록이면 같은 결과가 나오도록 0을 요청한다. gpt-5 계열은 추론을 끈(reasoning_effort=none)
         # 경우에만 0을 받고, 추론을 켜면 langchain-openai가 temperature를 빼서 기본값(1)으로 호출된다
         if "temperature" not in self._dropped[role]:

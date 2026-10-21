@@ -9,6 +9,10 @@ def test_empty_env_values_use_defaults(monkeypatch):
     monkeypatch.setenv("OPENAI_REVIEW_MODEL", "")
     monkeypatch.setenv("MCP_SERVER_URL", "")
     monkeypatch.setenv("OPENAI_REASONING_EFFORT", "")
+    for name in ("LLM_TIMEOUT_SECONDS", "TASK_DEADLINE_SECONDS", "MAX_SOURCE_CHARS"):
+        monkeypatch.setenv(name, "")
+    limits = load_settings()
+    assert (limits.llm_timeout_seconds, limits.task_deadline_seconds, limits.max_source_chars) == (120, 600, 40000)
     monkeypatch.setenv("OPENAI_REVIEW_REASONING_EFFORT", "")
     s = load_settings()
     assert s.openai_model == "gpt-5.4-nano"

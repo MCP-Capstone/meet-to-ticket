@@ -86,12 +86,14 @@ async def history(task_id: str) -> list[dict[str, Any]] | None:
     return steps
 
 
-def initial_state(req: RunRequest, trace_id: str | None = None) -> AgentState:
+def initial_state(req: RunRequest, trace_id: str | None = None, deadline_seconds: int = 0) -> AgentState:
     m = req.meeting
+    started_at = time.time()
     return {
         "task_id": req.task_id,
         "trace_id": trace_id,
-        "started_at": time.time(),
+        "started_at": started_at,
+        "deadline_at": started_at + deadline_seconds if deadline_seconds > 0 else None,
         "meeting_id": str(m.meeting_id),
         "meeting_date": m.meeting_date.isoformat() if m.meeting_date else None,
         "original_content": m.original_content,
@@ -186,7 +188,7 @@ async def _run(
     publisher: Any | None,
     reporter: Any | None,
 ) -> RunResult:
-    state = initial_state(req, trace_id)
+    state = initial_state(req, trace_id, settings.task_deadline_seconds)
     reporter = reporter or BackendReporter(settings.backend_base_url, settings.backend_token)
     if llm is None:
         from llm import OpenAILLM
