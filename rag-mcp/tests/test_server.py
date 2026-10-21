@@ -15,12 +15,22 @@ def anyio_backend():
 
 def test_default_settings(monkeypatch):
     # 값을 비워 두면 포트 8002, 기본 임베딩 모델, rag-mcp/chroma-data를 쓴다
-    for name in ("MCP_HOST", "MCP_PORT", "EMBEDDING_MODEL", "CHROMA_PATH"):
+    for name in ("MCP_HOST", "MCP_PORT", "EMBEDDING_MODEL", "CHROMA_PATH", "RAG_DEFAULT_HOST", "RAG_DEFAULT_CHROMA_PATH"):
         monkeypatch.setenv(name, "")
     s = config.load_settings()
     assert (s.host, s.port) == ("127.0.0.1", 8002)
     assert s.embedding_model == "text-embedding-3-small"
     assert s.chroma_path == config.BASE_DIR / "chroma-data"
+
+
+def test_container_defaults_survive_empty_values(monkeypatch):
+    # 컨테이너 기본값(RAG_DEFAULT_*)이 있으면, .env의 빈 값(MCP_HOST=, CHROMA_PATH=)이 들어와도 그 기본값을 쓴다
+    monkeypatch.setenv("RAG_DEFAULT_HOST", "0.0.0.0")
+    monkeypatch.setenv("RAG_DEFAULT_CHROMA_PATH", "/data/chroma")
+    monkeypatch.setenv("MCP_HOST", "")
+    monkeypatch.setenv("CHROMA_PATH", "")
+    s = config.load_settings()
+    assert (s.host, str(s.chroma_path)) == ("0.0.0.0", "/data/chroma")
 
 
 def test_settings_from_env(monkeypatch, tmp_path):
