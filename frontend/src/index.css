@@ -519,10 +519,6 @@ button.primary {
 }
 
 .item.linked .reason {
-  color: var(--muted);
-}
-
-.item.linked .reason {
   color: var(--link);
 }
 
