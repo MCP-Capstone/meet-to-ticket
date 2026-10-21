@@ -329,7 +329,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | `prompts/rows_system.md` | 표가 없을 때 본문에서 할 일 추출 | - |
 | `prompts/draft_system.md`, `draft_user.md` | 이슈 초안 작성 | `{summary}`, `{items}` |
 | `prompts/review_system.md`, `review_user.md` | 검수 | `{summary}`, `{source_note}`, `{excluded}`, `{drafts}` |
-| `prompts/dedupe_system.md`, `dedupe_user.md` | 중복 판단 (도구 고르기, 관계 판단) | `{title}`, `{action}`, `{description}`, `{keys}`, `{expected}` |
+| `prompts/dedupe_system.md`, `dedupe_user.md` | 중복 판단 (도구 고르기, 관계 판단) | `{title}`, `{action}`, `{evidence}`, `{keys}`, `{expected}` |
 
 검수 프롬프트의 2·3·4·7·8번은 아래 "검수 판정" 표의 번호다. LLM이 판정하는 항목만 넣었고, 1·5·6·9번은 코드가 확인한다.
 
@@ -502,6 +502,8 @@ model ──(조회 도구 호출)──▶ tools ──▶ model ── … ─
 
 - 모델에게는 조회 도구 3개(`search_similar_issues`, `search_issues`, `read_issue`)와 `submit_decision`만 준다. 이슈 생성 도구는 주지 않는다. 매 턴 도구를 하나 이상 부르게 한다(`tool_choice="required"`).
 - 회의록에 관련 키(예: AUTH-112)가 있으면 키워드 검색을, 없으면 유사 검색을 먼저 고르도록 프롬프트로 안내한다. 어느 도구를 몇 번 부를지는 모델이 정한다.
+- 모델에게는 회의록 원문의 할 일과 근거 인용을 준다. 초안 설명은 주지 않는다. 초안에 덧붙은 회의 맥락 때문에 같은 작업을 "범위가 더 넓다"며 RELATED로 판단하는 일이 많았다(#107).
+- 판정 순서: 값·방향이 다르면 CHANGE → 기존 이슈가 하기로 한 일 안에 들어가면 SAME → 기존 이슈에 없는 일을 더 요구하면 RELATED.
 - 한도는 코드가 센다. 넘으면 판단 없이 끝내고(`skipped`) 새로 발행한다.
 
 | 한도 | 기본값 | `skipped` |

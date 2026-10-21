@@ -198,3 +198,17 @@ async def test_deadline_skips_judging(settings):
     out = await nodes.dedupe(state)
     assert {t["dedupe"]["skipped"] for t in out["tickets"] if t["dedupe"]} == {"deadline"}
     assert "error_code" not in out  # 판단만 건너뛰고 발행 단계로 간다
+
+
+async def test_judge_input_uses_source_not_draft(settings):
+    # 초안 설명은 넘기지 않고 회의록 원문의 할 일과 근거 인용을 넘긴다 (#107)
+    chat = FakeToolChat()
+    nodes = AgentNodes(ToolLLM(chat), FakePublisher(), FakeReporter(), settings, issue_tools=make_tools()[0])
+    state, _ = await run_review(nodes, make_state())
+    state["rag"] = {"status": "ready"}
+    out = await nodes.dedupe(state)
+    t = next(t for t in out["tickets"] if t["work_key"] == "10m1-a1")
+    user = next(m for k, msgs in chat.seen.items() for m in msgs[1:2] if t["action_text"] in m.content).content
+    assert f"할 일(회의록 원문): {t['action_text']}" in user
+    assert all(q in user for q in t["evidence_quotes"])
+    assert t["description"] not in user
