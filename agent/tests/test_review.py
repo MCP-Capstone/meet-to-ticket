@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import FakeLLM, make_state, run_review
+from conftest import FakeLLM, FakePublisher, FakeReporter, make_state, run_review
 from nodes import AgentNodes, new_ticket
 from parsing import ActionRow
 from schemas import ActionRowOut
@@ -9,7 +9,7 @@ pytestmark = pytest.mark.anyio
 
 
 async def run_case(settings, state=None, llm=None):
-    nodes = AgentNodes(llm or FakeLLM(), settings)
+    nodes = AgentNodes(llm or FakeLLM(), FakePublisher(), FakeReporter(), settings)
     return await run_review(nodes, state or make_state())
 
 
@@ -102,7 +102,7 @@ async def test_llm_extracted_ticket_persistent_scope_doubt_needs_check(settings)
 
 
 async def test_only_missing_action_item_is_rejected(settings):
-    nodes = AgentNodes(FakeLLM(), settings)
+    nodes = AgentNodes(FakeLLM(), FakePublisher(), FakeReporter(), settings)
     t = new_ticket(ActionRow("", "", "", "", ""), [], None)
     t.update(title="제목", description="설명", acceptance_criteria=["완료"])
     nodes._decide(t, nodes._code_checks(t, None))
