@@ -17,6 +17,7 @@ MCP 도구(server.py)가 이 모듈을 통해서만 GitHub를 호출한다.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 import httpx
@@ -153,6 +154,46 @@ def list_issues(
         if len(out) >= limit:
             break
     return out
+
+
+SEARCH_LIMIT_MAX = 20  # 한 번에 돌려주는 최대 개수 (모델 입력이 길어지지 않게)
+# 검색어에 섞여 들어오면 검색 범위를 바꾸는 한정자. 다른 저장소가 섞이지 않도록 지운 뒤 우리 범위를 붙인다
+# (GitHub 검색은 repo: 한정자를 여러 개 주면 OR로 묶어서, 그대로 두면 다른 저장소까지 검색된다)
+_SCOPE_QUALIFIER = re.compile(r"(?i)(?<!\S)-?(repo|org|user|owner|is|type|in|state):\S+")
+
+
+def search_issues(
+    client: httpx.Client, owner: str, repo: str, query: str, state: str = "all", limit: int = 5
+) -> list[dict[str, Any]]:
+    """저장소 안에서 검색어가 들어간 이슈를 찾는다 (PR 제외). 이슈 키(예: AUTH-112)나 정확한 단어를 찾을 때 쓴다.
+
+    GitHub 검색 API(/search/issues)를 쓰며, 검색 범위(repo:, is:issue, state:)는 코드가 붙인다.
+    """
+    if state not in ("open", "closed", "all"):
+        raise tool_error(INVALID_ARGUMENT, "state는 open, closed, all 중 하나입니다")
+    words = _SCOPE_QUALIFIER.sub(" ", query or "").split()
+    if not words:
+        raise tool_error(INVALID_ARGUMENT, "query가 비어 있습니다")
+    limit = max(1, min(int(limit), SEARCH_LIMIT_MAX))
+
+    q = " ".join([*words, f"repo:{owner}/{repo}", "is:issue"] + ([f"state:{state}"] if state != "all" else []))
+    resp = client.get("/search/issues", params={"q": q, "per_page": limit})
+    raise_for_status(resp)
+
+    repo_url = f"{API_BASE}/repos/{owner}/{repo}".lower()
+    out = []
+    for item in resp.json().get("items", []):
+        # 범위를 코드가 붙였지만, 혹시 다른 저장소나 PR이 섞여 오면 한 번 더 걸러 낸다
+        if "pull_request" in item or (item.get("repository_url") or "").lower() != repo_url:
+            continue
+        out.append({
+            "number": item.get("number"),
+            "title": item.get("title"),
+            "state": item.get("state"),
+            "url": item.get("html_url"),
+            "closed_at": item.get("closed_at"),
+        })
+    return out[:limit]
 
 
 def create_issue(
