@@ -98,7 +98,7 @@ curl -b cookie.txt localhost:8080/api/auth/me
 
 모든 공개 업무 API는 세션과 프로젝트 소속을 확인한다. 같은 회의에 분석을 다시 요청하면 409다. 같은 파일명으로 별개 회의를 업로드하는 것은 가능하다. 사용자의 본문 수정·승인·티켓 수정 API는 없다.
 
-DB는 `users / projects / project_members / meetings / analysis_tasks / task_items` 6개다. `participants_json / input_json / content_json`은 이번 구현에서 TEXT JSON으로 저장하고 Jackson으로 DTO에 변환한다. 파일 본문은 MEETINGS에 유지한다. 본문 파서는 회의 제목(또는 첫 Markdown 제목), ISO 날짜, 쉼표로 구분한 참여자 이름을 읽는다. `회의 날짜/일시`, `회의 참여자/참석자` 헤더와 Markdown의 `- ` 접두사를 지원한다. UTF-8 BOM은 디코딩 단계에서 한 번 제거하고 나머지 줄바꿈·본문은 보존한다. 참여자 이름 앞뒤 공백은 제거하지만 내부 공백과 영문 대소문자는 보존하며, 등록 이름과 정확히 일치해야 한다. 담당자를 잘못 연결하지 않도록 유사 이름을 자동 매칭하지 않는다. 날짜가 없거나 참여자가 미등록·동명이인이면 400으로 차단한다. 파일 크기 상한은 운영용 설정 `MAX_UPLOAD_SIZE`로 바꿀 수 있으며 기본 10MB다. 확정 제품 제한을 의미하지 않는다.
+DB는 `users / projects / project_members / meetings / analysis_tasks / task_items / analysis_dispatches` 7개다(`analysis_dispatches`는 RabbitMQ 발행 outbox). `participants_json / input_json / content_json`은 이번 구현에서 TEXT JSON으로 저장하고 Jackson으로 DTO에 변환한다. 파일 본문은 MEETINGS에 유지한다. 본문 파서는 회의 제목(또는 첫 Markdown 제목), ISO 날짜, 쉼표로 구분한 참여자 이름을 읽는다. `회의 날짜/일시`, `회의 참여자/참석자` 헤더와 Markdown의 `- ` 접두사를 지원한다. UTF-8 BOM은 디코딩 단계에서 한 번 제거하고 나머지 줄바꿈/본문은 보존한다. 참여자 이름 앞뒤 공백은 제거하지만 내부 공백과 영문 대소문자는 보존하며, 등록 이름과 정확히 일치해야 한다. 담당자를 잘못 연결하지 않도록 유사 이름을 자동 매칭하지 않는다. 날짜가 없거나 참여자가 미등록/동명이인이면 400으로 차단한다. 파일 크기 상한은 운영용 설정 `MAX_UPLOAD_SIZE`로 바꿀 수 있으며 기본 10MB다. 확정 제품 제한을 의미하지 않는다.
 
 ### Agent 없이 실행 — demo 프로필
 
@@ -128,7 +128,7 @@ python3 examples/smoke_demo.py
 
 ### 실제 Agent 연결
 
-Agent(`agent/`, #52)의 API를 Spring이 호출한다. Agent 콜백(`/internal/tasks/...`)은 쓰지 않으므로 Agent의 `BACKEND_BASE_URL`은 비워 둔다.
+Agent(`agent/`, #52)의 API를 Spring이 호출한다. Agent의 `BACKEND_BASE_URL`을 설정하면 Agent가 진행 단계를 `/internal/tasks/{id}/progress`로 보고하며(`BACKEND_INTERNAL_TOKEN` 필요, `/internal/**`은 Swagger에서 숨긴다), `/result`는 202만 반환하고 결과는 저장하지 않는다. Spring은 `GET /runs/{taskId}` 폴링으로 결과를 받으므로 단독 로컬 실행에서는 `BACKEND_BASE_URL`을 비워 둬도 동작하고, Compose(`compose.full.yml`)에서는 진행 보고가 켜진다.
 
 | Spring이 호출 | 내용 |
 |---|---|
@@ -145,7 +145,7 @@ AGENT_MODE=live ./gradlew bootRun --args='--spring.profiles.active=demo'
 - Agent 결과 변환(`agent/AgentRunMapper`)
   - `SUCCEEDED` → 항목 발행 결과에 따라 `COMPLETED / PARTIALLY_FAILED / FAILED`, Agent `FAILED` → `FAILED` + 오류 코드 / 메시지
   - 검수 `APPROVED`만 승인으로 저장한다. `REJECTED / NEEDS_CHECK / PENDING`은 반려(`BLOCKED`)로 저장하고 `NEEDS_CHECK`는 사유 앞에 `[확인 필요]`를 붙인다.
-  - 승인됐는데 발행하지 않은 항목(`NOT_STARTED` 등)은 `FAILED`로 보여준다. `SKIPPED` 응답은 그대로 유지한다. 현재 Agent `DRY_RUN`은 `NOT_STARTED`를 반환하므로 Spring에서 `FAILED`로 보일 수 있다.
+  - 승인됐는데 발행하지 않은 항목(`NOT_STARTED` 등)은 `FAILED`로 보여준다. `SKIPPED` 응답은 그대로 유지한다. 현재 Agent `DRY_RUN`은 승인 항목을 `SKIPPED`로 반환하므로 Spring에서 발행 생략으로 저장된다.
   - `contentJson`은 Agent가 준 그대로 저장한다.
 - 저장 전 확인: 항목 ID 중복, 제목 길이, 반려 항목에 이슈가 없는지, **발행 성공 항목의 이슈 URL이 프로젝트 저장소(`github_owner/github_repo`)인지**, 집계와 작업 상태가 맞는지.
 - 분석 요청은 RabbitMQ 큐에 접수하고 202를 반환한다. Agent 연결 거부 시 리스너가 2초·4초·8초 후 재시도하며, 최종 실패는 FAILED/DLQ로 처리한다. 접수 불명은 재POST하지 않는다. [큐 실행·정책·증빙](../docs/rabbitmq-analysis.md)을 참고한다.

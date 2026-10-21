@@ -44,7 +44,7 @@ Vite 개발 서버가 `/api` 요청을 `http://localhost:8080`으로 전달한�
 
 ### 프록시 없이 호출할 때: Spring CORS 설정
 
-빌드한 프론트를 따로 띄우는 등 프록시를 거치지 않는 경우에만 필요하다. 백엔드에 아래 설정을 추가한다.
+빌드한 프론트를 따로 띄우는 등 프록시를 거치지 않는 경우에만 필요하다. 백엔드의 기존 `WebConfig`(`common/config/WebConfig.java`)에 아래 `addCorsMappings`를 추가한다.
 
 ```java
 @Configuration

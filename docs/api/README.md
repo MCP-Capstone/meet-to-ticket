@@ -64,13 +64,14 @@ MOCK 메모리 작업은 재시작하면 사라져 진행 중 작업이 실패�
 | POST | /runs | 기본 202 `{taskId, status: ACCEPTED}` |
 | POST | /runs?wait=true | 로컬 테스트용 200 최종 결과 |
 | GET | /runs/{task_id} | 200 진행·종료 결과, 알 수 없는 작업은 404 |
+| GET | /runs/{task_id}/history | 200 노드별 실행 기록(checkpoint, 시간 순서), 재시작하면 사라짐, 알 수 없는 작업은 404 |
 | GET | /health | 200 설정·상태, 외부 연결 성공 검증은 아님 |
 
 Agent 환경에서 `uvicorn main:app --port 8001`로 실행한다. 설치는 [Agent 안내](../../agent/README.md)를 따른다.
 문서 조회만으로 LLM·MCP를 호출하지 않는다. POST는 실제 업무를 실행하므로 단독 테스트는
 `agent/.env`의 `DRY_RUN=true`, `BACKEND_BASE_URL=` 설정으로 발행·콜백을 끈다. 설정 로더는 .env를 환경변수보다 우선한다.
 DRY_RUN도 실제 추출·검수 LLM 호출과 모델 API 키가 필요하다. 키는 Swagger 요청 JSON에 넣지 않는다.
-현재 Agent dry-run의 NOT_STARTED는 Spring에서 FAILED로 표시될 수 있다. 이를 실제 GitHub 생성 거절로 해석하지 않는다.
+현재 Agent dry-run은 승인 항목을 SKIPPED(발행 생략)로 반환한다. 이를 실제 GitHub 생성 거절로 해석하지 않는다.
 가짜 LLM·MCP로 확인하려면 Agent의 자동 테스트를 실행한다.
 
 현재 Agent API는 내부 인증을 강제하지 않으며 `X-Internal-Api-Key` 보안 스키마를 가짜로 표시하지 않는다.
@@ -90,11 +91,11 @@ RUNNING만 중복 409로 막으며 종료된 taskId POST는 재실행될 수 있
 | 종료 상태 | COMPLETED/PARTIALLY_FAILED/FAILED | SUCCEEDED/FAILED → 항목 결과로 Spring 상태 정규화 |
 | 진행 단계 | 단계별 응답 | 보통 RUNNING만 반환. Spring은 기본 EXTRACTING으로 표시 |
 | 항목 ID | itemId | taskItemId → itemId |
-| 집계 | succeeded 등 | published 등. Spring은 항목에서 summary 재계산 |
+| 집계 | succeeded 등 | published, linked, needsCheck 등. Spring은 항목에서 summary 재계산 |
 | 검수 | APPROVED/REJECTED | PENDING/NEEDS_CHECK도 가능. 승인 외는 Spring REJECTED/BLOCKED |
 | 오류 | {error:{code,message,taskId}}, 400/401 | {detail}, 422/404/409. 내부 인증 검증은 현재 없음 |
 | 중복 ID | 종료 여부 무관 409 | RUNNING인 ID만 409 |
-| 콜백 | 사용 안 함 | Agent 선택 콜백 코드는 있으나 Spring은 구현·사용하지 않고 폴링 |
+| 콜백 | 사용 안 함 | Agent가 `BACKEND_BASE_URL`을 설정하면 `/internal/tasks/{id}/progress`로 진행 단계를 보고하고 Spring이 단계를 갱신한다. `/result`는 202만 반환하며 결과는 폴링으로 받는다 |
 
 이전 내부 경로·키 검증·MD의 모든 검수 정책이 구현됐다고 의미하지 않는다. 차이를 해소하는 기능 수정은 별도 작업이다.
 

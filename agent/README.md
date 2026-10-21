@@ -147,7 +147,7 @@ uv pip check
 
 - mcp 2.3.0 서버의 기본 주소이며, 임시 서버를 실제로 띄워 확인했습니다.
 - 그 임시 서버에 이 환경(mcp 1.30.0)의 `MultiServerMCPClient`가 `streamable_http`로 접속해 도구 목록 조회에 성공했습니다.
-- 실제 도구 4개(`get_repo_context`, `search_issues`, `create_issue`, `get_issue_status`)가 보이는지는 `server.py`가 아직 없어서 **확인하지 못했습니다.**
+- 실제 도구는 `mcp-server/server.py`가 제공하는 3개(`create_issue`, `list_issues`, `search_issues`)입니다.
 
 접속 코드는 아래 형태입니다. 주소는 `.env`의 `MCP_SERVER_URL`에서 읽습니다.
 
@@ -165,7 +165,6 @@ tools = await client.get_tools()
 
 FastAPI 서버 실행은 아래와 같습니다.
 
-> **주의:** 에이전트의 진입점 파일이 아직 없어서 `main:app`은 **예시**입니다. 진입점이 정해지면 이 문서를 고치세요.
 > MCP 서버가 기본으로 8000번 포트를 쓰므로, 에이전트는 겹치지 않게 다른 포트(예시는 8001)로 띄웁니다.
 
 ```bash
@@ -503,7 +502,7 @@ model ──(조회 도구 호출)──▶ tools ──▶ model ── … ─
 - 모델에게는 조회 도구 3개(`search_similar_issues`, `search_issues`, `read_issue`)와 `submit_decision`만 준다. 이슈 생성 도구는 주지 않는다. 매 턴 도구를 하나 이상 부르게 한다(`tool_choice="required"`).
 - 회의록에 관련 키(예: AUTH-112)가 있으면 키워드 검색을, 없으면 유사 검색을 먼저 고르도록 프롬프트로 안내한다. 어느 도구를 몇 번 부를지는 모델이 정한다.
 - 모델에게는 회의록 원문의 할 일과 근거 인용을 준다. 초안 설명은 주지 않는다. 초안에 덧붙은 회의 맥락 때문에 같은 작업을 "범위가 더 넓다"며 RELATED로 판단하는 일이 많았다(#107).
-- 판정 순서: 값·방향이 다르면 CHANGE → 기존 이슈가 하기로 한 일 안에 들어가면 SAME → 기존 이슈에 없는 일을 더 요구하면 RELATED.
+- 판정 순서: 값/방향이 다르면 CHANGE → 기존 이슈가 하기로 한 일 안에 들어가면 SAME → 기존 이슈에 없는 일을 더 요구하면 RELATED.
 - 한도는 코드가 센다. 넘으면 판단 없이 끝내고(`skipped`) 새로 발행한다.
 
 | 한도 | 기본값 | `skipped` |

@@ -147,7 +147,7 @@ python server.py
 
 - mcp 2.3.0의 기본값이며, 임시 서버를 실제로 띄워 시작 로그와 접속으로 확인했습니다.
 - 같은 임시 서버에 `agent/` 환경(mcp 1.30.0)의 `MultiServerMCPClient`가 접속해 도구 목록 조회에 성공했습니다.
-- 1차 도구는 `create_issue`(이슈 생성)와 `list_issues`(이슈 목록 조회) 2개입니다. 자세한 내용은 아래 10번을 보세요.
+- 1차 도구는 `create_issue`(이슈 생성), `list_issues`(이슈 목록 조회), `search_issues`(이슈 검색) 3개입니다. 자세한 내용은 아래 10번을 보세요.
 - 에이전트는 `agent/.env`의 `MCP_SERVER_URL`로 이 주소에 접속합니다.
 
 포트가 겹치면 `.env`의 `MCP_PORT`(필요하면 `MCP_HOST`)를 바꿉니다. 이때는 에이전트의 `MCP_SERVER_URL`도 같이 바꿔야 합니다.

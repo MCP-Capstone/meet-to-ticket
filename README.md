@@ -13,9 +13,10 @@
 
 ```
 브라우저 -> frontend(5173) -/api 프록시-> backend(8080) -> agent(8001) -> mcp-server(8000) -> GitHub
-                                            |
-                                            +-> PostgreSQL(5432)
 ```
+
+- backend는 PostgreSQL(5432)과 RabbitMQ(5672, 분석 접수 큐)를 사용한다.
+- agent는 중복 판단에 rag-mcp(8002, Chroma 색인)를 사용한다. 꺼져 있어도 발행은 진행된다.
 
 ## 구성
 
@@ -25,7 +26,7 @@
 | `backend/` | API 서버 | Java 21, Spring Boot 4.1, JPA | 8080 |
 | `agent/` | 회의록 분석 AI Agent | Python 3.12, FastAPI, LangGraph | 8001 |
 | `mcp-server/` | 이슈 생성 MCP 서버 | Python 3.12, MCP | 8000 |
-| `rag-mcp/` | 기존 이슈 색인·유사 검색 MCP 서버 | Python 3.12, MCP, Chroma | 8002 |
+| `rag-mcp/` | 기존 이슈 색인/유사 검색 MCP 서버 | Python 3.12, MCP, Chroma | 8002 |
 
 ## 실행 방법
 
@@ -33,7 +34,7 @@
 
 이 구성은 demo 프로파일과 기본 테스트 계정을 사용하는 로컬·데모용이며, 운영 배포용 구성이 아닙니다.
 
-Docker Desktop만으로 7개 서비스(프론트·Spring·Agent·MCP·RAG MCP·DB·RabbitMQ)를 함께 실행할 수 있다. 환경 변수 초기 설정 후:
+Docker Desktop만으로 7개 서비스(프론트/Spring/Agent/MCP/RAG MCP/DB/RabbitMQ)를 함께 실행할 수 있다. 환경 변수 초기 설정 후:
 
 ```bash
 docker compose -f compose.full.yml up -d --build
@@ -46,9 +47,9 @@ docker compose -f compose.full.yml up -d --build
 
 | 항목 | 용도 |
 |---|---|
-| Docker Desktop | PostgreSQL |
+| Docker Desktop | PostgreSQL, RabbitMQ |
 | Java 21 | backend |
-| Node 20.19 이상 또는 22.12 이상 (`frontend/.nvmrc`) | frontend |
+| Node 24 권장 (`frontend/.nvmrc`), 최소 20.19 또는 22.12 이상 | frontend |
 | Python 3.12, [uv](https://docs.astral.sh/uv/) | agent, mcp-server |
 | OpenAI API 키 | agent (회의록 분석) |
 | GitHub 토큰 (이슈 쓰기 권한) | mcp-server (이슈 발행) |
@@ -62,13 +63,13 @@ docker compose -f compose.full.yml up -d --build
 | 파일 | 채울 값 |
 |---|---|
 | `mcp-server/.env` | `GITHUB_TOKEN` (`GITHUB_OWNER=MCP-Capstone`, `GITHUB_REPO=mcp-capstone`) |
-| `agent/.env` | `OPENAI_API_KEY` (`BACKEND_BASE_URL`은 비워 둔다) |
+| `agent/.env` | `OPENAI_API_KEY` (`BACKEND_BASE_URL`은 비워 둔다. 기본 `DRY_RUN=true`라 이슈는 만들지 않고, 실제로 발행하려면 `false`로 바꾼다) |
 | 루트 `.env` | 필요 없음 (기본값 사용) |
 
 ### 2. 서비스 실행 (터미널 5개, 이 순서대로)
 
 ```bash
-# 1) DB (루트)
+# 1) PostgreSQL + RabbitMQ (루트)
 docker compose up -d
 
 # 2) MCP 서버
@@ -98,7 +99,7 @@ VITE_USE_MOCK=false npm run dev        # http://localhost:5173
 
 ### Agent 없이 화면만 보기
 
-OpenAI/GitHub 키 없이 흐름만 확인하려면 DB, backend, frontend만 실행한다. 이슈는 만들어지지 않고 모의 결과가 나온다.
+OpenAI/GitHub 키 없이 흐름만 확인하려면 PostgreSQL/RabbitMQ(`docker compose up -d`), backend, frontend만 실행한다. 이슈는 만들어지지 않고 모의 결과가 나온다.
 
 ```bash
 docker compose up -d
@@ -115,6 +116,7 @@ cd frontend && npm ci && VITE_USE_MOCK=false npm run dev
 | backend | `cd backend && ./gradlew test` |
 | agent | `cd agent && pytest` |
 | mcp-server | `cd mcp-server && pytest` |
+| rag-mcp | `cd rag-mcp && pytest` |
 | frontend | `cd frontend && npm run build` (타입 검사 포함) |
 
 ## 로컬 DB (PostgreSQL)
@@ -139,10 +141,9 @@ docker compose down -v    # 종료 + 데이터 삭제
 | 서비스 | 설정 |
 |---|---|
 | backend | `application.yml` 기본값 사용 (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`로 변경 가능) |
-| agent, mcp-server | `DATABASE_URL=postgresql://meettoticket:meettoticket@localhost:5432/meettoticket` |
 
 - 모든 서비스는 로컬(호스트)에서 실행하므로 주소는 `localhost:5432`로 같다.
-- 테이블 구조는 backend(JPA 엔티티)가 관리한다. agent, mcp-server에서 테이블을 만들거나 구조를 바꾸지 않는다.
+- agent, mcp-server, rag-mcp는 DB를 사용하지 않는다. 테이블 구조는 backend(JPA 엔티티)가 관리한다.
 - 값을 바꾸려면 `.env.example`을 `.env`로 복사해서 수정한다.
 - 5432 포트를 이미 쓰는 로컬 PostgreSQL이 있으면 먼저 종료한다.
 
@@ -152,5 +153,8 @@ docker compose down -v    # 종료 + 데이터 삭제
 - `docs/convention.md`: 브랜치 / 커밋 / PR 규칙
 - `docs/dev-env.md`: 포트, CORS, 실행 순서
 - `backend/README.md`: API, demo 프로필, 실제 Agent 연결
-- `agent/README.md`, `mcp-server/README.md`: 개발환경과 실행
+- `agent/README.md`, `mcp-server/README.md`, `rag-mcp/README.md`: 개발환경과 실행
+- `docs/docker-compose.md`: 전체 Docker 실행 안내
+- `docs/api/README.md`: API 문서
+- `docs/rabbitmq-analysis.md`: RabbitMQ 분석 큐
 - `scripts/db/README.md`: 테이블, 시드 데이터, 샘플 회의록

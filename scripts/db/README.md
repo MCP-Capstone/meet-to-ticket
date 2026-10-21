@@ -2,7 +2,7 @@
 
 ## 테이블
 
-6개 테이블은 백엔드 JPA 엔티티가 정의한다. 별도 생성 SQL은 두지 않는다. (`ddl-auto: update`)
+7개 테이블은 백엔드 JPA 엔티티가 정의한다. 별도 생성 SQL은 두지 않는다. (`ddl-auto: update`)
 
 | 테이블 | 엔티티 |
 |---|---|
@@ -12,6 +12,7 @@
 | meetings | `meeting/Meeting` |
 | analysis_tasks | `analysis/AnalysisTask` |
 | task_items | `analysis/TaskItem` |
+| analysis_dispatches | `queue/AnalysisDispatch` |
 
 - `participants_json`은 ProjectMember ID 배열(JSON)이라 DB FK로 보장되지 않는다. 업로드 시 `MeetingService`가 참여자 이름을 같은 프로젝트의 팀원과 정확히 매칭해 저장한다. (미등록 / 동명이인은 400)
 - 운영 전환 시 `ddl-auto`를 `validate`로 내리고 스키마를 별도로 관리한다. (M3 이후)
