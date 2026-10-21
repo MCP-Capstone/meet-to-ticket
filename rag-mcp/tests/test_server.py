@@ -32,11 +32,9 @@ def test_settings_from_env(monkeypatch, tmp_path):
     assert (s.host, s.port, s.chroma_path) == ("0.0.0.0", 9102, tmp_path)
 
 
-@pytest.mark.anyio
-async def test_server_starts_without_tools():
-    # 뼈대 단계에서는 도구가 없다 (검색·색인 도구는 다음 작업에서 추가)
+def test_server_name():
+    # Agent가 연결하는 서버 이름
     assert server.mcp.name == "meet-to-ticket-rag"
-    assert await server.mcp.list_tools() == []
 
 
 def test_real_network_is_blocked():
