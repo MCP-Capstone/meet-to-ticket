@@ -199,3 +199,86 @@ def test_list_issues_error_tag():
     with client_with(lambda r: httpx.Response(404, json={"message": "Not Found"})) as c:
         with pytest.raises(ToolError, match=r"^\[GITHUB_NOT_FOUND\]"):
             github.list_issues(c, "o", "r")
+
+
+# --- 이슈 키워드 검색 ---
+
+
+def search_item(number, title, state="open", repo="o/r", pr=False, closed_at=None):
+    """GitHub 검색 API 응답의 이슈 한 건."""
+    item = {
+        "number": number,
+        "title": title,
+        "state": state,
+        "html_url": f"https://github.com/{repo}/issues/{number}",
+        "repository_url": f"https://api.github.com/repos/{repo}",
+        "closed_at": closed_at,
+    }
+    if pr:
+        item["pull_request"] = {}
+    return item
+
+
+def test_search_issues_scopes_query_to_repository():
+    # 검색어 뒤에 저장소 범위(repo:), 이슈만(is:issue), 상태(state:)를 코드가 붙인다
+    seen = {}
+
+    def handler(request):
+        seen["path"] = request.url.path
+        seen["params"] = dict(request.url.params)
+        return httpx.Response(200, json={"items": [search_item(112, "AUTH-112 로그인 개선", "closed", closed_at="c")]})
+
+    with client_with(handler) as c:
+        out = github.search_issues(c, "o", "r", "AUTH-112", state="closed", limit=3)
+    assert seen["path"] == "/search/issues"
+    assert seen["params"]["q"] == "AUTH-112 repo:o/r is:issue state:closed"
+    assert seen["params"]["per_page"] == "3"
+    assert out == [{"number": 112, "title": "AUTH-112 로그인 개선", "state": "closed",
+                    "url": "https://github.com/o/r/issues/112", "closed_at": "c"}]
+
+
+def test_search_issues_removes_scope_qualifiers():
+    # 검색어에 repo:·org:·is: 같은 범위 지정이 섞여 와도 지우고 우리 저장소만 검색한다
+    # (GitHub 검색은 repo:를 여러 개 주면 OR로 묶어 다른 저장소까지 찾는다)
+    seen = {}
+
+    def handler(request):
+        seen["q"] = request.url.params["q"]
+        return httpx.Response(200, json={"items": []})
+
+    with client_with(handler) as c:
+        github.search_issues(c, "o", "r", "로그인 repo:evil/x org:evil is:pr -repo:a/b")
+    assert seen["q"] == "로그인 repo:o/r is:issue"
+
+
+def test_search_issues_filters_other_repos_and_prs():
+    # 응답에 다른 저장소나 PR이 섞여 오면 한 번 더 걸러 낸다
+    items = [search_item(1, "a"), search_item(2, "pr", pr=True), search_item(3, "other", repo="x/y"), search_item(4, "b")]
+    with client_with(lambda r: httpx.Response(200, json={"items": items})) as c:
+        out = github.search_issues(c, "o", "r", "a")
+    assert [i["number"] for i in out] == [1, 4]
+
+
+@pytest.mark.parametrize("query,state", [("", "all"), ("repo:x/y", "all"), ("a", "weird")])
+def test_search_issues_invalid_input(query, state):
+    # 비어 있거나 범위 지정만 있는 검색어, 잘못된 state는 GitHub를 부르기 전에 막는다
+    with client_with(lambda r: httpx.Response(200, json={"items": []})) as c:
+        with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
+            github.search_issues(c, "o", "r", query, state=state)
+
+
+def test_search_issues_limit_and_errors():
+    # 개수는 최대 20개로 제한하고, 검색 API 호출 한도 초과는 [GITHUB_RATE_LIMIT]로 알린다
+    seen = {}
+
+    def ok(request):
+        seen["per_page"] = request.url.params["per_page"]
+        return httpx.Response(200, json={"items": []})
+
+    with client_with(ok) as c:
+        github.search_issues(c, "o", "r", "a", limit=100)
+    assert seen["per_page"] == "20"
+    limited = lambda r: httpx.Response(403, json={"message": "rate"}, headers={"x-ratelimit-remaining": "0"})
+    with client_with(limited) as c:
+        with pytest.raises(ToolError, match=r"^\[GITHUB_RATE_LIMIT\]"):
+            github.search_issues(c, "o", "r", "a")

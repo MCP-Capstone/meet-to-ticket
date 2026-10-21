@@ -1,4 +1,4 @@
-"""meet-to-ticket MCP 서버 (1차: 이슈 생성, 이슈 목록 조회 도구).
+"""meet-to-ticket MCP 서버 (이슈 생성, 이슈 목록 조회, 이슈 키워드 검색 도구).
 
 실행: python server.py  →  http://127.0.0.1:8000/mcp (Streamable HTTP)
 환경 변수: GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, (선택) GITHUB_ALLOWED_REPOS, MCP_HOST, MCP_PORT
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from dotenv import load_dotenv
 from mcp.server.mcpserver import MCPServer
@@ -75,6 +75,32 @@ def list_issues(owner: str, repo: str, state: str = "open", limit: int = 10) -> 
     github.check_allowed(owner, repo)
     with github.make_client() as client:
         return {"issues": github.list_issues(client, owner, repo, state, limit)}
+
+
+@mcp.tool(
+    description=(
+        "저장소 안에서 검색어가 들어간 이슈를 찾는다 (PR 제외). "
+        "회의록에 나온 이슈 키(예: AUTH-112)나 기능 이름처럼 정확한 단어로 찾을 때 쓴다. "
+        "표현이 달라도 같은 작업인지 찾을 때는 rag-mcp의 search_similar_issues를 쓴다. "
+        "결과의 state(open/closed)와 closed_at으로 진행 중인 작업인지 끝난 작업인지 구분한다."
+    ),
+    # 읽기 전용이고, 같은 요청을 반복해도 결과가 같은 도구라는 힌트
+    annotations=ToolAnnotations(
+        title="GitHub 이슈 키워드 검색",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+)
+def search_issues(
+    owner: str, repo: str, query: str, state: Literal["open", "closed", "all"] = "all", limit: int = 5
+) -> dict[str, Any]:
+    """검색 결과를 {"issues": [{number, title, state, url, closed_at}]}로 돌려준다 (최대 20개)."""
+    # 다른 도구와 같이 허용된 저장소만 검색한다
+    github.check_allowed(owner, repo)
+    with github.make_client() as client:
+        return {"issues": github.search_issues(client, owner, repo, query, state, limit)}
 
 
 if __name__ == "__main__":

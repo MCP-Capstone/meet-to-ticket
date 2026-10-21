@@ -267,9 +267,9 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 - `.env`와 실제 토큰을 커밋하거나 메신저, 이슈에 붙여넣지 않는다.
 - 패키지 추가와 compile을 환경 담당이 아닌 사람이 임의로 하지 않는다.
 
-## 10. 1차 구현 (이슈 생성·목록 조회 도구)
+## 10. 1차 구현 (이슈 생성·목록 조회·키워드 검색 도구)
 
-1차 범위에서는 도구가 **`create_issue`, `list_issues` 2개**입니다. 기존 이슈 검색·닫기 도구는 2차에서 추가합니다.
+1차 범위에서는 도구가 **`create_issue`, `list_issues`, `search_issues` 3개**입니다. 기존 이슈 수정·닫기 도구는 2차에서 추가합니다. 의미가 비슷한 이슈 검색은 `rag-mcp`의 `search_similar_issues`가 맡습니다.
 
 **추가 패키지**: `httpx`, `python-dotenv` (`requirements.in`과 `.txt`에 반영됨). 이 변경을 받은 뒤에는 한 번 다시 맞춥니다.
 
@@ -301,6 +301,14 @@ uv pip sync requirements-dev.txt
 - 성공: `{issues: [{number, title, state, url, assignees}]}`
 - 허용 저장소 검사와 오류 태그는 `create_issue`와 같습니다.
 - 에이전트의 MCP 연결과 토큰 권한을 확인할 때 씁니다.
+
+**도구 `search_issues(owner, repo, query, state="all", limit=5)`** (읽기 전용)
+- 저장소 안에서 검색어가 들어간 이슈를 찾습니다 (GitHub 검색 API, PR 제외). 회의록의 이슈 키(예: `AUTH-112`)나 정확한 단어로 찾을 때 씁니다.
+- 검색 범위(`repo:owner/repo`, `is:issue`, `state:`)는 코드가 붙입니다. 검색어에 섞인 `repo:`, `org:`, `is:` 같은 범위 지정은 지웁니다 (GitHub 검색은 `repo:`를 여러 개 주면 OR로 묶어 다른 저장소까지 찾기 때문).
+- `limit`은 1~20개, `state`는 `open`, `closed`, `all` 중 하나 (그 외나 빈 검색어는 `[INVALID_ARGUMENT]`)
+- 성공: `{issues: [{number, title, state, url, closed_at}]}`
+- 검색 API는 호출 한도가 따로 있어(인증 시 분당 30회 정도) 넘으면 `[GITHUB_RATE_LIMIT]`입니다.
+- 의미가 비슷한 이슈는 `rag-mcp`의 `search_similar_issues`로 찾습니다.
 
 **테스트**: `pytest` (실제 GitHub 호출 없음, `httpx.MockTransport` 사용)
 
