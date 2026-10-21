@@ -1,9 +1,9 @@
 """그래프 노드.
 
 흐름: prepare(추출 준비·담당자·기한 정리) → draft(초안 작성) → review(검수)
-      → (보완 필요 시 draft로, 최대 MAX_REVISIONS회) → publish(발행)
+      → (보완 필요 시 draft로, 최대 MAX_REVISIONS회) → publish(발행) → finish(결과 정리·보고)
 
-LLM은 생성자로 주입한다. 테스트에서는 가짜를 넣는다.
+LLM, 발행 도구, 백엔드 보고는 생성자로 주입한다. 테스트에서는 가짜를 넣는다.
 """
 
 from __future__ import annotations
@@ -15,9 +15,12 @@ from typing import Any
 
 from config import Settings
 from parsing import ActionRow, parse_summary
+from publisher import ToolCallError, build_issue_body
 from resolve import classify_expected, map_assignees, normalize_ws, parse_due, split_names
-from schemas import ProjectMember
+from schemas import ProjectMember, RunResult
 from state import (
+    CHECK_NAMES,
+    FATAL_PUBLISH_CODES,
     ADVISORY_ITEMS,
     LLM_ITEMS,
     NO_TICKETS,
@@ -28,8 +31,13 @@ from state import (
     REVIEW_PENDING,
     REVIEW_REJECTED,
     REVIEW_REVISE,
+    STAGE_DONE,
     STAGE_EXTRACTING,
+    STAGE_PUBLISHING,
     STAGE_REVIEWING,
+    STATUS_FAILED,
+    STATUS_RUNNING,
+    STATUS_SUCCEEDED,
     AgentFatal,
     AgentState,
 )
@@ -81,13 +89,22 @@ def new_ticket(row: ActionRow, members: list[ProjectMember], meeting_date: date 
 
 
 class AgentNodes:
-    def __init__(self, llm: Any, settings: Settings):
+    def __init__(self, llm: Any, publisher: Any, reporter: Any, settings: Settings):
         self.llm = llm
+        self.publisher = publisher
+        self.reporter = reporter
         self.settings = settings
+
+    async def _progress(self, state: AgentState, stage: str) -> None:
+        try:
+            await self.reporter.progress(state["task_id"], STATUS_RUNNING, stage)
+        except Exception as exc:  # noqa: BLE001 - 보고 실패로 작업을 멈추지 않는다
+            log.warning("진행 보고 실패: %s", exc)
 
     # ------------------------------------------------------------ 1. 추출 준비
 
     async def prepare(self, state: AgentState) -> dict[str, Any]:
+        await self._progress(state, STAGE_EXTRACTING)
         parsed = parse_summary(state["original_content"])
         meeting_date = (
             date.fromisoformat(state["meeting_date"]) if state.get("meeting_date") else parsed.meeting_date
@@ -272,6 +289,7 @@ class AgentNodes:
         t["review_notes"] = t.get("review_notes", [])
 
     async def review(self, state: AgentState) -> dict[str, Any]:
+        await self._progress(state, STAGE_REVIEWING)
         tickets = _copy(state["tickets"])
         source = state["original_content"]
         pending = [t for t in tickets if t["review_status"] == REVIEW_PENDING]
@@ -335,6 +353,127 @@ class AgentNodes:
             counts[t["review_status"]] = counts.get(t["review_status"], 0) + 1
         log.info("검수 결과: %s", counts)
         return {"tickets": tickets, "stage": STAGE_REVIEWING}
+
+    # ------------------------------------------------------------ 4. 발행
+
+    async def publish(self, state: AgentState) -> dict[str, Any]:
+        await self._progress(state, STAGE_PUBLISHING)
+        tickets = _copy(state["tickets"])
+        fatal: str | None = None
+        fatal_message: str | None = None
+        for t in tickets:
+            if t["review_status"] != REVIEW_APPROVED:
+                t["publish_status"] = "BLOCKED"
+                continue
+            if fatal:
+                t["publish_status"] = "FAILED"
+                t["error_message"] = f"[{fatal}] 앞선 오류로 발행을 중단함"
+                continue
+            body = build_issue_body(t, state["meeting_id"], state.get("background", ""))
+            try:
+                res = await self.publisher.create_issue(
+                    owner=state["owner"],
+                    repo=state["repo"],
+                    title=t["title"],
+                    body=body,
+                    labels=self.settings.issue_labels,
+                    assignees=t["assignees"],
+                )
+            except ToolCallError as exc:
+                t["publish_status"] = "UNKNOWN" if exc.ambiguous else "FAILED"
+                t["error_message"] = f"[{exc.code}] {exc.message}"[:1000]
+                if exc.code in FATAL_PUBLISH_CODES:
+                    fatal, fatal_message = exc.code, exc.message
+                continue
+            if res.get("status") == "dry_run":
+                t["publish_status"] = "NOT_STARTED"
+                t["reason"] = "DRY_RUN: 발행하지 않음"
+                continue
+            t["publish_status"] = "SUCCEEDED"
+            t["github_issue_number"] = res.get("number")
+            t["github_issue_url"] = res.get("url")
+            dropped = res.get("dropped_assignees") or []
+            if dropped:
+                t["warnings"].append(f"GitHub에서 담당자 지정이 안 됨: {', '.join(dropped)}")
+        update: dict[str, Any] = {"tickets": tickets, "stage": STAGE_PUBLISHING}
+        if fatal:
+            update["error_code"] = fatal
+            update["error_message"] = fatal_message
+        return update
+
+    # ------------------------------------------------------------ 5. 결과 정리·보고
+
+    def build_result(self, state: AgentState) -> dict[str, Any]:
+        tickets = state.get("tickets", [])
+        error_code = state.get("error_code")
+        failed = bool(error_code) and error_code != NO_TICKETS
+        items = []
+        for t in tickets:
+            review_status = t["review_status"]
+            if review_status in (REVIEW_PENDING, REVIEW_REVISE):
+                review_status = REVIEW_PENDING if failed else REVIEW_NEEDS_CHECK
+            items.append({
+                "task_item_id": t["task_item_id"],
+                "work_key": t["work_key"],
+                "title": t["title"] or t["action_text"],
+                "content_json": {
+                    "action_text": t["action_text"],
+                    "description": t["description"],
+                    "acceptance_criteria": t["acceptance_criteria"],
+                    "evidence_quotes": t["evidence_quotes"],
+                    "assignees": {
+                        "names": t["assignee_names"],
+                        "github": t["assignees"],
+                        "unresolved": t["unresolved_assignees"],
+                    },
+                    "due": t["due"],
+                    "expected": t["expected"],
+                    "open_questions": t["open_questions"],
+                    "review": {
+                        "failed_items": [
+                            {**f, "name": CHECK_NAMES.get(f["item"], "")} for f in t["failed_items"]
+                        ],
+                        "revisions": t["revisions"],
+                        "fallback": t.get("fallback", False),
+                        "notes": t.get("review_notes", []),
+                    },
+                    "warnings": t["warnings"],
+                },
+                "action": t["action"],
+                "reason": t["reason"],
+                "review_status": review_status,
+                "publish_status": t["publish_status"],
+                "github_issue_number": t["github_issue_number"],
+                "github_issue_url": t["github_issue_url"],
+                "error_message": t["error_message"],
+            })
+        summary = {
+            "total": len(items),
+            "approved": sum(1 for i in items if i["review_status"] == REVIEW_APPROVED),
+            "rejected": sum(1 for i in items if i["review_status"] == REVIEW_REJECTED),
+            "needsCheck": sum(1 for i in items if i["review_status"] == REVIEW_NEEDS_CHECK),
+            "published": sum(1 for i in items if i["publish_status"] == "SUCCEEDED"),
+            "publishFailed": sum(1 for i in items if i["publish_status"] == "FAILED"),
+            "publishUnknown": sum(1 for i in items if i["publish_status"] == "UNKNOWN"),
+        }
+        return {
+            "task_id": state["task_id"],
+            "status": STATUS_FAILED if failed else STATUS_SUCCEEDED,
+            "stage": STAGE_DONE if not failed else state.get("stage", STAGE_EXTRACTING),
+            "error_code": error_code,
+            "error_message": state.get("error_message"),
+            "summary": summary,
+            "items": items,
+        }
+
+    async def finish(self, state: AgentState) -> dict[str, Any]:
+        result = self.build_result(state)
+        try:
+            payload = RunResult(**result).model_dump(by_alias=True, mode="json")
+            await self.reporter.result(state["task_id"], payload)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("결과 보고 실패: %s", exc)
+        return {"result": result, "stage": result["stage"]}
 
 
 # ---------------------------------------------------------------- 라우팅
