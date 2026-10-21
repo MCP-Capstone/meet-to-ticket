@@ -44,6 +44,11 @@ class Settings:
     rag_mcp_url: str = "http://127.0.0.1:8002/mcp"
     rag_sync_timeout_seconds: int = 30  # 실행마다 색인 갱신(sync_issues)을 기다리는 시간
     tool_result_max_chars: int = 2000   # 모델에게 넘기는 도구 결과 길이 한도
+    dedupe_model: str = "gpt-5.4-mini"  # 중복 판단(도구 고르기) 모델. 판단이 중요해 검수와 같은 모델
+    dedupe_max_tool_calls: int = 4      # 티켓 하나에 모델이 부를 수 있는 도구 호출 수
+    dedupe_max_same_tool: int = 3       # 같은 도구를 부를 수 있는 수
+    dedupe_timeout_seconds: float = 30  # 티켓 하나의 판단 시간 한도
+    dedupe_concurrency: int = 4         # 동시에 판단하는 티켓 수 (24건 회의도 작업 마감 안에 끝나게)
     backend_base_url: str = ""          # 비어 있으면 진행·결과 보고를 하지 않는다
     backend_token: str = ""             # 백엔드 내부 API 서비스 토큰
     issue_labels: list[str] = field(default_factory=list)
@@ -77,6 +82,11 @@ def load_settings() -> Settings:
         rag_mcp_url=_str("RAG_MCP_URL", "http://127.0.0.1:8002/mcp"),
         rag_sync_timeout_seconds=_int("RAG_SYNC_TIMEOUT_SECONDS", 30),
         tool_result_max_chars=_int("TOOL_RESULT_MAX_CHARS", 2000),
+        dedupe_model=_str("OPENAI_DEDUPE_MODEL", "gpt-5.4-mini"),
+        dedupe_max_tool_calls=_int("DEDUPE_MAX_TOOL_CALLS", 4),
+        dedupe_max_same_tool=_int("DEDUPE_MAX_SAME_TOOL", 3),
+        dedupe_timeout_seconds=_int("DEDUPE_TIMEOUT_SECONDS", 30),
+        dedupe_concurrency=_int("DEDUPE_CONCURRENCY", 4),
         backend_base_url=_str("BACKEND_BASE_URL", "").rstrip("/"),
         backend_token=_str("BACKEND_INTERNAL_TOKEN", ""),
         issue_labels=_list("ISSUE_LABELS"),

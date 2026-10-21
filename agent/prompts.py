@@ -1,7 +1,7 @@
 """LLM 프롬프트.
 
 프롬프트 본문은 prompts/*.md에 두고 여기서는 읽기만 한다 (코드와 분리해 버전 관리).
-PROMPT_VERSION은 다섯 파일 내용의 해시라서, 프롬프트를 고치면 값이 바뀐다.
+PROMPT_VERSION은 프롬프트 파일 내용의 해시라서, 프롬프트를 고치면 값이 바뀐다.
 실행 기록에 남겨 어떤 프롬프트로 만든 결과인지 비교할 때 쓴다.
 """
 
@@ -11,7 +11,8 @@ import hashlib
 from pathlib import Path
 
 PROMPT_DIR = Path(__file__).resolve().parent / "prompts"
-PROMPT_FILES = ("rows_system", "draft_system", "draft_user", "review_system", "review_user")
+PROMPT_FILES = ("rows_system", "draft_system", "draft_user", "review_system", "review_user",
+                "dedupe_system", "dedupe_user")
 
 
 def _load(name: str) -> str:
@@ -34,3 +35,5 @@ DRAFT_SYSTEM = TEXTS["draft_system"]    # 이슈 초안 작성
 DRAFT_USER = TEXTS["draft_user"]        # format: summary, items
 REVIEW_SYSTEM = TEXTS["review_system"]  # 검수
 REVIEW_USER = TEXTS["review_user"]      # format: summary, source_note, excluded, drafts
+DEDUPE_SYSTEM = TEXTS["dedupe_system"]  # 중복 판단 (도구 고르기)
+DEDUPE_USER = TEXTS["dedupe_user"]      # format: title, action, description, keys, expected
