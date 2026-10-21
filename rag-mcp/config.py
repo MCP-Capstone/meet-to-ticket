@@ -2,6 +2,11 @@
 
 값은 rag-mcp/.env에서 읽는다 (server.py가 시작할 때 load_dotenv). 터미널에 같은 이름의 환경 변수가 있어도 .env가 우선한다.
 load_settings()는 부를 때마다 환경 변수를 다시 읽으므로, 테스트에서 monkeypatch로 값을 바꿀 수 있다.
+
+컨테이너 기본값
+- Dockerfile은 RAG_DEFAULT_HOST(0.0.0.0), RAG_DEFAULT_CHROMA_PATH(볼륨 경로)를 정해 둔다.
+- MCP_HOST, CHROMA_PATH가 비어 있으면 이 값을 쓴다. .env.example처럼 빈 값(MCP_HOST=)이 들어 있는 파일을
+  --env-file로 넣어도 컨테이너 기본값이 지워지지 않게 하기 위해서다.
 """
 
 from __future__ import annotations
@@ -37,6 +42,8 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    default_host = _str("RAG_DEFAULT_HOST", DEFAULT_HOST)
+    default_chroma = _str("RAG_DEFAULT_CHROMA_PATH", str(DEFAULT_CHROMA_PATH))
     return Settings(
         github_token=_str("GITHUB_TOKEN"),
         github_owner=_str("GITHUB_OWNER"),
@@ -44,7 +51,7 @@ def load_settings() -> Settings:
         github_allowed_repos=_str("GITHUB_ALLOWED_REPOS"),
         openai_api_key=_str("OPENAI_API_KEY"),
         embedding_model=_str("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
-        chroma_path=Path(_str("CHROMA_PATH", str(DEFAULT_CHROMA_PATH))),
-        host=_str("MCP_HOST", DEFAULT_HOST),
+        chroma_path=Path(_str("CHROMA_PATH", default_chroma)),
+        host=_str("MCP_HOST", default_host),
         port=int(_str("MCP_PORT", str(DEFAULT_PORT))),
     )
