@@ -131,6 +131,20 @@ public class AnalysisStore {
                 result.error() == null ? null : result.error().message());
     }
 
+	// 진행 보고만 갱신한다. 최종 상태와 항목 저장은 기존 apply()가 담당한다.
+	@Transactional
+	public void updateProgress(UUID id, TaskStatus status, TaskStage stage) {
+		if (status != TaskStatus.RUNNING || stage == null || stage == TaskStage.VERIFYING) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+		}
+		AnalysisTask task = tasks.findForUpdate(id)
+				.orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
+		if (task.getStatus().terminal()) return;
+		// TaskStage는 처리 순서대로 선언돼 있다. 중복·지연된 보고로 단계를 되돌리지 않는다.
+		if (task.getStage() != null && stage.compareTo(task.getStage()) <= 0) return;
+		task.update(TaskStatus.RUNNING, stage, task.getFinishedAt(), task.getErrorMessage());
+	}
+
     @Transactional
     public void fail(UUID id, String message) {
         tasks.findForUpdate(id)
