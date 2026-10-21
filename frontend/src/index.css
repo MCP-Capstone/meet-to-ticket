@@ -12,6 +12,8 @@
   --warn-soft: #fff8c5;
   --ok: #1a7f37;
   --ok-soft: #dafbe1;
+  --link: #8250df;
+  --link-soft: #fbefff;
   --radius: 10px;
 
   font: 15px/1.6 system-ui, -apple-system, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
@@ -467,6 +469,10 @@ button.primary {
   color: var(--danger);
 }
 
+.count.linked strong {
+  color: var(--link);
+}
+
 .items {
   list-style: none;
   margin: 0;
@@ -560,6 +566,11 @@ button.primary {
 .badge.unknown {
   color: var(--danger);
   background: var(--danger-soft);
+}
+
+.badge.linked {
+  color: var(--link);
+  background: var(--link-soft);
 }
 
 .badge.mock {
