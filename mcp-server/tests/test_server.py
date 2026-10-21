@@ -16,10 +16,10 @@ def anyio_backend():
 
 @pytest.mark.anyio
 async def test_tool_registered_with_annotations():
-    # 도구가 create_issue 하나뿐이고, 쓰기 도구 힌트와 필수 입력값이 맞는지 확인한다
+    # 도구 2개가 등록되고, create_issue는 쓰기 도구 힌트와 필수 입력값이 맞는지 확인한다
     tools = await server.mcp.list_tools()
-    assert [t.name for t in tools] == ["create_issue"]
-    tool = tools[0].model_dump(by_alias=True)
+    assert sorted(t.name for t in tools) == ["create_issue", "list_issues"]
+    tool = next(t for t in tools if t.name == "create_issue").model_dump(by_alias=True)
     assert tool["annotations"]["readOnlyHint"] is False
     assert tool["annotations"]["destructiveHint"] is False
     assert set(tool["inputSchema"]["required"]) == {"owner", "repo", "title", "body"}

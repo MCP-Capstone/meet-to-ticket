@@ -1,4 +1,4 @@
-"""meet-to-ticket MCP 서버 (1차: 이슈 생성 도구 1개).
+"""meet-to-ticket MCP 서버 (1차: 이슈 생성, 이슈 목록 조회 도구).
 
 실행: python server.py  →  http://127.0.0.1:8000/mcp (Streamable HTTP)
 환경 변수: GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, (선택) GITHUB_ALLOWED_REPOS, MCP_HOST, MCP_PORT
@@ -56,6 +56,25 @@ def create_issue(
     # 요청마다 클라이언트를 열고 닫는다 (호출이 드물어 연결을 유지할 필요가 없음)
     with github.make_client() as client:
         return github.create_issue(client, owner, repo, title, body, labels, assignees)
+
+
+@mcp.tool(
+    description="GitHub 저장소의 최근 이슈 목록을 조회한다 (PR 제외). 허용된 저장소만 가능하다.",
+    # 읽기 전용이고, 같은 요청을 반복해도 결과가 같은 도구라는 힌트
+    annotations=ToolAnnotations(
+        title="GitHub 이슈 목록 조회",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
+)
+def list_issues(owner: str, repo: str, state: str = "open", limit: int = 10) -> dict[str, Any]:
+    """최근 이슈 목록을 {"issues": [...]}로 돌려준다. 에이전트의 MCP 연결 확인에 쓴다."""
+    # 읽기 도구도 허용된 저장소만 볼 수 있게 같은 검사를 한다
+    github.check_allowed(owner, repo)
+    with github.make_client() as client:
+        return {"issues": github.list_issues(client, owner, repo, state, limit)}
 
 
 if __name__ == "__main__":
