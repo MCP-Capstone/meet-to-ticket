@@ -9,6 +9,8 @@
 | Agent (FastAPI) | `agent/` | 8001 | http://localhost:8001 |
 | MCP 서버 | `mcp-server/` | 8000 | http://127.0.0.1:8000/mcp |
 | PostgreSQL | - | 5432 | localhost:5432 |
+| RabbitMQ AMQP | - | 5672 | localhost:5672 |
+| RabbitMQ 관리 화면 | - | 15672 | http://localhost:15672 |
 
 - 포트를 바꾸지 않는다. 바꿔야 하면 이 문서부터 수정하고 팀에 공지한다.
 - Vite는 `strictPort`로 설정되어 있어 5173이 사용 중이면 다른 포트로 넘어가지 않고 실패한다.
@@ -16,7 +18,7 @@
 ## 호출 흐름
 
 ```
-브라우저 → frontend(5173) ─/api 프록시─▶ backend(8080) → agent(8001) → mcp-server(8000) → GitHub
+브라우저 → frontend(5173) ─/api 프록시─▶ backend(8080) → RabbitMQ(5672) → 리스너 → agent(8001) → mcp-server(8000) → GitHub
                                             │
                                             └→ PostgreSQL(5432)
 ```
@@ -70,7 +72,7 @@ GITHUB_REPO=mcp-capstone
 
 ## 실행 순서
 
-1. PostgreSQL
+1. PostgreSQL·RabbitMQ (`docker compose up -d postgres rabbitmq`)
 2. MCP 서버 (`mcp-server/README.md`)
 3. Agent (`agent/README.md`, `--port 8001`)
 4. Backend

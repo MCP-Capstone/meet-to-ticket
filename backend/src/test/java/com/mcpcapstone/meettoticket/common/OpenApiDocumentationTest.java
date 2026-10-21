@@ -57,7 +57,8 @@ class OpenApiDocumentationTest {
         JsonNode start = doc.at("/paths/~1api~1meetings~1{meetingId}~1analysis-tasks/post");
         assertThat(start.path("responses").has("202")).isTrue();
         assertThat(start.path("responses").has("409")).isTrue();
-        assertThat(start.path("responses").has("502")).isTrue();
+        assertThat(start.path("responses").has("502")).isFalse();
+        assertThat(start.path("description").asText()).contains("RabbitMQ", "2초·4초·8초", "DLQ");
         JsonNode items = doc.at("/paths/~1api~1analysis-tasks~1{taskId}~1items/get/responses");
         assertThat(items.has("409")).isTrue();
         assertThat(items.at("/200/content/application~1json/examples/mockApproved/value/summary/skipped").asInt()).isEqualTo(1);

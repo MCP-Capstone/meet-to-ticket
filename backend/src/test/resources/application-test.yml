@@ -12,5 +12,6 @@ agent:
 app:
   analysis:
     scheduling-enabled: false
+    queue-listener-enabled: false
   demo:
     enabled: true
