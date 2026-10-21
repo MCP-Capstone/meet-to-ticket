@@ -7,7 +7,7 @@ import pytest
 
 from config import Settings
 from publisher import ToolCallError
-from schemas import ActionRowOut, DraftTicket, ProjectMember, ReviewCheck, TicketReview
+from schemas import ActionRowOut, DraftTicket, Meeting, Project, ProjectMember, ReviewCheck, RunRequest, TicketReview
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 
@@ -30,21 +30,20 @@ def sample(name: str) -> str:
     return (SAMPLES / f"{name}_summary.md").read_text(encoding="utf-8")
 
 
+def make_request(name: str = "10min_1", content: str | None = None, members=None) -> RunRequest:
+    return RunRequest(
+        task_id=f"task-{name}",
+        meeting=Meeting(meeting_id=name, title="t", original_content=content if content is not None else sample(name)),
+        project=Project(github_owner="MCP-Capstone", github_repo="mcp-capstone"),
+        project_members=MEMBERS if members is None else members,
+    )
+
+
 def make_state(name: str = "10min_1", content: str | None = None, members=None) -> dict[str, Any]:
-    """백엔드 요청 1건을 그래프 초기 상태로 바꾼 것과 같은 모양 (테스트용)."""
-    return {
-        "task_id": f"task-{name}",
-        "meeting_id": name,
-        "meeting_date": None,
-        "original_content": content if content is not None else sample(name),
-        "owner": "MCP-Capstone",
-        "repo": "mcp-capstone",
-        "members": [m.model_dump() for m in (MEMBERS if members is None else members)],
-        "tickets": [],
-        "stage": "EXTRACTING",
-        "error_code": None,
-        "error_message": None,
-    }
+    """백엔드 요청 1건을 그래프 초기 상태로 바꾼다 (테스트용)."""
+    from runner import initial_state
+
+    return initial_state(make_request(name, content, members))
 
 
 class FakeLLM:
