@@ -46,7 +46,7 @@ public class DemoDataInitializer implements CommandLineRunner {
                                 () ->
                                         projects.save(
                                                 new Project(
-                                                        "CSV 내보내기 시연",
+                                                        "기업용 문서 협업 서비스 - 관리자 사용자 목록 CSV 내보내기",
                                                         "MCP-Capstone",
                                                         "mcp-capstone")));
         String[] names = {"강민규", "박종민", "임나윤", "최윤경", "함주헌", "허민규"};

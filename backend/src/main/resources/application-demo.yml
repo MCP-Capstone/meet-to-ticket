@@ -1,9 +1,11 @@
-# 명시적으로 demo 프로필을 사용한 경우에만 모의 실행·시드 계정을 켠다.
+# 명시적으로 demo 프로필을 사용한 경우에만 모의 실행 / 시드 계정을 켠다.
+# 시드는 그대로 두고 실제 Agent에 연결하려면 AGENT_MODE=live로 실행한다.
 agent:
-  mode: mock
+  mode: ${AGENT_MODE:mock}
 app:
   demo:
     enabled: true
     login-id: ${DEMO_LOGIN_ID:demo1}
     password: ${DEMO_PASSWORD:password1}
-    github-logins: ${DEMO_GITHUB_LOGINS:}
+    # 팀원 GitHub 아이디. DemoDataInitializer의 이름 순서(강민규, 박종민, 임나윤, 최윤경, 함주헌, 허민규)와 같다.
+    github-logins: ${DEMO_GITHUB_LOGINS:mingyukang5420,jongmiiin,jadoolim,0unk0,juhun-ham,minkyu-huh}
