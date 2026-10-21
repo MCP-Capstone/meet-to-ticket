@@ -145,5 +145,7 @@ async def test_dry_run(settings):
     pub = DryRunPublisher()
     result = await run_case(settings, publisher=pub)
     approved = [i for i in result["items"] if i["review_status"] == "APPROVED"]
-    assert approved and all(i["publish_status"] == "NOT_STARTED" for i in approved)
+    # 백엔드 Live 검증: SKIPPED는 이슈 번호·URL이 없어야 한다
+    assert approved and all(i["publish_status"] == "SKIPPED" for i in approved)
+    assert all(i["github_issue_number"] is None and i["github_issue_url"] is None for i in approved)
     assert len(pub.calls) == 6

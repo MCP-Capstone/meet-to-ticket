@@ -8,6 +8,7 @@
 | Backend (Spring) | `backend/` | 8080 | http://localhost:8080 |
 | Agent (FastAPI) | `agent/` | 8001 | http://localhost:8001 |
 | MCP 서버 | `mcp-server/` | 8000 | http://127.0.0.1:8000/mcp |
+| RAG MCP 서버 | `rag-mcp/` | 8002 | http://127.0.0.1:8002/mcp |
 | PostgreSQL | - | 5432 | localhost:5432 |
 | RabbitMQ AMQP | - | 5672 | localhost:5672 |
 | RabbitMQ 관리 화면 | - | 15672 | http://localhost:15672 |
@@ -18,13 +19,13 @@
 ## 호출 흐름
 
 ```
-브라우저 → frontend(5173) ─/api 프록시─▶ backend(8080) → RabbitMQ(5672) → 리스너 → agent(8001) → mcp-server(8000) → GitHub
-                                            │
+브라우저 → frontend(5173) ─/api 프록시─▶ backend(8080) → agent(8001) ─┬→ mcp-server(8000) → GitHub
+                                            │                       └→ rag-mcp(8002) → Chroma (기존 이슈 색인)
                                             └→ PostgreSQL(5432)
 ```
 
 - 브라우저가 직접 호출하는 곳은 frontend(5173)뿐이다.
-- agent와 mcp-server는 서버끼리만 호출하므로 CORS 설정이 필요 없다.
+- agent, mcp-server, rag-mcp는 서버끼리만 호출하므로 CORS 설정이 필요 없다.
 
 ## CORS
 
@@ -73,7 +74,7 @@ GITHUB_REPO=mcp-capstone
 ## 실행 순서
 
 1. PostgreSQL·RabbitMQ (`docker compose up -d postgres rabbitmq`)
-2. MCP 서버 (`mcp-server/README.md`)
+2. MCP 서버 (`mcp-server/README.md`), RAG MCP 서버 (`rag-mcp/README.md`)
 3. Agent (`agent/README.md`, `--port 8001`)
 4. Backend
 5. Frontend (`cd frontend && npm install && npm run dev`)

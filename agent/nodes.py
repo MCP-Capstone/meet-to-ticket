@@ -432,7 +432,8 @@ class AgentNodes:
                     fatal, fatal_message = exc.code, exc.message
                 continue
             if res.get("status") == "dry_run":
-                t["publish_status"] = "NOT_STARTED"
+                # 백엔드는 SKIPPED를 "발행 생략"으로 저장한다 (NOT_STARTED는 발행 실패로 바뀐다)
+                t["publish_status"] = "SKIPPED"
                 t["reason"] = "DRY_RUN: 발행하지 않음"
                 continue
             t["publish_status"] = "SUCCEEDED"

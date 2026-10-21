@@ -418,6 +418,8 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 
 결과(응답·백엔드 보고)도 camelCase: `taskId`, `status`, `stage`, `errorCode`, `errorMessage`, `summary`, `items[].{taskItemId, workKey, title, contentJson, action, reason, reviewStatus, publishStatus, githubIssueNumber, githubIssueUrl, errorMessage}`, `traceId`, `metrics`
 
+- `publishStatus`: `SUCCEEDED`(발행), `FAILED`(실패), `UNKNOWN`(응답 불명), `BLOCKED`(검수 미통과로 발행 안 함), `SKIPPED`(DRY_RUN이라 발행 생략, 이슈 번호 없음)
+
 - `traceId`: LangSmith run id. 성공·실패 모두 들어 있어 실패한 작업의 trace를 바로 찾을 수 있다.
 - `metrics`: `durationMs`, `promptVersion`, `model`, `reviewModel`, `tracing`(trace 수집 여부), `llmCalls`, `llmRetries`, `fallbackUsed`(대체 모델 사용 수), `errors`(오류 종류별 수: transient·request·auth), `droppedSettings`(모델이 거부해 뺀 설정)
 

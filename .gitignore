@@ -57,6 +57,9 @@ venv/
 htmlcov/
 *.egg-info/
 
+# RAG MCP 서버 Vector DB(Chroma) 저장 폴더 (로컬에서 색인하면 생김)
+rag-mcp/chroma-data/
+
 # AI 모델 / 데이터 (용량 큰 파일)
 *.pt
 *.bin
