@@ -40,6 +40,10 @@ class Settings:
     review_reasoning_effort: str = ""   # 검수: 비어 있으면 모델 기본 추론 (temperature는 1)
     fallback_model: str = ""            # 일시적 오류가 재시도 후에도 계속될 때 쓸 대체 모델 (비면 끔)
     mcp_server_url: str = "http://127.0.0.1:8000/mcp"
+    rag_enabled: bool = False           # rag-mcp(기존 이슈 색인·검색)를 쓸지. 끄면 중복 판단 없이 발행
+    rag_mcp_url: str = "http://127.0.0.1:8002/mcp"
+    rag_sync_timeout_seconds: int = 30  # 실행마다 색인 갱신(sync_issues)을 기다리는 시간
+    tool_result_max_chars: int = 2000   # 모델에게 넘기는 도구 결과 길이 한도
     backend_base_url: str = ""          # 비어 있으면 진행·결과 보고를 하지 않는다
     backend_token: str = ""             # 백엔드 내부 API 서비스 토큰
     issue_labels: list[str] = field(default_factory=list)
@@ -69,6 +73,10 @@ def load_settings() -> Settings:
         review_reasoning_effort=_str("OPENAI_REVIEW_REASONING_EFFORT", ""),
         fallback_model=_str("OPENAI_FALLBACK_MODEL", ""),
         mcp_server_url=_str("MCP_SERVER_URL", "http://127.0.0.1:8000/mcp"),
+        rag_enabled=_bool("RAG_ENABLED", False),
+        rag_mcp_url=_str("RAG_MCP_URL", "http://127.0.0.1:8002/mcp"),
+        rag_sync_timeout_seconds=_int("RAG_SYNC_TIMEOUT_SECONDS", 30),
+        tool_result_max_chars=_int("TOOL_RESULT_MAX_CHARS", 2000),
         backend_base_url=_str("BACKEND_BASE_URL", "").rstrip("/"),
         backend_token=_str("BACKEND_INTERNAL_TOKEN", ""),
         issue_labels=_list("ISSUE_LABELS"),

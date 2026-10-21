@@ -62,7 +62,7 @@ class TaskItemOut(CamelModel):
     action: Action = Field(description="업무 동작 유형. 현재 실제 발행 경로는 신규 생성")
     reason: str | None = Field(None, description="항목 판단 사유")
     review_status: ReviewStatus = Field(description="검수 결과. Spring은 APPROVED 외 상태를 REJECTED/BLOCKED로 정규화")
-    publish_status: PublishStatus = Field(description="항목별 발행 결과. 현재 dry-run은 NOT_STARTED로 반환")
+    publish_status: PublishStatus = Field(description="항목별 발행 결과. dry-run이면 승인 항목도 SKIPPED(발행 생략)")
     github_issue_number: int | None = Field(None, description="실제 GitHub 이슈 번호. 없으면 null")
     github_issue_url: str | None = Field(None, description="실제 GitHub 이슈 URL. 없으면 null")
     error_message: str | None = Field(None, description="실행 또는 항목 오류 사유")

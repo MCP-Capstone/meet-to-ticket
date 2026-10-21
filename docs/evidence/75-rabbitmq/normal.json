@@ -1,0 +1,106 @@
+{
+  "scenario": "normal",
+  "meetingId": 3,
+  "taskId": "9b1dcad3-2448-42c4-bbb5-538c10f5f0f8",
+  "responseCode": 202,
+  "responseSeconds": 0.018,
+  "response": {
+    "taskId": "9b1dcad3-2448-42c4-bbb5-538c10f5f0f8",
+    "meetingId": 3,
+    "status": "QUEUED",
+    "executionMode": "LIVE"
+  },
+  "polls": [
+    {
+      "seconds": 0.022,
+      "status": {
+        "taskId": "9b1dcad3-2448-42c4-bbb5-538c10f5f0f8",
+        "meetingId": 3,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:09:39.899396Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 1.08,
+      "status": {
+        "taskId": "9b1dcad3-2448-42c4-bbb5-538c10f5f0f8",
+        "meetingId": 3,
+        "status": "COMPLETED",
+        "stage": "VERIFYING",
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:09:39.899396Z",
+        "finishedAt": "2026-10-21T05:09:40.859923Z",
+        "errorMessage": null
+      }
+    }
+  ],
+  "items": {
+    "taskId": "9b1dcad3-2448-42c4-bbb5-538c10f5f0f8",
+    "status": "COMPLETED",
+    "executionMode": "LIVE",
+    "items": [
+      {
+        "itemId": "0ddb01e8-2e3b-4cf4-80b1-a8c7ca2c2995",
+        "workKey": "mq75-a1",
+        "title": "API 문서 수정",
+        "contentJson": {
+          "action_text": "API 문서 수정",
+          "description": "API 문서 수정을(를) 진행한다. 가나다라 표시.",
+          "acceptance_criteria": [
+            "결과를 팀에 공유한다"
+          ],
+          "evidence_quotes": [
+            "API 문서 수정"
+          ],
+          "assignees": {
+            "names": [
+              "박종민"
+            ],
+            "github": [
+              "jongmiiin"
+            ],
+            "unresolved": []
+          },
+          "due": {
+            "text": "2026-10-22",
+            "date": "2026-10-22",
+            "time": null
+          },
+          "expected": {
+            "raw": "신규 티켓",
+            "kind": "new",
+            "keys": []
+          },
+          "open_questions": [],
+          "review": {
+            "failed_items": [],
+            "revisions": 0,
+            "fallback": false,
+            "notes": []
+          },
+          "warnings": []
+        },
+        "action": "CREATE",
+        "reason": null,
+        "reviewStatus": "APPROVED",
+        "publishStatus": "SUCCEEDED",
+        "githubIssueNumber": 75001,
+        "githubIssueUrl": "https://github.com/MCP-Capstone/mcp-capstone/issues/75001",
+        "errorMessage": null
+      }
+    ],
+    "summary": {
+      "total": 1,
+      "approved": 1,
+      "rejected": 0,
+      "succeeded": 1,
+      "failed": 0,
+      "unknown": 0,
+      "skipped": 0
+    }
+  }
+}

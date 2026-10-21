@@ -148,7 +148,7 @@ AGENT_MODE=live ./gradlew bootRun --args='--spring.profiles.active=demo'
   - 승인됐는데 발행하지 않은 항목(`NOT_STARTED` 등)은 `FAILED`로 보여준다. `SKIPPED` 응답은 그대로 유지한다. 현재 Agent `DRY_RUN`은 `NOT_STARTED`를 반환하므로 Spring에서 `FAILED`로 보일 수 있다.
   - `contentJson`은 Agent가 준 그대로 저장한다.
 - 저장 전 확인: 항목 ID 중복, 제목 길이, 반려 항목에 이슈가 없는지, **발행 성공 항목의 이슈 URL이 프로젝트 저장소(`github_owner/github_repo`)인지**, 집계와 작업 상태가 맞는지.
-- Agent에 연결이 안 되면 분석 요청이 바로 502 `AGENT_ACCEPTANCE_FAILED`다. 응답이 늦거나 유실되면 재접수하지 않고 같은 taskId만 조회한다.
+- 분석 요청은 RabbitMQ 큐에 접수하고 202를 반환한다. Agent 연결 거부 시 리스너가 2초·4초·8초 후 재시도하며, 최종 실패는 FAILED/DLQ로 처리한다. 접수 불명은 재POST하지 않는다. [큐 실행·정책·증빙](../docs/rabbitmq-analysis.md)을 참고한다.
 - `AGENT_POLL_INTERVAL_MS` 기본 2000, HTTP 연결 3초 / 읽기 5초, 전체 확인 제한 `AGENT_TASK_TIMEOUT` 기본 10분.
 - 할 일 없음 / 모두 반려는 `COMPLETED`. 일부 발행 실패는 `PARTIALLY_FAILED`, 승인 항목이 전부 실패하면 `FAILED`다.
 

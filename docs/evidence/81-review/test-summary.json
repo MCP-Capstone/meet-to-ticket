@@ -1,0 +1,14 @@
+{
+  "tests": 72,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "rabbitmqIntegrationTests": 3,
+  "faultInjection": "DB access/transaction errors injected; RetryDelay mocked; actual RabbitMQ isolated vhost; H2 test DB",
+  "command": "RABBITMQ_REVIEW_TESTS=true RABBITMQ_REVIEW_VHOST=mtt81-review-20261021 ./gradlew build --no-daemon --console=plain",
+  "cases": [
+    "DB장애는_DLQ로_분리하고_복구후_FAILED를_기록하며_다음작업은_처리한다()",
+    "POST성공후_DB기록장애도_Agent를_재호출하지_않고_DLQ로_종료한다()",
+    "요청조회_DB가_복구되면_정상_수신을_이어가고_중복_POST하지_않는다()"
+  ]
+}

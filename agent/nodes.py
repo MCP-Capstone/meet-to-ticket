@@ -59,7 +59,7 @@ def _copy(tickets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [dict(t) for t in tickets]
 
 
-def run_metrics(settings: Settings, llm: Any, started_at: float | None) -> dict[str, Any]:
+def run_metrics(settings: Settings, llm: Any, started_at: float | None, rag: dict[str, Any] | None = None) -> dict[str, Any]:
     """결과에 담는 실행 지표. 키는 백엔드 응답과 같은 camelCase."""
     from langsmith.utils import tracing_is_enabled
 
@@ -69,6 +69,7 @@ def run_metrics(settings: Settings, llm: Any, started_at: float | None) -> dict[
         "model": settings.openai_model,
         "reviewModel": settings.review_model,
         "tracing": bool(tracing_is_enabled()),
+        "rag": rag or {"status": "disabled" if not settings.rag_enabled else "unknown", "sync": None},
         **dict(getattr(llm, "stats", {}) or {}),  # 가짜 LLM에는 없다
     }
 
@@ -108,11 +109,12 @@ def new_ticket(row: ActionRow, members: list[ProjectMember], meeting_date: date 
 
 
 class AgentNodes:
-    def __init__(self, llm: Any, publisher: Any, reporter: Any, settings: Settings):
+    def __init__(self, llm: Any, publisher: Any, reporter: Any, settings: Settings, issue_tools: Any | None = None):
         self.llm = llm
         self.publisher = publisher
         self.reporter = reporter
         self.settings = settings
+        self.issue_tools = issue_tools  # 중복 판단용 조회 도구 (issue_tools.IssueTools). 없으면 중복 확인 없이 발행
 
     async def _progress(self, state: AgentState, stage: str) -> None:
         try:
@@ -432,7 +434,8 @@ class AgentNodes:
                     fatal, fatal_message = exc.code, exc.message
                 continue
             if res.get("status") == "dry_run":
-                t["publish_status"] = "NOT_STARTED"
+                # 백엔드는 SKIPPED를 "발행 생략"으로 저장한다 (NOT_STARTED는 발행 실패로 바뀐다)
+                t["publish_status"] = "SKIPPED"
                 t["reason"] = "DRY_RUN: 발행하지 않음"
                 continue
             t["publish_status"] = "SUCCEEDED"
@@ -511,7 +514,7 @@ class AgentNodes:
             "summary": summary,
             "items": items,
             "trace_id": state.get("trace_id"),
-            "metrics": run_metrics(self.settings, self.llm, state.get("started_at")),
+            "metrics": run_metrics(self.settings, self.llm, state.get("started_at"), state.get("rag")),
         }
 
     async def finish(self, state: AgentState) -> dict[str, Any]:

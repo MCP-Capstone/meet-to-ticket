@@ -1,0 +1,5 @@
+               task_id                |  state   | attempts |  status   
+--------------------------------------+----------+----------+-----------
+ 9b1dcad3-2448-42c4-bbb5-538c10f5f0f8 | ACCEPTED |        1 | COMPLETED
+(1 row)
+

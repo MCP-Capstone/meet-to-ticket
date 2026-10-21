@@ -1,7 +1,7 @@
 # 전체 서비스 Docker 실행
 
-`compose.full.yml`은 frontend, backend, agent, mcp-server, postgres를 함께 실행한다.
-기존 `docker-compose.yml`은 로컬 개발용 DB 전용 설정으로 유지한다.
+`compose.full.yml`은 frontend, backend, agent, mcp-server, postgres, rabbitmq를 함께 실행한다.
+기존 `docker-compose.yml`은 로컬 개발용 DB·RabbitMQ 설정으로 유지한다.
 전체 구성은 별도 프로젝트 이름 `meet-to-ticket-full`을 사용해 기존 DB 컨테이너와 구분한다.
 Docker Compose 2.24 이상과 Docker 엔진이 필요하다. 로컬 Java·Node·Python 설치는 빌드에 필요하지 않다.
 
@@ -19,7 +19,7 @@ cp -n .env.example .env
 
 | 파일 | 설정 |
 |---|---|
-| 루트 `.env` | `BACKEND_INTERNAL_TOKEN`, 공개 포트, 실행 모드, DB 및 demo 계정 설정 |
+| 루트 `.env` | `BACKEND_INTERNAL_TOKEN`, 공개 포트, 실행 모드, DB·RabbitMQ 및 demo 계정 설정 |
 | `agent/.env` | `OPENAI_API_KEY` 및 선택적인 모델·추적 설정 |
 | `mcp-server/.env` | `GITHUB_TOKEN`, `GITHUB_OWNER=MCP-Capstone`, `GITHUB_REPO=mcp-capstone` |
 
@@ -28,13 +28,13 @@ API 키와 토큰은 실행 시 환경 변수로 전달하며 이미지에 복�
 
 루트의 `DRY_RUN=true`가 기본이다. 분석·검수 LLM은 호출하지만 실제 GitHub 이슈는 생성하지 않는다.
 `agent/.env`의 `DRY_RUN`보다 루트 Compose 설정이 우선한다.
-현재 Spring은 Agent DRY_RUN의 `NOT_STARTED`를 `FAILED`로 표시하므로 발행 실패 문구가 나올 수 있다.
+최신 Agent는 DRY_RUN 결과를 `SKIPPED`로 반환한다. 이슈 링크가 없는 발행 제외 결과가 정상이다.
 실제 발행은 루트 `.env`에서 `DRY_RUN=false`로 바꾸고 컨테이너를 재생성한 뒤 새 회의를 분석한다.
 
 ## 실행
 
 기존에 직접 실행한 Spring·Vite가 8080·5173 포트를 사용 중이면 해당 실행을 종료하거나,
-루트 `.env`의 `BACKEND_PORT`, `FRONTEND_PORT`를 변경한다. 기존 DB 전용 컨테이너는 그대로 둘 수 있다.
+루트 `.env`의 `BACKEND_PORT`, `FRONTEND_PORT`를 변경한다. 기존 로컬 DB·RabbitMQ 컨테이너는 그대로 둘 수 있다.
 
 ```bash
 docker compose -f compose.full.yml config --quiet
@@ -46,7 +46,7 @@ docker compose -f compose.full.yml ps
 루트 `.env`의 `DEMO_LOGIN_ID`, `DEMO_PASSWORD`로 바꿀 수 있다. 기존 사용자 행의 비밀번호는 자동 변경하지 않는다.
 파일 선택 창에서 `backend/examples/meetings/10min_1_summary.txt`를 업로드하고 분석을 시작한다.
 
-컨테이너는 준비 상태를 확인한 순서로 시작한다: MCP → Agent, DB·Agent → Spring → 프론트.
+컨테이너는 준비 상태를 확인한 순서로 시작한다: MCP → Agent, DB·RabbitMQ·Agent → Spring → 프론트.
 Agent는 Spring이 실행될 때까지 기다리도록 설정하지 않아 진행 보고 경로의 순환 의존을 피한다.
 
 ## 연결 및 공개 범위
@@ -58,16 +58,22 @@ Agent는 Spring이 실행될 때까지 기다리도록 설정하지 않아 진�
 | agent | `agent:8001` | 없음 |
 | mcp-server | `mcp-server:8000` | 없음 |
 | postgres | `postgres:5432` | 없음 |
+| rabbitmq | `rabbitmq:5672` (관리 UI 15672도 내부 전용) | 없음 |
 
 컨테이너의 `localhost`는 자기 자신이다. Compose는 Spring의 DB·Agent 주소와 Agent의 MCP·진행 보고 주소를
-서비스 이름으로 설정한다. 로컬 `.env`의 localhost 주소는 컨테이너 실행 시 덮어쓴다.
+서비스 이름으로 설정한다. Spring의 RabbitMQ 주소도 `rabbitmq:5672`로 고정하며
+사용자·비밀번호·vhost와 접수 복구 설정은 루트 `.env`에서 읽는다. 로컬 `.env`의 localhost 주소는 컨테이너 실행 시 덮어쓴다.
 Agent와 MCP 이미지 안에는 `.env` 파일을 넣지 않으므로 dotenv의 override 설정과 충돌하지 않는다.
 
 프론트는 Vite 개발 서버 대신 Nginx로 빌드된 화면을 제공한다. `/api/`는 Spring에 전달하고 세션 쿠키를 유지한다.
 브라우저에서 컨테이너 이름을 직접 사용하지 않는다. Spring은 별도로 `http://localhost:8080`에 공개한다.
 `/internal/**`은 프론트 프록시 대상이 아니지만 Spring 공개 포트에서 접근 가능하므로 기존 공유 토큰 검증이 적용된다.
-Agent·MCP·DB에는 호스트 포트 매핑을 만들지 않는다. 브리지 네트워크는 Agent의 OpenAI 호출과 MCP의 GitHub 호출을 허용한다.
+Agent·MCP·DB·RabbitMQ에는 호스트 포트 매핑을 만들지 않는다. 브리지 네트워크는 Agent의 OpenAI 호출과 MCP의 GitHub 호출을 허용한다.
 MCP healthcheck는 TCP 기동 확인이며 GitHub 토큰의 유효성까지 검사하지 않는다.
+
+RAG MCP는 현재 도구 구현이 진행 중인 선택 기능이며 이 구성에 포함하지 않는다.
+기본 `RAG_ENABLED=false`로 실행한다. 이 구성에서 RAG 검색을 별도로 활성화하려면
+접근 가능한 RAG MCP 서버와 `RAG_MCP_URL` 설정이 필요하다.
 
 ## 로그 및 문제 확인
 
@@ -88,7 +94,7 @@ docker compose -f compose.full.yml up -d --force-recreate agent backend
 
 ## 검증
 
-1. `ps`에서 5개 서비스의 healthy 상태를 확인한다.
+1. `ps`에서 6개 서비스의 healthy 상태를 확인한다.
 2. `http://localhost:5173/api/health`와 Spring 상태 API가 정상 응답하는지 확인한다.
 3. 로그인 후 샘플 파일을 업로드하고 분석한다. 진행 보고 202와 최종 항목·집계 조회를 확인한다.
 4. 기본 DRY_RUN에서는 GitHub 이슈가 생성되지 않는지 확인한다. 실제 발행 검증은 별도 실행한다.
@@ -100,23 +106,24 @@ docker compose -f compose.full.yml down
 docker compose -f compose.full.yml up -d --wait --wait-timeout 180
 ```
 
-`full-postgres-data` 볼륨은 컨테이너 종료·재생성 시 유지된다. 기존 DB 전용 구성의 `postgres-data`와 별개이므로
+`full-postgres-data`와 `full-rabbitmq-data` 볼륨은 컨테이너 종료·재생성 시 유지된다.
+RabbitMQ는 고정 hostname을 사용해 재생성 후에도 저장된 큐를 같은 노드로 읽는다. 기존 로컬 개발 구성의 `postgres-data`와 별개이므로
 로컬 개발 DB가 이 구성으로 자동 이전되지는 않는다. 기존 로컬 데이터도 변경하지 않는다.
 데이터를 유지하려면 `down -v`를 사용하지 않는다.
 
 ## 확인한 실행 결과
 
-2026-10-21에 별도 검증 프로젝트에서 아래 내용을 확인했다.
+최신 develop 병합 후 별도 검증 프로젝트에서 아래 내용을 확인했다.
 
-- Agent·Spring·프론트·MCP 이미지 빌드 및 5개 서비스 healthy.
-- 공개 포트는 프론트·Spring 두 개뿐이며 Agent에서 MCP 도구 목록 조회 성공.
-- Nginx를 통한 로그인·회의 업로드·실제 LLM 분석·검수·최종 항목 조회 성공.
+- Agent·Spring·프론트·MCP 이미지 빌드 및 RabbitMQ를 포함한 6개 서비스 healthy.
+- 공개 포트는 프론트·Spring 두 개뿐이며 RabbitMQ 연결 설정이 양쪽에서 일치함을 확인.
+- Nginx를 통한 로그인·회의 업로드·RabbitMQ를 거친 실제 LLM 분석·검수·최종 항목 조회 성공.
 - Agent의 progress·result 알림 모두 Spring에서 202 응답.
-- DRY_RUN=true로 실제 이슈 생성 없이 승인 1건을 처리. 현재 Spring 매핑에서는 발행 FAILED로 표시됨.
-- 전체 컨테이너 종료·재생성 후 저장한 회의와 분석 결과 유지.
-- Agent·MCP 이미지 내부에 로컬 .env 파일이 없음을 확인.
+- DRY_RUN=true에서 승인 1건, 발행 SKIPPED 1건, 실패 0건 및 작업 COMPLETED 확인.
 
-실제 GitHub 이슈 발행은 이 검증에 포함하지 않았다.
+초기 구성에서 Agent → MCP 도구 목록 조회, 전체 컨테이너 종료·재생성 후 회의·분석 결과 유지,
+Agent·MCP 이미지 내부에 로컬 .env 파일이 없음을 확인했다.
+실제 GitHub 이슈 발행과 선택 기능인 RAG 검색은 이 검증에 포함하지 않았다.
 
 ## 관련 문서
 

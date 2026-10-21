@@ -1,0 +1,225 @@
+{
+  "scenario": "agent-down",
+  "meetingId": 2,
+  "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+  "responseCode": 202,
+  "responseSeconds": 0.018,
+  "response": {
+    "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+    "meetingId": 2,
+    "status": "QUEUED",
+    "executionMode": "LIVE"
+  },
+  "polls": [
+    {
+      "seconds": 0.021,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 1.039,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 2.052,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 3.06,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 4.078,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 5.095,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 6.111,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 7.126,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 8.143,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 9.156,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 10.168,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 11.184,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 12.198,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 13.213,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "QUEUED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": null,
+        "errorMessage": null
+      }
+    },
+    {
+      "seconds": 14.229,
+      "status": {
+        "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+        "meetingId": 2,
+        "status": "FAILED",
+        "stage": null,
+        "executionMode": "LIVE",
+        "createdAt": "2026-10-21T05:08:14.618044Z",
+        "finishedAt": "2026-10-21T05:08:28.68305Z",
+        "errorMessage": "AGENT_ACCEPTANCE_FAILED: 최초 접수와 재시도 3회가 실패했습니다. DLQ를 확인하세요."
+      }
+    }
+  ],
+  "items": {
+    "taskId": "3fe3b685-9f6b-4228-8f9f-bf5576df201e",
+    "status": "FAILED",
+    "executionMode": "LIVE",
+    "items": [],
+    "summary": {
+      "total": 0,
+      "approved": 0,
+      "rejected": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "unknown": 0,
+      "skipped": 0
+    }
+  }
+}

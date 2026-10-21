@@ -1,7 +1,6 @@
 package com.mcpcapstone.meettoticket.analysis;
 
 import com.mcpcapstone.meettoticket.agent.*;
-import com.mcpcapstone.meettoticket.common.error.*;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -9,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -21,19 +21,11 @@ public class AnalysisCoordinator {
     private final AgentGateway gateway;
     private final AgentProperties properties;
 
+    @Transactional
     public Started start(Long meetingId, Long userId) {
         var request = store.create(meetingId, userId, gateway.mode());
-        try {
-            gateway.submit(request);
-        } catch (AgentException e) {
-            if (!e.uncertain()) {
-                store.fail(request.taskId(), "AGENT_ACCEPTANCE_FAILED: Agent 실행 접수를 확인하지 못했습니다.");
-                throw new BusinessException(ErrorCode.AGENT_ACCEPTANCE_FAILED);
-            }
-            log.warn(
-                    "Agent acceptance uncertain; polling existing task {} without resubmission",
-                    request.taskId());
-        }
+        // Agent 호출은 리스너가 수행한다. 저장 작업과 큐 발행 기록은 함께 커밋한다.
+        gateway.submit(request);
         return new Started(request.taskId(), meetingId, TaskStatus.QUEUED, gateway.mode());
     }
 

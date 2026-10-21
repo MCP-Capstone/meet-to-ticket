@@ -30,7 +30,7 @@
 
 ### 전체 서비스를 Docker로 실행
 
-Docker Desktop만으로 5개 서비스를 함께 실행할 수 있다. 환경 변수 초기 설정 후:
+Docker Desktop만으로 6개 서비스(프론트·Spring·Agent·MCP·DB·RabbitMQ)를 함께 실행할 수 있다. 환경 변수 초기 설정 후:
 
 ```bash
 docker compose -f compose.full.yml up -d --build
