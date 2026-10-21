@@ -64,7 +64,7 @@ JWT 없이 서버 세션으로 로그인 상태를 유지한다. 로그인하면
 | GET | `/api/auth/me` | 내 정보 | 200 / 401 `UNAUTHORIZED` |
 
 - `/api/auth/**`, `/api/health`를 뺀 모든 `/api/**`는 로그인이 필요하다. (`LoginCheckInterceptor`, 없으면 401 `UNAUTHORIZED`)
-- Spring이 Agent의 `/internal/**` API를 직접 호출·조회한다. 브라우저 세션과 Vite 프록시를 거치지 않는다.
+- Spring이 Agent의 `/runs` API를 서버 간 HTTP로 호출 / 조회한다. 브라우저 세션과 Vite 프록시를 거치지 않는다.
 - 컨트롤러에서 로그인한 사용자 ID 받기
 
 ```java
@@ -128,27 +128,29 @@ python3 examples/smoke_demo.py
 
 ### 실제 Agent 연결
 
-기본값은 LIVE다. demo 프로필 없이 실행하거나, demo 시드(계정 / 프로젝트 / 팀원)를 그대로 쓰면서 Agent만 실제로 붙이려면 demo 프로필에 `AGENT_MODE=live`를 함께 준다. 다음 환경변수를 설정한다.
+Agent(`agent/`, #52)의 API를 Spring이 호출한다. Agent 콜백(`/internal/tasks/...`)은 쓰지 않으므로 Agent의 `BACKEND_BASE_URL`은 비워 둔다.
 
-```dotenv
-AGENT_MODE=live
-AGENT_BASE_URL=http://localhost:8001
-AGENT_INTERNAL_API_KEY=실제_내부_인증키
+| Spring이 호출 | 내용 |
+|---|---|
+| `POST {AGENT_BASE_URL}/runs` | 분석 접수. 회의 / 프로젝트 / 팀원 정보를 보내고 202 `{taskId, status: ACCEPTED}`를 받는다 |
+| `GET {AGENT_BASE_URL}/runs/{taskId}` | 약 2초 간격 조회. 진행 중이면 `RUNNING`, 끝나면 `SUCCEEDED / FAILED`와 항목별 결과 |
+
+demo 시드(계정 / 프로젝트 / 팀원)를 그대로 쓰면서 실제 Agent에 붙인다.
+
+```bash
+AGENT_MODE=live ./gradlew bootRun --args='--spring.profiles.active=demo'
 ```
 
-LIVE 모드에서 `AGENT_INTERNAL_API_KEY`가 없거나 공백이면 기동에 실패한다. demo(MOCK)는 키 없이 실행할 수 있다.
-
-Spring은 `POST /internal/v1/analysis-tasks`로 JSON을 전달하고 `GET /internal/v1/analysis-tasks/{taskId}`를 약 2초 간격으로 조회한다. Agent에서 두 API를 제공해야 하며 콜백은 사용하지 않는다. Agent와 MCP 구현은 변경하지 않았다. 내부 키와 GitHub 토큰은 별개이고 요청 스냅샷에 저장하지 않는다.
-
-- `AGENT_POLL_INTERVAL_MS` 기본 2000, HTTP 연결 3초·읽기 5초, 전체 확인 제한 `AGENT_TASK_TIMEOUT` 기본 10분.
-- 입력 스냅샷은 `{executionMode, request}` 구조이며 `request`가 실제 전송 JSON이다.
-- 보완 최대 2회, 원문 근거·팀원 범위·검수 버전·승인 인자·실제 이슈 링크 등 응답 계약을 확인한 뒤 저장한다.
-- 할 일 없음·모두 검수 반려는 COMPLETED. 일부 발행 실패는 PARTIALLY_FAILED, 승인 항목이 전부 실패하면 FAILED다.
-- 같은 taskId를 재접수하거나 응답 유실을 이유로 새 이슈 생성을 반복하지 않는다. 생성 여부 불명은 UNKNOWN으로 보존한다.
-- 폴링은 중첩 실행 없이 순차 처리한다. 작업 수와 Agent 응답 지연에 따라 개별 조회 간격은 설정값보다 길어질 수 있다.
-- 같은 회의의 분석 생성은 회의 행의 DB 잠금 안에서 기존 작업을 확인해 직렬화한다. 외부 Agent 호출 전에 트랜잭션을 끝낸다.
-- 종료 결과의 항목과 작업 상태는 한 트랜잭션으로 저장한다. 이미 종료된 작업을 뒤늦은 진행 상태로 되돌리지 않는다.
-- Agent가 접수 응답을 주지 않았을 때에도 기존 taskId만 조회하며 재실행하지 않는다. Agent의 프로세스가 재시작돼 작업을 잃었다면 조회 실패로 종료한다.
+- `AGENT_BASE_URL` 기본 `http://localhost:8001`. `AGENT_INTERNAL_API_KEY`는 선택이다. (설정하면 `X-Internal-Api-Key` 헤더로 보낸다. Agent는 아직 검사하지 않는다)
+- Agent 결과 변환(`agent/AgentRunMapper`)
+  - `SUCCEEDED` → 항목 발행 결과에 따라 `COMPLETED / PARTIALLY_FAILED / FAILED`, Agent `FAILED` → `FAILED` + 오류 코드 / 메시지
+  - 검수 `APPROVED`만 승인으로 저장한다. `REJECTED / NEEDS_CHECK / PENDING`은 반려(`BLOCKED`)로 저장하고 `NEEDS_CHECK`는 사유 앞에 `[확인 필요]`를 붙인다.
+  - 승인됐는데 발행하지 않은 항목(`NOT_STARTED` 등)은 `FAILED`로 보여준다. Agent `DRY_RUN`의 `SKIPPED`는 그대로 둔다.
+  - `contentJson`은 Agent가 준 그대로 저장한다.
+- 저장 전 확인: 항목 ID 중복, 제목 길이, 반려 항목에 이슈가 없는지, **발행 성공 항목의 이슈 URL이 프로젝트 저장소(`github_owner/github_repo`)인지**, 집계와 작업 상태가 맞는지.
+- Agent에 연결이 안 되면 분석 요청이 바로 502 `AGENT_ACCEPTANCE_FAILED`다. 응답이 늦거나 유실되면 재접수하지 않고 같은 taskId만 조회한다.
+- `AGENT_POLL_INTERVAL_MS` 기본 2000, HTTP 연결 3초 / 읽기 5초, 전체 확인 제한 `AGENT_TASK_TIMEOUT` 기본 10분.
+- 할 일 없음 / 모두 반려는 `COMPLETED`. 일부 발행 실패는 `PARTIALLY_FAILED`, 승인 항목이 전부 실패하면 `FAILED`다.
 
 ### 테스트
 

@@ -9,13 +9,13 @@ class AgentConfigurationTest {
     private final ApplicationContextRunner context =
             new ApplicationContextRunner().withUserConfiguration(AgentConfiguration.class);
 
+    // Agent(#52)는 내부 키를 검사하지 않아 LIVE도 키 없이 기동한다.
     @Test
-    void LIVE에서_누락되거나_공백인_내부키로_기동하지_않는다() {
-        context.run(c -> assertThat(c.getStartupFailure())
-                .hasRootCauseMessage("LIVE 모드에는 AGENT_INTERNAL_API_KEY 설정이 필요합니다."));
-        context.withPropertyValues("agent.api-key=   ").run(c ->
-                assertThat(c.getStartupFailure())
-                        .hasRootCauseMessage("LIVE 모드에는 AGENT_INTERNAL_API_KEY 설정이 필요합니다."));
+    void LIVE는_내부키_없이도_게이트웨이를_생성한다() {
+        context.run(c -> {
+            assertThat(c).hasNotFailed();
+            assertThat(c).hasSingleBean(AgentGateway.class);
+        });
     }
 
     @Test

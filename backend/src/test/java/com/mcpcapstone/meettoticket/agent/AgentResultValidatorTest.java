@@ -2,179 +2,132 @@ package com.mcpcapstone.meettoticket.agent;
 
 import static org.assertj.core.api.Assertions.*;
 
-import com.mcpcapstone.meettoticket.analysis.*;
+import com.mcpcapstone.meettoticket.analysis.TaskStatus;
 import com.mcpcapstone.meettoticket.common.JsonCodec;
 
 import org.junit.jupiter.api.Test;
 
-import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
 
-import java.time.*;
-import java.util.*;
+import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
+// LIVE: Agent(#52) GET /runs/{taskId} 응답을 변환해 검증한다.
 class AgentResultValidatorTest {
-    private final JsonCodec json = new JsonCodec();
-    private final AgentResultValidator validator = new AgentResultValidator();
+	private static final String REPO_URL = "https://github.com/MCP-Capstone/mcp-capstone/issues/";
 
-    private AgentContracts.StartRequest request() {
-        return new AgentContracts.StartRequest(
-                UUID.randomUUID(),
-                new AgentContracts.MeetingData(
-                        1L,
-                        "회의",
-                        LocalDate.of(2026, 10, 22),
-                        "Asia/Seoul",
-                        List.of(11L),
-                        "a.txt",
-                        "원문 근거"),
-                new AgentContracts.ProjectData(1L, "CSV", "MCP-Capstone", "mcp-capstone"),
-                List.of(new AgentContracts.MemberData(11L, null, "박종민", "jongmin")));
-    }
+	private final JsonCodec json = new JsonCodec();
+	private final AgentResultValidator validator = new AgentResultValidator();
 
-    private ObjectNode content() {
-        return (ObjectNode)
-                json.tree(
-                        Map.of(
-                                "todo",
-                                List.of("수정"),
-                                "acceptanceCriteria",
-                                List.of("검증"),
-                                "assignees",
-                                List.of(
-                                        Map.of(
-                                                "projectMemberId",
-                                                11,
-                                                "githubName",
-                                                "jongmin",
-                                                "mappingStatus",
-                                                "MATCHED")),
-                                "evidence",
-                                List.of(Map.of("startLine", 1, "endLine", 1, "quote", "원문 근거")),
-                                "due",
-                                Map.of(),
-                                "revision",
-                                1,
-                                "review",
-                                Map.of(
-                                        "correctionCount",
-                                        0,
-                                        "reviewedRevision",
-                                        1,
-                                        "reason",
-                                        "통과",
-                                        "approvedPayload",
-                                        Map.of(
-                                                "owner",
-                                                "MCP-Capstone",
-                                                "repo",
-                                                "mcp-capstone",
-                                                "title",
-                                                "수정",
-                                                "body",
-                                                "본문",
-                                                "assignees",
-                                                List.of("jongmin"))),
-                                "publication",
-                                Map.of(
-                                        "verified",
-                                        true,
-                                        "publishedAt",
-                                        OffsetDateTime.now().toString())));
-    }
+	private AgentContracts.StartRequest request() {
+		return new AgentContracts.StartRequest(
+				UUID.randomUUID(),
+				new AgentContracts.MeetingData(
+						1L, "회의", LocalDate.of(2026, 10, 22), "Asia/Seoul", List.of(11L), "a.txt", "원문"),
+				new AgentContracts.ProjectData(1L, "CSV", "MCP-Capstone", "mcp-capstone"),
+				List.of(new AgentContracts.MemberData(11L, null, "박종민", "jongmiiin")));
+	}
 
-    private AgentContracts.Result result(AgentContracts.StartRequest r, ObjectNode c, String url) {
-        return new AgentContracts.Result(
-                r.taskId(),
-                1L,
-                TaskStatus.COMPLETED,
-                TaskStage.VERIFYING,
-                OffsetDateTime.now(),
-                OffsetDateTime.now(),
-                List.of(
-                        new AgentContracts.Item(
-                                UUID.randomUUID(),
-                                null,
-                                "수정",
-                                c,
-                                "CREATE",
-                                "실행 업무",
-                                "APPROVED",
-                                "SUCCEEDED",
-                                1,
-                                url,
-                                null)),
-                new AgentContracts.Summary(1, 1, 0, 1, 0, 0, 0),
-                null);
-    }
+	private Map<String, Object> item(String review, String publish, Integer number, String url, String error) {
+		Map<String, Object> item = new HashMap<>();
+		item.put("taskItemId", UUID.randomUUID().toString());
+		item.put("workKey", "CSV-08");
+		item.put("title", "빈 결과 CSV 생성 오류 수정");
+		item.put("contentJson", Map.of("description", "설명", "assignees", Map.of("names", List.of("박종민"))));
+		item.put("action", "CREATE");
+		item.put("reason", null);
+		item.put("reviewStatus", review);
+		item.put("publishStatus", publish);
+		item.put("githubIssueNumber", number);
+		item.put("githubIssueUrl", url);
+		item.put("errorMessage", error);
+		return item;
+	}
 
-    @Test
-    void 검증된_실제계정과_근거와_저장소의_결과를_허용한다() {
-        var r = request();
-        assertThatCode(
-                        () ->
-                                validator.validate(
-                                        r,
-                                        result(
-                                                r,
-                                                content(),
-                                                "https://github.com/MCP-Capstone/mcp-capstone/issues/1"),
-                                        false))
-                .doesNotThrowAnyException();
-    }
+	private JsonNode run(String status, List<Map<String, Object>> items) {
+		Map<String, Object> run = new HashMap<>();
+		run.put("taskId", "ignored");
+		run.put("status", status);
+		run.put("stage", "REPORTING");
+		run.put("items", items);
+		return json.tree(run);
+	}
 
-    @Test
-    void 원문에_없는_근거와_다른저장소_URL을_차단한다() {
-        var r = request();
-        ObjectNode c = content();
-        ((ObjectNode) c.path("evidence").get(0)).put("quote", "없는 내용");
-        assertThatThrownBy(
-                        () ->
-                                validator.validate(
-                                        r,
-                                        result(
-                                                r,
-                                                c,
-                                                "https://github.com/MCP-Capstone/mcp-capstone/issues/1"),
-                                        false))
-                .isExactlyInstanceOf(AgentResultValidationException.class)
-                .hasMessageContaining("원문에 없는 근거 인용");
-        assertThatThrownBy(
-                        () ->
-                                validator.validate(
-                                        r,
-                                        result(r, content(), "https://evil.example/issues/1"),
-                                        false))
-                .isExactlyInstanceOf(AgentResultValidationException.class)
-                .hasMessageContaining("생성 성공의 이슈 URL 불일치");
-    }
+	private AgentContracts.Result map(AgentContracts.StartRequest r, JsonNode run) {
+		return AgentRunMapper.toResult(r.taskId(), run);
+	}
 
-    @Test
-    void 두번을_넘긴보완을_차단한다() {
-        var r = request();
-        ObjectNode c = content();
-        ((ObjectNode) c.path("review")).put("correctionCount", 3);
-        assertThatThrownBy(
-                        () ->
-                                validator.validate(
-                                        r,
-                                        result(
-                                                r,
-                                                c,
-                                                "https://github.com/MCP-Capstone/mcp-capstone/issues/1"),
-                                        false))
-                .isExactlyInstanceOf(AgentResultValidationException.class)
-                .hasMessageContaining("보완 횟수·검수 버전·사유 오류");
-    }
+	@Test
+	void 발행_성공과_반려가_섞인_결과는_COMPLETED로_저장한다() {
+		var r = request();
+		var result = map(r, run("SUCCEEDED", List.of(
+				item("APPROVED", "SUCCEEDED", 7, REPO_URL + 7, null),
+				item("REJECTED", "NOT_STARTED", null, null, null))));
 
-    @Test
-    void 승인_저장소_오류는_다른_검증과_구분한다() {
-        var r = request();
-        ObjectNode c = content();
-        ((ObjectNode) c.path("review").path("approvedPayload")).put("repo", "wrong-repo");
-        assertThatThrownBy(() -> validator.validate(r,
-                result(r, c, "https://github.com/MCP-Capstone/mcp-capstone/issues/1"), false))
-                .isInstanceOf(AgentResultValidationException.class)
-                .hasMessageContaining("승인 저장소 이름 불일치")
-                .hasMessageNotContaining("wrong-repo");
-    }
+		assertThatCode(() -> validator.validate(r, result, false)).doesNotThrowAnyException();
+		assertThat(result.status()).isEqualTo(TaskStatus.COMPLETED);
+		assertThat(result.summary()).isEqualTo(new AgentContracts.Summary(2, 1, 1, 1, 0, 0, 0));
+		assertThat(result.items().get(1).publishStatus()).isEqualTo("BLOCKED");
+	}
+
+	@Test
+	void 프로젝트_저장소가_아닌_이슈_URL은_차단한다() {
+		var r = request();
+		var result = map(r, run("SUCCEEDED", List.of(
+				item("APPROVED", "SUCCEEDED", 7, "https://github.com/other/repo/issues/7", null))));
+
+		assertThatThrownBy(() -> validator.validate(r, result, false))
+				.isExactlyInstanceOf(AgentResultValidationException.class)
+				.hasMessageContaining("생성 성공의 이슈 URL 불일치");
+	}
+
+	@Test
+	void 확인_필요_항목은_발행_제외로_보고_사유를_남긴다() {
+		var r = request();
+		var result = map(r, run("SUCCEEDED", List.of(item("NEEDS_CHECK", "NOT_STARTED", null, null, null))));
+
+		assertThatCode(() -> validator.validate(r, result, false)).doesNotThrowAnyException();
+		var mapped = result.items().getFirst();
+		assertThat(mapped.reviewStatus()).isEqualTo("REJECTED");
+		assertThat(mapped.publishStatus()).isEqualTo("BLOCKED");
+		assertThat(mapped.reason()).startsWith("[확인 필요]");
+	}
+
+	@Test
+	void 일부_발행_실패는_PARTIALLY_FAILED다() {
+		var r = request();
+		var result = map(r, run("SUCCEEDED", List.of(
+				item("APPROVED", "SUCCEEDED", 7, REPO_URL + 7, null),
+				item("APPROVED", "FAILED", null, null, "GitHub 422"))));
+
+		assertThatCode(() -> validator.validate(r, result, false)).doesNotThrowAnyException();
+		assertThat(result.status()).isEqualTo(TaskStatus.PARTIALLY_FAILED);
+	}
+
+	@Test
+	void Agent_전체_실패는_오류_메시지와_함께_FAILED다() {
+		var r = request();
+		Map<String, Object> failed = new HashMap<>();
+		failed.put("taskId", r.taskId().toString());
+		failed.put("status", "FAILED");
+		failed.put("errorCode", "MCP_UNAVAILABLE");
+		failed.put("errorMessage", "MCP 서버에 연결하지 못했습니다.");
+		var result = map(r, json.tree(failed));
+
+		assertThatCode(() -> validator.validate(r, result, false)).doesNotThrowAnyException();
+		assertThat(result.status()).isEqualTo(TaskStatus.FAILED);
+		assertThat(result.error().message()).contains("MCP_UNAVAILABLE");
+	}
+
+	@Test
+	void 진행_중_응답은_RUNNING으로_본다() {
+		var r = request();
+		var result = map(r, json.tree(Map.of("taskId", r.taskId().toString(), "status", "RUNNING")));
+
+		assertThatCode(() -> validator.validate(r, result, false)).doesNotThrowAnyException();
+		assertThat(result.status()).isEqualTo(TaskStatus.RUNNING);
+	}
 }
