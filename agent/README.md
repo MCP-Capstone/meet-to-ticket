@@ -305,7 +305,8 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | `prompts/*.md`, `prompts.py` | 프롬프트 본문(md)과 읽기·버전 계산 |
 | `publisher.py` | MCP 도구 호출, 이슈 본문 조립 |
 | `reporter.py` | 백엔드 진행·결과 보고 |
-| `mcp_check.py` | MCP 서버 연결 확인 (이슈 목록 읽기, `--write`면 테스트 이슈 생성) |
+| `mcp_check.py` | MCP 서버 연결 확인 (이슈 목록 읽기, `--write`면 테스트 이슈 생성, `--rag`면 rag-mcp와 판단용 도구 확인) |
+| `issue_tools.py` | 중복 판단용 기존 이슈 조회 도구 (모델용 3개, 코드용 색인 갱신·색인) |
 | `samples/` | 회의 요약 예시 3종, 팀원 명단, 요청 목데이터 |
 
 ### 모델
@@ -343,7 +344,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | 요소 | 구현 | 값·설정 |
 |---|---|---|
 | Instructions | 프롬프트 md 분리, 구조화 출력, 작업별 모델·추론 설정 | `prompts/*.md`, `PROMPT_VERSION`, 위 "모델" 표 |
-| Tools | MCP `create_issue`·`list_issues`, `[코드] 메시지` 오류 태그, 제목·본문 길이 제한 | `MCP_SERVER_URL`, 허용 저장소는 mcp-server `.env` |
+| Tools | MCP 서버 2개(mcp-server, rag-mcp) 연결, 모델용 조회 도구 3개(저장소 고정, 결과 길이 제한, 오류는 `[코드] 메시지`로 모델에게 전달), 쓰기 도구는 코드만 호출 | `MCP_SERVER_URL`, `RAG_MCP_URL`, `TOOL_RESULT_MAX_CHARS` |
 | Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → publish → finish), 작업 마감, LLM 호출 시간 한도 | 보완 `MAX_REVISIONS`=2, recursion 50, `TASK_DEADLINE_SECONDS`=600, `LLM_TIMEOUT_SECONDS`=120 |
 | Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입, 원문 길이 한도 | `MAX_SOURCE_CHARS`=40000, `DRAFT_BATCH_SIZE`·`REVIEW_BATCH_SIZE`=10 |
 | State·Memory | 노드가 끝날 때마다 상태 저장(checkpointer, thread id = taskId), 발행한 taskId 재요청은 저장된 결과로 응답, 실행 중 같은 taskId는 409, `GET /runs/{id}/history` | 메모리 저장 (재시작 시 사라짐) |
@@ -460,7 +461,26 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 ```bash
 python mcp_check.py --owner MCP-Capstone --repo mcp-capstone           # 이슈 목록 읽기
 python mcp_check.py --owner MCP-Capstone --repo mcp-capstone --write   # 테스트 이슈 1개 생성
+python mcp_check.py --owner MCP-Capstone --repo mcp-capstone --rag "CSV 빈 결과 오류"   # rag-mcp 확인
 ```
+
+### 중복 판단용 도구 (rag-mcp)
+
+`RAG_ENABLED=true`면 mcp-server(8000)와 함께 rag-mcp(8002)에도 연결한다. 도구 명세는 이슈 #83에 있다.
+
+| 도구 | 서버 | 누가 부르나 | 하는 일 |
+|---|---|---|---|
+| `search_similar_issues` | rag-mcp | 모델 | 의미가 비슷한 기존 이슈 찾기 (k 최대 10) |
+| `search_issues` | mcp-server | 모델 | 이슈 키(예: AUTH-112)나 정확한 단어로 찾기 |
+| `read_issue` | rag-mcp Resource `issue://{owner}/{repo}/{number}` | 모델 | 후보 이슈 원문 읽기 (모델은 Tool만 부를 수 있어 Agent가 Resource를 도구로 감쌈) |
+| `sync_issues` | rag-mcp | 코드 | 실행마다 1회, 바뀐 이슈만 다시 색인 (`RAG_SYNC_TIMEOUT_SECONDS` 안에 안 끝나면 건너뜀) |
+| `index_issue` | rag-mcp | 코드 | 새로 발행한 이슈를 색인에 추가 |
+| `create_issue` | mcp-server | 코드 | 이슈 발행 (모델에게 주지 않음) |
+
+- 저장소(owner/repo)는 백엔드 요청 값으로 고정한다. 모델용 도구에는 저장소 인자가 없어서 모델이 바꿀 수 없다.
+- 도구 결과는 `TOOL_RESULT_MAX_CHARS`(2000자)로 자르고, 오류는 예외 대신 `[코드] 메시지`로 모델에게 돌려준다. `INDEX_EMPTY`(색인 없음)는 "후보 없음"으로 준다.
+- rag-mcp에 연결하지 못하면 경고만 남기고 중복 확인 없이 기존처럼 발행한다. 결과 `metrics.rag.status`는 `disabled` / `unavailable` / `ready`이고, `metrics.rag.sync`에 색인 갱신 결과가 남는다.
+- 중복 판단 단계(모델이 위 도구를 골라 호출)는 #93, 판단 결과에 따른 발행은 #94에서 추가한다.
 
 ### 검수 판정
 
