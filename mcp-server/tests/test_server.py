@@ -23,6 +23,10 @@ async def test_tool_registered_with_annotations():
     assert tool["annotations"]["readOnlyHint"] is False
     assert tool["annotations"]["destructiveHint"] is False
     assert set(tool["inputSchema"]["required"]) == {"owner", "repo", "title", "body"}
+    # list_issues는 읽기 전용 도구로 표시된다
+    read = next(t for t in tools if t.name == "list_issues").model_dump(by_alias=True)
+    assert read["annotations"]["readOnlyHint"] is True
+    assert set(read["inputSchema"]["required"]) == {"owner", "repo"}
 
 
 def test_tool_rejects_not_allowed_repo(monkeypatch):
@@ -43,3 +47,16 @@ def test_tool_creates_issue(monkeypatch):
     out = server.create_issue("a", "b", "t", "body")
     assert out["number"] == 1 and out["status"] == "created"
 
+
+
+def test_list_issues_tool(monkeypatch):
+    # 허용된 저장소면 {"issues": [...]}를 돌려주고, 아니면 GitHub 호출 전에 막힌다
+    monkeypatch.setenv("GITHUB_ALLOWED_REPOS", "a/b")
+    transport = httpx.MockTransport(
+        lambda r: httpx.Response(200, json=[{"number": 1, "title": "t", "state": "open", "html_url": "u"}])
+    )
+    real = github.make_client
+    monkeypatch.setattr(github, "make_client", lambda: real(transport=transport))
+    assert server.list_issues("a", "b")["issues"][0]["number"] == 1
+    with pytest.raises(ToolError, match="REPOSITORY_NOT_ALLOWED"):
+        server.list_issues("x", "y")
