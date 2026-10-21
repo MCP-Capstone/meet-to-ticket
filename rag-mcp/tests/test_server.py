@@ -1,5 +1,7 @@
 """서버 뼈대와 설정 테스트."""
 
+import threading
+
 import httpx
 import pytest
 
@@ -40,6 +42,29 @@ def test_settings_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("CHROMA_PATH", str(tmp_path))
     s = config.load_settings()
     assert (s.host, s.port, s.chroma_path) == ("0.0.0.0", 9102, tmp_path)
+
+
+def test_store_is_created_once_under_concurrent_calls(monkeypatch, tmp_path):
+    # 서버를 띄운 직후 검색이 동시에 들어와도 Chroma 클라이언트를 하나만 만들고 모두 성공한다
+    monkeypatch.setenv("CHROMA_PATH", str(tmp_path / "chroma"))
+    barrier = threading.Barrier(8)
+    stores, errors = [], []
+
+    def call():
+        barrier.wait()
+        try:
+            store = server.get_store()
+            store.exists("o", "r")
+            stores.append(store)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=call) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and len({id(s) for s in stores}) == 1
 
 
 def test_server_name():
