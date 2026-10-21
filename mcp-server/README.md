@@ -145,7 +145,7 @@ python server.py
 
 - mcp 2.3.0의 기본값이며, 임시 서버를 실제로 띄워 시작 로그와 접속으로 확인했습니다.
 - 같은 임시 서버에 `agent/` 환경(mcp 1.30.0)의 `MultiServerMCPClient`가 접속해 도구 목록 조회에 성공했습니다.
-- 1차 도구는 `create_issue` 1개입니다. 이슈 목록 조회(`list_issues`)는 #36에서 추가합니다. 자세한 내용은 아래 10번을 보세요.
+- 1차 도구는 `create_issue`(이슈 생성)와 `list_issues`(이슈 목록 조회) 2개입니다. 자세한 내용은 아래 10번을 보세요.
 - 에이전트는 `agent/.env`의 `MCP_SERVER_URL`로 이 주소에 접속합니다.
 
 포트가 겹치면 `.env`의 `MCP_PORT`(필요하면 `MCP_HOST`)를 바꿉니다. 이때는 에이전트의 `MCP_SERVER_URL`도 같이 바꿔야 합니다.
@@ -265,9 +265,9 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 - `.env`와 실제 토큰을 커밋하거나 메신저, 이슈에 붙여넣지 않는다.
 - 패키지 추가와 compile을 환경 담당이 아닌 사람이 임의로 하지 않는다.
 
-## 10. 1차 구현 (이슈 생성 도구)
+## 10. 1차 구현 (이슈 생성·목록 조회 도구)
 
-1차 범위에서는 도구가 **`create_issue` 1개**입니다. 이슈 목록 조회(`list_issues`)는 #36에서, 기존 이슈 검색·닫기 도구는 2차에서 추가합니다.
+1차 범위에서는 도구가 **`create_issue`, `list_issues` 2개**입니다. 기존 이슈 검색·닫기 도구는 2차에서 추가합니다.
 
 **추가 패키지**: `httpx`, `python-dotenv` (`requirements.in`과 `.txt`에 반영됨). 이 변경을 받은 뒤에는 한 번 다시 맞춥니다.
 
@@ -292,5 +292,12 @@ uv pip sync requirements-dev.txt
 - 담당자 지정이 거부(422)되면 담당자 없이 한 번 더 생성하고 `dropped_assignees`에 표시
 - 오류 태그: `INVALID_ARGUMENT`, `GITHUB_AUTH`(401·403), `GITHUB_RATE_LIMIT`, `GITHUB_NOT_FOUND`, `GITHUB_VALIDATION`(422), `GITHUB_ERROR`
 - 에이전트 쪽에는 `Error executing tool create_issue: [코드] 메시지` 형태로 전달됩니다.
+
+**도구 `list_issues(owner, repo, state="open", limit=10)`** (읽기 전용)
+- 최근 이슈를 최신순으로 돌려줍니다. PR은 빼고, `limit`은 1~50개로 제한합니다.
+- `state`: `open`, `closed`, `all` 중 하나 (그 외는 `[INVALID_ARGUMENT]`)
+- 성공: `{issues: [{number, title, state, url, assignees}]}`
+- 허용 저장소 검사와 오류 태그는 `create_issue`와 같습니다.
+- 에이전트의 MCP 연결과 토큰 권한을 확인할 때 씁니다.
 
 **테스트**: `pytest` (실제 GitHub 호출 없음, `httpx.MockTransport` 사용)

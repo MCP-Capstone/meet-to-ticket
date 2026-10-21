@@ -152,3 +152,50 @@ def test_token_header(monkeypatch):
     with client_with(handler) as c:
         github.create_issue(c, "o", "r", "t", "b")
     assert seen["auth"] == "Bearer abc"
+
+
+# --- 이슈 목록 조회 ---
+
+
+def test_list_issues_excludes_prs_and_limits():
+    # PR은 빼고, 요청한 state와 개수 제한이 GitHub 요청에 반영된다
+    seen = {}
+
+    def handler(request):
+        seen["path"] = request.url.path
+        seen["params"] = dict(request.url.params)
+        return httpx.Response(200, json=[
+            {"number": 3, "title": "a", "state": "open", "html_url": "u3", "assignees": [{"login": "x"}]},
+            {"number": 2, "title": "pr", "state": "open", "html_url": "u2", "pull_request": {}},
+            {"number": 1, "title": "b", "state": "open", "html_url": "u1", "assignees": []},
+        ])
+
+    with client_with(handler) as c:
+        out = github.list_issues(c, "o", "r", "all", 5)
+    assert seen["path"] == "/repos/o/r/issues"
+    assert seen["params"]["state"] == "all"
+    assert seen["params"]["per_page"] == "10"
+    assert [i["number"] for i in out] == [3, 1]
+    assert out[0] == {"number": 3, "title": "a", "state": "open", "url": "u3", "assignees": ["x"]}
+
+
+def test_list_issues_limit_cut():
+    # PR을 빼고 남은 이슈가 limit보다 많으면 limit개만 돌려준다
+    items = [{"number": n, "title": "t", "state": "open", "html_url": "u"} for n in range(5, 0, -1)]
+    with client_with(lambda r: httpx.Response(200, json=items)) as c:
+        out = github.list_issues(c, "o", "r", limit=2)
+    assert [i["number"] for i in out] == [5, 4]
+
+
+def test_list_issues_bad_state():
+    # state는 open, closed, all만 받는다
+    with client_with(lambda r: httpx.Response(200, json=[])) as c:
+        with pytest.raises(ToolError, match="INVALID_ARGUMENT"):
+            github.list_issues(c, "o", "r", "weird")
+
+
+def test_list_issues_error_tag():
+    # 조회 실패도 생성과 같은 에러 태그로 돌려준다
+    with client_with(lambda r: httpx.Response(404, json={"message": "Not Found"})) as c:
+        with pytest.raises(ToolError, match=r"^\[GITHUB_NOT_FOUND\]"):
+            github.list_issues(c, "o", "r")

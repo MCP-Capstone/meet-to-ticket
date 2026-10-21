@@ -124,6 +124,37 @@ def _is_assignee_error(resp: httpx.Response) -> bool:
     return "assignee" in str(data).lower()
 
 
+def list_issues(
+    client: httpx.Client, owner: str, repo: str, state: str = "open", limit: int = 10
+) -> list[dict[str, Any]]:
+    """최근 이슈 목록을 최신순으로 돌려준다 (PR 제외). MCP 연결과 토큰 권한 확인용으로 쓴다."""
+    if state not in ("open", "closed", "all"):
+        raise tool_error(INVALID_ARGUMENT, "state는 open, closed, all 중 하나입니다")
+    # 응답이 너무 커지지 않도록 1~50개로 제한한다
+    limit = max(1, min(int(limit), 50))
+    resp = client.get(
+        f"/repos/{owner}/{repo}/issues",
+        # GitHub 이슈 API는 PR도 함께 돌려주므로, PR을 빼고도 limit개가 남도록 넉넉히 받는다
+        params={"state": state, "per_page": min(100, limit * 2), "sort": "created", "direction": "desc"},
+    )
+    raise_for_status(resp)
+    out = []
+    for item in resp.json():
+        # PR에는 pull_request 키가 있다
+        if "pull_request" in item:
+            continue
+        out.append({
+            "number": item.get("number"),
+            "title": item.get("title"),
+            "state": item.get("state"),
+            "url": item.get("html_url"),
+            "assignees": [a.get("login") for a in item.get("assignees", []) or []],
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 def create_issue(
     client: httpx.Client,
     owner: str,
