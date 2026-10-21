@@ -346,7 +346,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | Tools | MCP `create_issue`·`list_issues`, `[코드] 메시지` 오류 태그, 제목·본문 길이 제한 | `MCP_SERVER_URL`, 허용 저장소는 mcp-server `.env` |
 | Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → publish → finish) | 보완 `MAX_REVISIONS`=2, recursion 50, 배치 10건 |
 | Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입 | `DRAFT_BATCH_SIZE`, `REVIEW_BATCH_SIZE` |
-| State·Memory | 그래프 상태와 티켓별 검수 이력, 실행 중 같은 taskId는 409 | - |
+| State·Memory | 노드가 끝날 때마다 상태 저장(checkpointer, thread id = taskId), 발행한 taskId 재요청은 저장된 결과로 응답, 실행 중 같은 taskId는 409, `GET /runs/{id}/history` | 메모리 저장 (재시작 시 사라짐) |
 | Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
 | Recovery | LLM 재시도·인증 오류 즉시 중단, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단 | `LLM_RETRIES`=2 |
 | Observability | LangSmith trace(작업 1건 = trace 1개), 결과의 `traceId`·`metrics`, `GET /runs/{id}` 진행 단계, 항목별 검수 이력 JSON, task·trace id가 붙은 로그 | `LANGSMITH_TRACING`, `LANGSMITH_PROJECT`, `BACKEND_BASE_URL` |
@@ -401,6 +401,20 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 
 단계는 `EXTRACTING`(할 일 추출) → `NORMALIZING`(담당자·기한 정리, 초안 작성) → `REVIEWING`(검수, 보완 포함) → `PUBLISHING`(발행) 순서다. 끝나면 결과 전체가 나온다. `BACKEND_BASE_URL`이 있으면 같은 단계와 결과를 백엔드에도 보고한다(`/internal/tasks/{id}/progress`, `/result`).
 
+### 같은 taskId를 다시 보낼 때
+
+노드가 끝날 때마다 상태를 taskId 단위로 저장한다(LangGraph checkpointer). 그래서 같은 taskId가 다시 오면 이렇게 처리한다.
+
+| 이전 작업 | 처리 |
+|---|---|
+| 처리 중 | 409 (백엔드는 조회로 넘어감) |
+| 이슈를 발행했거나 발행 여부가 불명(UNKNOWN) | 다시 실행하지 않는다. 202로 받고 `GET /runs/{taskId}`에 저장된 결과를 돌려준다 (중복 이슈 방지) |
+| 발행 전에 끝남 (LLM 오류, 발행 0건, `--dry-run`) | 이전 기록을 지우고 다시 실행한다 |
+
+`GET /runs/{taskId}/history`는 노드별 기록을 시간 순서로 돌려준다 (노드, 다음 노드, 단계, 검수 상태별 티켓 수, 발행 수, 저장 시각). 검수 보완이 있었다면 `draft → review`가 반복돼 보인다.
+
+저장소는 프로세스 메모리(`InMemorySaver`)라 Agent를 재시작하면 기록과 중복 방지가 사라진다. 재시작 뒤에도 유지하려면 Postgres checkpointer(새 패키지 필요)로 바꿔야 한다(2차 과제).
+
 ### LangSmith trace
 
 `agent/.env`에 `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`(기본 `meet-to-ticket`)를 넣으면 작업 1건이 trace 하나로 수집된다.
@@ -443,7 +457,7 @@ python mcp_check.py --owner MCP-Capstone --repo mcp-capstone --write   # 테스�
 - `APPROVED`만 발행 단계로 넘어간다.
 
 ### 1차 한계
-- 기존 GitHub 이슈를 조회하지 않는다. 같은 회의를 다시 실행하면 이슈가 다시 생성된다.
+- 기존 GitHub 이슈를 조회하지 않는다. 같은 taskId는 다시 발행하지 않지만(위 표), 같은 회의를 새 taskId로 다시 보내면 이슈가 다시 생성된다.
 - "기존 이슈 갱신(AUTH-112)" 같은 표기는 새 이슈 본문에 관련 키로만 남긴다.
 
 ### 테스트

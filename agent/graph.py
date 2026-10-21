@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from langgraph.graph import END, START, StateGraph
 
 from nodes import AgentNodes, route_after_draft, route_after_prepare, route_after_review
 from state import AgentState
 
 
-def build_graph(nodes: AgentNodes):
+def build_graph(nodes: AgentNodes, checkpointer: Any | None = None):
+    """checkpointer를 주면 노드가 끝날 때마다 상태를 thread_id(= taskId) 단위로 저장한다."""
     g = StateGraph(AgentState)
     g.add_node("prepare", nodes.prepare)
     g.add_node("draft", nodes.draft)
@@ -22,4 +25,4 @@ def build_graph(nodes: AgentNodes):
     g.add_conditional_edges("review", route_after_review, ["draft", "publish", "finish"])
     g.add_edge("publish", "finish")
     g.add_edge("finish", END)
-    return g.compile()
+    return g.compile(checkpointer=checkpointer)
