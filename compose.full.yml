@@ -55,6 +55,28 @@ services:
       start_period: 10s
     networks: [app]
 
+  rag-mcp:
+    build: ./rag-mcp
+    restart: unless-stopped
+    env_file:
+      - path: ./rag-mcp/.env
+        required: false
+    environment:
+      # rag-mcp/.env에 로컬용 주소/색인 경로가 있어도 컨테이너 값으로 덮어쓴다
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8002"
+      CHROMA_PATH: /data/chroma
+    volumes:
+      # 색인을 남겨 컨테이너를 다시 만들어도 전체 색인을 다시 하지 않는다
+      - full-rag-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8002), timeout=2).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [app]
+
   agent:
     build: ./agent
     restart: unless-stopped
@@ -67,9 +89,15 @@ services:
       BACKEND_INTERNAL_TOKEN: ${BACKEND_INTERNAL_TOKEN:?루트 .env에 BACKEND_INTERNAL_TOKEN을 설정하세요}
       # 루트 값이 agent/.env보다 우선한다. 기본값은 실제 이슈 생성 없음.
       DRY_RUN: ${DRY_RUN:-true}
+      # 발행 전 기존 이슈와 중복 판단. rag-mcp가 꺼져 있으면 판단만 건너뛰고 발행은 그대로 한다.
+      RAG_ENABLED: ${RAG_ENABLED:-true}
+      RAG_MCP_URL: http://rag-mcp:8002/mcp
     depends_on:
       mcp-server:
         condition: service_healthy
+      # rag-mcp 준비를 기다리지 않는다 (중복 판단은 선택 기능이라 Agent 기동을 막지 않음)
+      rag-mcp:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3).close()"]
       interval: 10s
@@ -120,7 +148,7 @@ services:
     build: ./frontend
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-5173}:80"
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -140,3 +168,4 @@ volumes:
   # 기존 로컬 postgres-data와 분리해 같은 DB 영역의 동시 사용을 피한다.
   full-postgres-data:
   full-rabbitmq-data:
+  full-rag-data:

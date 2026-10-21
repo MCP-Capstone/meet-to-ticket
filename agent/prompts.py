@@ -36,4 +36,4 @@ DRAFT_USER = TEXTS["draft_user"]        # format: summary, items
 REVIEW_SYSTEM = TEXTS["review_system"]  # 검수
 REVIEW_USER = TEXTS["review_user"]      # format: summary, source_note, excluded, drafts
 DEDUPE_SYSTEM = TEXTS["dedupe_system"]  # 중복 판단 (도구 고르기)
-DEDUPE_USER = TEXTS["dedupe_user"]      # format: title, action, description, keys, expected
+DEDUPE_USER = TEXTS["dedupe_user"]      # format: title, action, evidence, keys, expected

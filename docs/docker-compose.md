@@ -2,7 +2,7 @@
 
 이 구성은 demo 프로파일과 기본 테스트 계정을 사용하는 로컬·데모용이며, 운영 배포용 구성이 아닙니다.
 
-`compose.full.yml`은 frontend, backend, agent, mcp-server, postgres, rabbitmq를 함께 실행한다.
+`compose.full.yml`은 frontend, backend, agent, mcp-server, rag-mcp, postgres, rabbitmq를 함께 실행한다.
 기존 `docker-compose.yml`은 로컬 개발용 DB·RabbitMQ 설정으로 유지한다.
 전체 구성은 별도 프로젝트 이름 `meet-to-ticket-full`을 사용해 기존 DB 컨테이너와 구분한다.
 Docker Compose 2.24 이상과 Docker 엔진이 필요하다. 로컬 Java·Node·Python 설치는 빌드에 필요하지 않다.
@@ -24,8 +24,10 @@ cp -n .env.example .env
 | 루트 `.env` | `BACKEND_INTERNAL_TOKEN`, 공개 포트, 실행 모드, DB·RabbitMQ 및 demo 계정 설정 |
 | `agent/.env` | `OPENAI_API_KEY` 및 선택적인 모델·추적 설정 |
 | `mcp-server/.env` | `GITHUB_TOKEN`, `GITHUB_OWNER=MCP-Capstone`, `GITHUB_REPO=mcp-capstone` |
+| `rag-mcp/.env` | `GITHUB_TOKEN`(이슈 읽기), `GITHUB_OWNER`, `GITHUB_REPO`, `OPENAI_API_KEY`(임베딩) |
 
 키 파일이 없어도 컨테이너는 기동하지만 실제 LLM 분석에는 OpenAI 키, 실제 이슈 발행에는 GitHub 토큰이 필요하다.
+중복 판단에는 `rag-mcp/.env`의 GitHub 토큰과 OpenAI 키가 필요하다. 없으면 후보 없이 판단해 새로 발행한다.
 API 키와 토큰은 실행 시 환경 변수로 전달하며 이미지에 복사하지 않는다.
 
 루트의 `DRY_RUN=true`가 기본이다. 분석·검수 LLM은 호출하지만 실제 GitHub 이슈는 생성하지 않는다.
@@ -49,16 +51,18 @@ docker compose -f compose.full.yml ps
 파일 선택 창에서 `backend/examples/meetings/10min_1_summary.txt`를 업로드하고 분석을 시작한다.
 
 컨테이너는 준비 상태를 확인한 순서로 시작한다: MCP → Agent, DB·RabbitMQ·Agent → Spring → 프론트.
+RAG MCP는 Agent보다 먼저 시작하지만 Agent가 준비 완료까지 기다리지는 않는다. 중복 판단은 선택 기능이라 Agent 기동을 막지 않는다.
 Agent는 Spring이 실행될 때까지 기다리도록 설정하지 않아 진행 보고 경로의 순환 의존을 피한다.
 
 ## 연결 및 공개 범위
 
 | 서비스 | 컨테이너 주소 | 기본 호스트 공개 |
 |---|---|---|
-| frontend | `frontend:80` | 5173 |
+| frontend | `frontend:80` | `127.0.0.1:5173` (로컬 컴퓨터에서만 접근) |
 | backend | `backend:8080` | `127.0.0.1:8080` (로컬 컴퓨터에서만 접근) |
 | agent | `agent:8001` | 없음 |
 | mcp-server | `mcp-server:8000` | 없음 |
+| rag-mcp | `rag-mcp:8002` | 없음 |
 | postgres | `postgres:5432` | 없음 |
 | rabbitmq | `rabbitmq:5672` (관리 UI 15672도 내부 전용) | 없음 |
 
@@ -70,13 +74,16 @@ Agent와 MCP 이미지 안에는 `.env` 파일을 넣지 않으므로 dotenv의 
 프론트는 Vite 개발 서버 대신 Nginx로 빌드된 화면을 제공한다. `/api/`는 Spring에 전달하고 세션 쿠키를 유지한다.
 브라우저에서 컨테이너 이름을 직접 사용하지 않는다. Spring의 호스트 포트는 `127.0.0.1`에만 바인딩하므로 같은 컴퓨터에서 `http://127.0.0.1:8080`으로 직접 접근할 수 있다.
 다른 컴퓨터에서 Spring 호스트 포트로 직접 접근할 수 없으며, Nginx는 내부 주소 `backend:8080`으로 계속 연결한다.
+프론트 호스트 포트도 `127.0.0.1`에만 바인딩한다. 기본 demo 계정이 켜져 있어 같은 네트워크의 다른 컴퓨터에 열지 않기 위해서다.
+다른 컴퓨터에서 꼭 접속해야 하면 `compose.full.yml`의 frontend `ports`에서 `127.0.0.1:`을 빼고, 먼저 `DEMO_PASSWORD`를 바꾼다.
 `/internal/**`은 프론트 프록시 대상이 아니지만 로컬 Spring 포트에서 접근 가능하므로 기존 공유 토큰 검증이 적용된다.
 Agent·MCP·DB·RabbitMQ에는 호스트 포트 매핑을 만들지 않는다. 브리지 네트워크는 Agent의 OpenAI 호출과 MCP의 GitHub 호출을 허용한다.
 MCP healthcheck는 TCP 기동 확인이며 GitHub 토큰의 유효성까지 검사하지 않는다.
 
-RAG MCP는 현재 도구 구현이 진행 중인 선택 기능이며 이 구성에 포함하지 않는다.
-기본 `RAG_ENABLED=false`로 실행한다. 이 구성에서 RAG 검색을 별도로 활성화하려면
-접근 가능한 RAG MCP 서버와 `RAG_MCP_URL` 설정이 필요하다.
+RAG MCP는 발행 전에 기존 이슈와 중복인지 판단하는 데 쓴다. 루트 `RAG_ENABLED=true`가 기본이며 Agent는 `http://rag-mcp:8002/mcp`로 접속한다.
+색인은 따로 실행하지 않아도 된다. Agent가 분석할 때마다 `sync_issues`로 바뀐 이슈만 색인하고, 처음에는 전체를 색인한다.
+색인은 `full-rag-data` 볼륨(`/data/chroma`)에 남는다. rag-mcp가 꺼져 있거나 연결이 안 되면 중복 판단만 건너뛰고 발행은 그대로 한다.
+중복 판단 없이 실행하려면 루트 `.env`에서 `RAG_ENABLED=false`로 바꾸고 agent를 재생성한다.
 
 ## 로그 및 문제 확인
 
@@ -97,7 +104,7 @@ docker compose -f compose.full.yml up -d --force-recreate agent backend
 
 ## 검증
 
-1. `ps`에서 6개 서비스의 healthy 상태를 확인한다.
+1. `ps`에서 7개 서비스의 healthy 상태를 확인한다.
 2. `http://localhost:5173/api/health`와 Spring 상태 API가 정상 응답하는지 확인한다.
 3. 로그인 후 샘플 파일을 업로드하고 분석한다. 진행 보고 202와 최종 항목·집계 조회를 확인한다.
 4. 기본 DRY_RUN에서는 GitHub 이슈가 생성되지 않는지 확인한다. 실제 발행 검증은 별도 실행한다.
@@ -109,7 +116,7 @@ docker compose -f compose.full.yml down
 docker compose -f compose.full.yml up -d --wait --wait-timeout 180
 ```
 
-`full-postgres-data`와 `full-rabbitmq-data` 볼륨은 컨테이너 종료·재생성 시 유지된다.
+`full-postgres-data`, `full-rabbitmq-data`, `full-rag-data` 볼륨은 컨테이너 종료/재생성 시 유지된다.
 RabbitMQ는 고정 hostname을 사용해 재생성 후에도 저장된 큐를 같은 노드로 읽는다. 기존 로컬 개발 구성의 `postgres-data`와 별개이므로
 로컬 개발 DB가 이 구성으로 자동 이전되지는 않는다. 기존 로컬 데이터도 변경하지 않는다.
 데이터를 유지하려면 `down -v`를 사용하지 않는다.

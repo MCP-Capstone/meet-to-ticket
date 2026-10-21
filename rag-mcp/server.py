@@ -16,6 +16,7 @@ Resource
 
 from __future__ import annotations
 
+import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -42,6 +43,9 @@ mcp = MCPServer("meet-to-ticket-rag")
 # ---------------------------------------------------------------- 의존성 (테스트에서 가짜로 바꾼다)
 
 
+_store_lock = threading.Lock()
+
+
 @lru_cache(maxsize=4)
 def _store_at(path: str) -> IssueStore:
     # 같은 폴더의 Chroma 클라이언트를 요청마다 새로 열지 않도록 재사용한다
@@ -49,7 +53,10 @@ def _store_at(path: str) -> IssueStore:
 
 
 def get_store() -> IssueStore:
-    return _store_at(str(load_settings().chroma_path))
+    # 도구는 스레드에서 실행된다. 서버를 띄운 직후 검색이 동시에 들어오면 lru_cache가 막지 못해
+    # 같은 폴더의 Chroma 클라이언트를 여러 스레드가 동시에 만들다 모두 실패한다 → 처음 만들 때는 한 번에 하나만
+    with _store_lock:
+        return _store_at(str(load_settings().chroma_path))
 
 
 def get_embedder() -> Embedder:

@@ -100,6 +100,15 @@ export interface TaskItemContent {
   due?: { date?: string | null; time?: string | null; qualifier?: string | null; originalText?: string | null; text?: string | null }
   // 모의 실행: correctionCount, reason / 실제 Agent: revisions
   review?: { correctionCount?: number; revisions?: number; reason?: string }
+  // 중복 판정. linked_existing이 true면 새 이슈가 아니라 기존 GitHub 이슈에 연결한 항목
+  dedupe?: {
+    relation?: 'SAME' | 'CHANGE' | 'RELATED' | 'UNRELATED' | null
+    issue_number?: number | null
+    issue_state?: 'open' | 'closed' | null
+    issue_title?: string | null
+    reason?: string | null
+    linked_existing?: boolean
+  }
 }
 
 export interface TaskItem {
