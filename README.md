@@ -28,6 +28,19 @@
 
 ## 실행 방법
 
+### 전체 서비스를 Docker로 실행
+
+이 구성은 demo 프로파일과 기본 테스트 계정을 사용하는 로컬·데모용이며, 운영 배포용 구성이 아닙니다.
+
+Docker Desktop만으로 6개 서비스(프론트·Spring·Agent·MCP·DB·RabbitMQ)를 함께 실행할 수 있다. 환경 변수 초기 설정 후:
+
+```bash
+docker compose -f compose.full.yml up -d --build
+```
+
+초기 설정·포트·로그·종료·검증 방법은 [전체 Docker 실행 안내](docs/docker-compose.md)를 참고한다.
+아래 내용은 각 서비스를 직접 실행하는 개발 방식이다.
+
 ### 준비물
 
 | 항목 | 용도 |
