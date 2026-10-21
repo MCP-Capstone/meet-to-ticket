@@ -9,8 +9,6 @@
 
 강의안 레퍼런스 아키텍처의 rag mcp 구조를 따릅니다. 문서(이슈)는 질문과 별개로 미리 색인하고, 검색은 Vector DB에서 합니다.
 
-> 지금은 이슈 색인까지 있습니다. 검색 도구와 이슈 원문 Resource(#86)는 이어서 추가합니다.
-
 ## 1. 이 폴더의 파일
 
 | 파일 | 역할 | Git에 올리나 |
@@ -22,6 +20,7 @@
 | `store.py` | Vector DB(Chroma) 저장소. 저장소별 컬렉션 | 올림 |
 | `indexer.py` | 색인 파이프라인 (바뀐 이슈만 다시 색인) | 올림 |
 | `index.py` | 색인 실행 명령 | 올림 |
+| `search.py` | 유사 이슈 검색, 이슈 원문 텍스트 | 올림 |
 | `errors.py` | 도구 오류 형식 `[코드] 메시지` | 올림 |
 | `requirements.in` | 직접 쓰는 패키지와 허용 범위 | 올림 |
 | `requirements.txt` | `.in`을 풀어서 전체 버전을 고정한 파일. uv가 생성한다 | 올림 |
@@ -91,15 +90,45 @@ python index.py --full                # 기존 색인을 지우고 전체 다시
 
 오류는 `[코드] 메시지` 형식으로 나옵니다: `CONFIG_MISSING`(키 없음), `REPOSITORY_NOT_ALLOWED`, `GITHUB_AUTH`, `GITHUB_NOT_FOUND`, `GITHUB_RATE_LIMIT`, `GITHUB_ERROR`, `EMBEDDING_ERROR`.
 
-## 6. 테스트
+## 6. 도구와 Resource
+
+Agent는 `http://127.0.0.1:8002/mcp`로 연결해 아래 도구를 부릅니다. 모든 도구는 `owner`, `repo`를 받고, 허용 저장소(`GITHUB_ALLOWED_REPOS` 또는 `GITHUB_OWNER/GITHUB_REPO`)만 다룹니다.
+
+| 이름 | 종류 | 입력 | 출력 |
+|---|---|---|---|
+| `search_similar_issues` | 조회 (읽기 전용) | `query`, `k`(기본 5, 1~10), `state`(`open`/`closed`/`all`, 기본 `all`) | `repository`, `index{model, count, updated_at}`, `results[{number, title, state, url, score, snippet, closed_at}]` |
+| `sync_issues` | 변경 (색인만 바꿈) | `full`(기본 `false`) | `repository`, `indexed`, `skipped`, `total`, `full`, `updated_at` |
+| `index_issue` | 변경 (색인만 바꿈) | `number` | `repository`, `number`, `indexed` |
+| Resource `issue://{owner}/{repo}/{number}` | 원문 | | 제목, 상태(닫힌 시각), URL, 본문 (GitHub에서 바로 읽음) |
+
+- `score`는 `1 - cosine 거리`입니다. 1에 가까울수록 비슷합니다. 실제 저장소에서 거의 같은 제목은 0.8 안팎, 관계없는 이슈는 0.3 안팎이었습니다.
+- `snippet`은 본문 앞 200자, `closed_at`은 열린 이슈면 `null`입니다.
+- 검색 결과는 그 저장소 컬렉션에서만 찾습니다. 다른 저장소 이슈는 섞이지 않습니다.
+- 도구는 GitHub 이슈를 만들거나 바꾸지 않습니다. 바꾸는 것은 Vector DB 색인뿐입니다.
+
+| 오류 | 언제 |
+|---|---|
+| `INDEX_EMPTY` | 색인이 비었거나, 색인 모델과 현재 모델이 다름 → `sync_issues` (모델이 다르면 `full=true`) |
+| `INVALID_ARGUMENT` | `query`가 비었거나 `state`가 잘못됨 |
+| `REPOSITORY_NOT_ALLOWED` | 허용되지 않은 저장소 |
+| `GITHUB_AUTH`, `GITHUB_NOT_FOUND`, `GITHUB_RATE_LIMIT`, `GITHUB_ERROR` | GitHub 호출 실패 (색인·원문 읽기) |
+| `EMBEDDING_ERROR` | OpenAI 임베딩 실패 |
+
+Agent 쪽에서 연결을 확인하려면 두 서버를 켠 뒤 `agent/` 폴더에서 실행합니다.
+
+```bash
+python mcp_check.py --owner MCP-Capstone --repo mcp-capstone --rag "로그인 버튼 모양 변경"
+```
+
+## 7. 테스트
 
 ```bash
 pytest
 ```
 
-`tests/conftest.py`가 테스트 중 실제 GitHub·OpenAI 호출을 막습니다. 색인 테스트는 가짜 GitHub(`tests/fakes.py`), 가짜 임베딩, 임시 Chroma 폴더를 씁니다. 토큰과 키가 `.env`에 있어도 테스트에서는 지워집니다.
+`tests/conftest.py`가 테스트 중 실제 GitHub·OpenAI 호출을 막습니다. 색인 테스트는 가짜 GitHub(`tests/fakes.py`), 가짜 임베딩, 임시 Chroma 폴더를 씁니다. 도구 테스트는 서버를 띄우지 않고 `mcp.call_tool`, `mcp.read_resource`로 부릅니다 (인메모리). 토큰과 키가 `.env`에 있어도 테스트에서는 지워집니다.
 
-## 7. 패키지 추가 규칙
+## 8. 패키지 추가 규칙
 
 `mcp-server/README.md` 6절과 같습니다. 패키지 추가와 compile은 환경 담당이 하며, 이 폴더에서 아래 두 줄로 `.txt`를 만듭니다.
 
