@@ -14,16 +14,23 @@ const publishLabel: Record<PublishStatus, string> = {
   BLOCKED: '발행 제외',
 }
 
+const backgroundText = (item: TaskItem) => item.contentJson?.background ?? item.contentJson?.description ?? null
+
 const assigneeText = (item: TaskItem) => {
-  const names = item.contentJson?.assignees?.map((a) => a.mentionedName) ?? []
+  const assignees = item.contentJson?.assignees
+  const names = Array.isArray(assignees) ? assignees.map((a) => a.mentionedName) : (assignees?.names ?? [])
   return names.length > 0 ? names.join(', ') : '미정'
 }
 
 const dueText = (item: TaskItem) => {
   const due = item.contentJson?.due
-  if (!due?.date) return due?.originalText ?? '미정'
+  const original = due?.originalText ?? due?.text
+  if (!due?.date) return original || '미정'
   return due.time ? `${due.date} ${due.time}` : due.date
 }
+
+const correctionCount = (item: TaskItem) =>
+  item.contentJson?.review?.correctionCount ?? item.contentJson?.review?.revisions ?? 0
 
 // 반려 사유는 reason / 검수 사유, 발행 실패 / 확인 필요는 errorMessage
 const noteText = (item: TaskItem) =>
@@ -85,14 +92,15 @@ export function ResultList({ meeting, participants, result }: Props) {
           <ul className="items">
             {result.items.map((item) => {
               const note = noteText(item)
-              const corrections = item.contentJson?.review?.correctionCount ?? 0
+              const corrections = correctionCount(item)
+              const background = backgroundText(item)
               return (
                 <li key={item.itemId} className={`item ${item.publishStatus.toLowerCase()}`}>
                   <div className="item-title">
                     <span className={`badge ${item.publishStatus.toLowerCase()}`}>{publishLabel[item.publishStatus]}</span>
                     <strong>{item.title}</strong>
                   </div>
-                  {item.contentJson?.background && <p>{item.contentJson.background}</p>}
+                  {background && <p>{background}</p>}
                   <div className="meta">
                     <span>
                       검수 {item.reviewStatus === 'APPROVED' ? '통과' : '반려'}

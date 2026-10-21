@@ -85,13 +85,21 @@ export type ReviewStatus = 'APPROVED' | 'REJECTED'
 export type PublishStatus = 'SUCCEEDED' | 'FAILED' | 'UNKNOWN' | 'SKIPPED' | 'BLOCKED'
 
 // Agent가 정리한 업무 내용. 화면에서 쓰는 필드만 적는다.
+// 백엔드 모의 실행과 실제 Agent(#52)가 쓰는 키가 달라 둘 다 받는다. (읽는 쪽: ResultList)
 export interface TaskItemContent {
+  // 모의 실행: background / 실제 Agent: description
   background?: string
+  description?: string
   todo?: string[]
   acceptanceCriteria?: string[]
-  assignees?: { projectMemberId: number | null; mentionedName: string; githubName: string | null }[]
-  due?: { date: string | null; time: string | null; qualifier: string | null; originalText: string | null }
-  review?: { correctionCount?: number; reason?: string }
+  // 모의 실행: 배열 / 실제 Agent: { names, github, unresolved }
+  assignees?:
+    | { projectMemberId: number | null; mentionedName: string; githubName: string | null }[]
+    | { names?: string[]; github?: string[]; unresolved?: string[] }
+  // 모의 실행: originalText / 실제 Agent: text
+  due?: { date?: string | null; time?: string | null; qualifier?: string | null; originalText?: string | null; text?: string | null }
+  // 모의 실행: correctionCount, reason / 실제 Agent: revisions
+  review?: { correctionCount?: number; revisions?: number; reason?: string }
 }
 
 export interface TaskItem {
