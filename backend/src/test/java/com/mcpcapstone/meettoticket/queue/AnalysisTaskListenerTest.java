@@ -107,4 +107,88 @@ class AnalysisTaskListenerTest {
 		verify(transport, never()).submit(any());
 	}
 
+	@Test
+	void claim_DB장애는_2초_4초_8초_대기후_DLQ로_종료한다() throws Exception {
+		when(dispatches.claim(id, "LIVE"))
+			.thenThrow(new org.springframework.dao.DataAccessResourceFailureException("DB down"));
+		assertThatThrownBy(() -> listener.receive(id.toString()))
+			.isInstanceOf(AmqpRejectAndDontRequeueException.class);
+		verify(dispatches, times(4)).claim(id, "LIVE");
+		InOrder order = inOrder(delay);
+		order.verify(delay).sleep(2000);
+		order.verify(delay).sleep(4000);
+		order.verify(delay).sleep(8000);
+		verifyNoMoreInteractions(delay);
+		verify(transport, never()).submit(any());
+	}
+
+	@Test
+	void 요청조회_DB장애가_복구되면_claim과_POST를_반복하지_않는다() throws Exception {
+		when(analyses.request(id))
+			.thenThrow(new org.springframework.transaction.CannotCreateTransactionException("DB down"))
+			.thenReturn(request);
+		listener.receive(id.toString());
+		verify(dispatches).claim(id, "LIVE");
+		verify(analyses, times(2)).request(id);
+		verify(transport).submit(request);
+		verify(delay).sleep(2000);
+	}
+
+	@Test
+	void terminal에서_작업이_없으면_재전달하지_않고_DLQ로_보낸다() {
+		when(dispatches.terminal(id)).thenThrow(new java.util.NoSuchElementException());
+		assertThatThrownBy(() -> listener.receive(id.toString()))
+			.isInstanceOf(AmqpRejectAndDontRequeueException.class);
+		verifyNoInteractions(delay);
+		verify(transport, never()).submit(any());
+	}
+
+	@Test
+	void 요청이_없어도_리스너_바깥으로_재큐잉_예외를_흘리지_않는다() {
+		when(analyses.request(id)).thenThrow(new com.mcpcapstone.meettoticket.common.error.BusinessException(
+			com.mcpcapstone.meettoticket.common.error.ErrorCode.TASK_NOT_FOUND));
+		assertThatThrownBy(() -> listener.receive(id.toString()))
+			.isInstanceOf(AmqpRejectAndDontRequeueException.class);
+		verifyNoInteractions(delay);
+		verify(transport, never()).submit(any());
+	}
+
+	@Test
+	void 접수후_DB저장실패는_DB만_재시도하고_POST하지_않는다() throws Exception {
+		doThrow(new org.springframework.dao.DataAccessResourceFailureException("DB down"))
+			.when(dispatches).finish(id, AnalysisDispatch.State.ACCEPTED);
+		assertThatThrownBy(() -> listener.receive(id.toString()))
+			.isInstanceOf(AmqpRejectAndDontRequeueException.class);
+		verify(transport).submit(request);
+		verify(dispatches, times(4)).finish(id, AnalysisDispatch.State.ACCEPTED);
+		verify(dispatches, never()).finish(id, AnalysisDispatch.State.UNCERTAIN);
+		verify(delay).sleep(2000);
+		verify(delay).sleep(4000);
+		verify(delay).sleep(8000);
+	}
+
+	@Test
+	void 접수후_DB저장이_복구되면_POST한번으로_완료한다() throws Exception {
+		doThrow(new org.springframework.dao.DataAccessResourceFailureException("DB down"))
+			.doNothing().when(dispatches).finish(id, AnalysisDispatch.State.ACCEPTED);
+		listener.receive(id.toString());
+		verify(transport).submit(request);
+		verify(dispatches, times(2)).finish(id, AnalysisDispatch.State.ACCEPTED);
+		verify(delay).sleep(2000);
+	}
+
+	@Test
+	void DB재시도_중단시_인터럽트를_보존하고_DLQ로_보낸다() throws Exception {
+		when(dispatches.claim(id, "LIVE"))
+			.thenThrow(new org.springframework.dao.DataAccessResourceFailureException("DB down"));
+		doThrow(new InterruptedException()).when(delay).sleep(2000);
+		try {
+			assertThatThrownBy(() -> listener.receive(id.toString()))
+				.isInstanceOf(AmqpRejectAndDontRequeueException.class);
+			org.assertj.core.api.Assertions.assertThat(Thread.currentThread().isInterrupted()).isTrue();
+			verify(dispatches).claim(id, "LIVE");
+			verify(transport, never()).submit(any());
+		} finally { Thread.interrupted(); }
+	}
+
 }

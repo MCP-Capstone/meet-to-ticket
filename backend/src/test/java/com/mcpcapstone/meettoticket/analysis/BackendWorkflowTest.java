@@ -338,4 +338,69 @@ class BackendWorkflowTest {
         verify(publisher, never()).publish(id.get());
     }
 
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired @org.springframework.beans.factory.annotation.Qualifier("agentTransport")
+    AgentGateway rawTransport;
+
+    private UUID abandonedClaim(String filename) throws Exception {
+        Long meeting = upload(filename, "박종민");
+        Long userId = (Long) session.getAttribute(SessionConst.LOGIN_USER_ID);
+        UUID id = coordinator.start(meeting, userId).taskId();
+        assertThat(dispatchStore.claim(id, "MOCK")).isTrue();
+        return id;
+    }
+
+    private void ageClaim(UUID id) {
+        jdbc.update("update analysis_dispatches set updated_at = ? where task_id = ?",
+                java.time.OffsetDateTime.now().minusMinutes(3), id);
+    }
+
+    @Test
+    void JVM종료후_오래된_claim은_재POST없이_Agent기존결과를_회수한다() throws Exception {
+        UUID id = abandonedClaim("중단된접수.txt");
+        rawTransport.submit(store.request(id)); // Agent는 받았지만 Spring은 접수 결과 저장 전에 종료
+        ageClaim(id);
+        coordinator.pollPending();
+        assertThat(dispatches.findById(id).orElseThrow().getState()).isEqualTo(AnalysisDispatch.State.UNCERTAIN);
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.RUNNING);
+        coordinator.pollPending();
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.COMPLETED);
+        assertThat(dispatches.findById(id).orElseThrow().getAttempts()).isZero();
+    }
+
+    @Test
+    void Agent접수전_JVM종료도_조회실패로_종료하고_재POST하지_않는다() throws Exception {
+        UUID id = abandonedClaim("전송전중단.txt");
+        ageClaim(id);
+        coordinator.pollPending();
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.FAILED);
+        assertThat(dispatches.findById(id).orElseThrow().getAttempts()).isZero();
+    }
+
+    @Test
+    void 최근_claim은_보호하고_시각이없는_기존행은_조회로_복구한다() throws Exception {
+        UUID id = abandonedClaim("기존행.txt");
+        coordinator.pollPending();
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.QUEUED);
+        assertThat(dispatches.findById(id).orElseThrow().getState()).isEqualTo(AnalysisDispatch.State.SUBMITTING);
+        jdbc.update("update analysis_dispatches set updated_at = null where task_id = ?", id);
+        coordinator.pollPending();
+        assertThat(dispatches.findById(id).orElseThrow().getState()).isEqualTo(AnalysisDispatch.State.UNCERTAIN);
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.FAILED);
+    }
+
+    @Test
+    void DB복구후_DLQ실패기록을_멱등하게_반영하고_완료결과를_보존한다() throws Exception {
+        UUID id = abandonedClaim("실패복구.txt");
+        dispatchStore.failFromDeadLetter(id);
+        dispatchStore.failFromDeadLetter(id);
+        assertThat(tasks.findById(id).orElseThrow().getStatus()).isEqualTo(TaskStatus.FAILED);
+        assertThat(dispatches.findById(id).orElseThrow().getState()).isEqualTo(AnalysisDispatch.State.EXHAUSTED);
+        UUID complete = start(upload("완료보존.txt", "박종민"));
+        finish();
+        dispatchStore.failFromDeadLetter(complete);
+        assertThat(tasks.findById(complete).orElseThrow().getStatus()).isEqualTo(TaskStatus.COMPLETED);
+        assertThat(dispatches.findById(complete).orElseThrow().getState()).isEqualTo(AnalysisDispatch.State.ACCEPTED);
+    }
+
 }

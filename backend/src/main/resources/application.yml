@@ -22,7 +22,8 @@ spring:
     listener:
       simple:
         prefetch: 1
-        # 접수 재시도는 리스너에서만 수행한다. 인프라 오류는 broker 재전달로 복구한다.
+        # Agent/DB 재시도는 각각의 호출에 한정한다. 처리 실패는 DLQ로 보내 무한 재전달을 막는다.
+        default-requeue-rejected: false
         retry:
           enabled: false
   datasource:
@@ -63,3 +64,8 @@ agent:
   read-timeout: 5s
   task-timeout: ${AGENT_TASK_TIMEOUT:10m}
   mock-scenario: ${AGENT_MOCK_SCENARIO:approved}
+
+app:
+  analysis:
+    submitting-timeout: ${ANALYSIS_SUBMITTING_TIMEOUT:2m}
+    failure-reconcile-interval-ms: ${ANALYSIS_FAILURE_RECONCILE_INTERVAL_MS:5000}

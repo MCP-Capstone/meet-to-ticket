@@ -8,12 +8,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import java.util.UUID;
+import java.time.Duration;
+import java.time.OffsetDateTime;
 
 @RequiredArgsConstructor
 public class QueuedAgentGateway implements AgentGateway {
 	private final AgentGateway transport;
 	private final AnalysisDispatchStore dispatches;
 	private final AnalysisTaskPublisher publisher;
+	private final Duration submittingTimeout;
 
 	@Override
 	public String mode() { return transport.mode(); }
@@ -35,8 +38,8 @@ public class QueuedAgentGateway implements AgentGateway {
 
 	@Override
 	public AgentContracts.Result status(UUID id) {
-		var state = dispatches.state(id);
-		// 큐 대기/재시도 중 GET /runs의 404로 기존 폴링이 작업을 실패시키지 않게 한다.
+		var state = dispatches.pollState(id, OffsetDateTime.now().minus(submittingTimeout));
+		// 살아 있는 접수는 보호하고, 기한이 지난 SUBMITTING은 UNCERTAIN으로 복구해 조회한다.
 		if (state == AnalysisDispatch.State.QUEUED || state == AnalysisDispatch.State.SUBMITTING
 				|| state == AnalysisDispatch.State.EXHAUSTED) throw new AgentException(true);
 		return transport.status(id);

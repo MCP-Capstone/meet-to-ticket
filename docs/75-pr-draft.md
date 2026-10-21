@@ -26,6 +26,14 @@ Closes #75
 패키지 업데이트 필요: cd backend && ./gradlew build
 
 - 실제 LLM·GitHub를 사용하는 전체 demo 검증은 별도로 필요하다.
-- 접수 중 프로세스 종료는 중복 이슈 방지를 위해 자동 재접수하지 않고 기존 timeout으로 종료한다.
-- Agent의 완료 taskId 영속 멱등성은 별도 이슈 #66이다.
+- 접수 중 프로세스 종료는 기본 2분 뒤 SUBMITTING을 UNCERTAIN으로 복구해 Agent 조회를 재개한다. 자동 재POST하지 않는다.
+- Agent #66의 중복 방지는 프로세스 메모리 범위이므로 재시작 후 재POST는 계속 금지한다.
 - develop 대상 PR, 최종 병합은 PM 담당.
+
+## PR #81 리뷰 반영
+- SUBMITTING 갱신 시각·기한을 기록하고 오래된 claim을 기존 폴링 조회로 복구 (기본 2분)
+- DB 호출별 2초·4초·8초 재시도 및 최종 reject, default-requeue-rejected=false로 무한 재전달 방지
+- Agent POST 성공 이후 DB 저장 오류는 저장만 재시도해 중복 POST 방지
+- DLQ 원본 보존 + 실패 기록용 durable 큐, DB 복구 후 FAILED 기록·커밋 후 ACK
+- 기존 analysis 프로덕션 코드·Agent·프론트 변경 없음 (이번 리뷰 수정 기준)
+- 전용 vhost의 실제 RabbitMQ에서 DLQ 분리, 실패 상태 복구, 후속 작업 진행 검증

@@ -16,7 +16,7 @@ class QueuedAgentGatewayTest {
 	AgentGateway transport = mock(AgentGateway.class);
 	AnalysisDispatchStore dispatches = mock(AnalysisDispatchStore.class);
 	AnalysisTaskPublisher publisher = mock(AnalysisTaskPublisher.class);
-	QueuedAgentGateway gateway = new QueuedAgentGateway(transport, dispatches, publisher);
+	QueuedAgentGateway gateway = new QueuedAgentGateway(transport, dispatches, publisher, java.time.Duration.ofMinutes(2));
 	UUID id = UUID.randomUUID();
 
 	@Test
@@ -37,7 +37,7 @@ class QueuedAgentGatewayTest {
 	@Test
 	void 큐대기와_접수중에는_Agent조회도_하지_않는다() {
 		for (var state : List.of(AnalysisDispatch.State.QUEUED, AnalysisDispatch.State.SUBMITTING)) {
-			when(dispatches.state(id)).thenReturn(state);
+			when(dispatches.pollState(eq(id), any(java.time.OffsetDateTime.class))).thenReturn(state);
 			assertThatThrownBy(() -> gateway.status(id)).isInstanceOfSatisfying(AgentException.class,
 				e -> assertThat(e.uncertain()).isTrue());
 		}
@@ -46,7 +46,7 @@ class QueuedAgentGatewayTest {
 
 	@Test
 	void 접수불명과_기존작업은_기존_조회로_넘긴다() {
-		when(dispatches.state(id)).thenReturn(AnalysisDispatch.State.UNCERTAIN).thenReturn(null);
+		when(dispatches.pollState(eq(id), any(java.time.OffsetDateTime.class))).thenReturn(AnalysisDispatch.State.UNCERTAIN).thenReturn(null);
 		gateway.status(id);
 		gateway.status(id);
 		verify(transport, times(2)).status(id);
