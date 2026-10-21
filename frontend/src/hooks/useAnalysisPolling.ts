@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiRequestError } from '../api'
-import type { AnalysisJob } from '../api'
+import type { AnalysisTask } from '../api'
 
 export const POLL_INTERVAL_MS = 2000
 
 // 네트워크 오류가 이 횟수만큼 연속되면 조회를 멈추고 안내한다.
 const MAX_CONSECUTIVE_FAILURES = 3
 
-const isFinished = (job: AnalysisJob) => job.status === 'COMPLETED' || job.status === 'FAILED'
+const isFinished = (task: AnalysisTask) =>
+  task.status === 'COMPLETED' || task.status === 'PARTIALLY_FAILED' || task.status === 'FAILED'
 
-// 분석 작업 상태를 2초마다 조회한다. 끝나면(COMPLETED / FAILED) onFinish를 한 번 호출하고 멈춘다.
-// 화면을 벗어나거나 jobId가 바뀌면 조회를 정리한다. 조회 반복은 진행 확인이지 재시도가 아니다.
-export function useAnalysisPolling(jobId: number | null, onFinish: (job: AnalysisJob) => void) {
-  const [job, setJob] = useState<AnalysisJob | null>(null)
+// 분석 작업 상태를 2초마다 조회한다. 끝나면(COMPLETED / PARTIALLY_FAILED / FAILED) onFinish를 한 번 호출하고 멈춘다.
+// 화면을 벗어나거나 taskId가 바뀌면 조회를 정리한다. 조회 반복은 진행 확인이지 재시도가 아니다.
+export function useAnalysisPolling(taskId: string | null, onFinish: (task: AnalysisTask) => void) {
+  const [task, setTask] = useState<AnalysisTask | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // 화면이 다시 그려져도 조회를 처음부터 다시 시작하지 않도록 최신 콜백은 ref로 들고 있는다.
@@ -22,7 +23,7 @@ export function useAnalysisPolling(jobId: number | null, onFinish: (job: Analysi
   })
 
   useEffect(() => {
-    if (jobId === null) return
+    if (taskId === null) return
 
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -30,10 +31,10 @@ export function useAnalysisPolling(jobId: number | null, onFinish: (job: Analysi
 
     const tick = async () => {
       try {
-        const next = await api.getAnalysis(jobId)
+        const next = await api.getAnalysis(taskId)
         if (cancelled) return
         failures = 0
-        setJob(next)
+        setTask(next)
         setError(null)
         if (isFinished(next)) {
           onFinishRef.current(next)
@@ -63,7 +64,7 @@ export function useAnalysisPolling(jobId: number | null, onFinish: (job: Analysi
       cancelled = true
       clearTimeout(timer)
     }
-  }, [jobId])
+  }, [taskId])
 
-  return { job, error }
+  return { task, error }
 }
