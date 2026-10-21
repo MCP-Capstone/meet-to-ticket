@@ -25,6 +25,7 @@
 | `backend/` | API 서버 | Java 21, Spring Boot 4.1, JPA | 8080 |
 | `agent/` | 회의록 분석 AI Agent | Python 3.12, FastAPI, LangGraph | 8001 |
 | `mcp-server/` | 이슈 생성 MCP 서버 | Python 3.12, MCP | 8000 |
+| `rag-mcp/` | 기존 이슈 색인·유사 검색 MCP 서버 | Python 3.12, MCP, Chroma | 8002 |
 
 ## 실행 방법
 
@@ -32,7 +33,7 @@
 
 이 구성은 demo 프로파일과 기본 테스트 계정을 사용하는 로컬·데모용이며, 운영 배포용 구성이 아닙니다.
 
-Docker Desktop만으로 6개 서비스(프론트·Spring·Agent·MCP·DB·RabbitMQ)를 함께 실행할 수 있다. 환경 변수 초기 설정 후:
+Docker Desktop만으로 7개 서비스(프론트·Spring·Agent·MCP·RAG MCP·DB·RabbitMQ)를 함께 실행할 수 있다. 환경 변수 초기 설정 후:
 
 ```bash
 docker compose -f compose.full.yml up -d --build
