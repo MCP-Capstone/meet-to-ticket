@@ -518,6 +518,10 @@ button.primary {
   color: var(--danger);
 }
 
+.item.linked .reason {
+  color: var(--link);
+}
+
 .meta a {
   color: var(--accent);
   font-weight: 600;

@@ -102,10 +102,10 @@ export interface TaskItemContent {
   review?: { correctionCount?: number; revisions?: number; reason?: string }
   // 중복 판정. linked_existing이 true면 새 이슈가 아니라 기존 GitHub 이슈에 연결한 항목
   dedupe?: {
-    relation?: string
+    relation?: 'SAME' | 'CHANGE' | 'RELATED' | 'UNRELATED' | null
     issue_number?: number | null
-    issue_state?: string
-    issue_title?: string
+    issue_state?: 'open' | 'closed' | null
+    issue_title?: string | null
     reason?: string | null
     linked_existing?: boolean
   }
