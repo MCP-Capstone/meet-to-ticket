@@ -1,0 +1,35 @@
+{
+  "taskId": "9b12ec5a-1423-4b71-8e20-f8f28d306c81",
+  "meeting": {
+    "meetingId": 2,
+    "title": "CSV 내보내기 중간 점검",
+    "meetingDate": "2026-10-22",
+    "timezone": "Asia/Seoul",
+    "participantIds": [
+      11,
+      12
+    ],
+    "originalFilename": "회의요약.txt",
+    "originalContent": "# CSV 내보내기 중간 점검\n\n회의 날짜: 2026-10-22\n프로젝트: 관리자 사용자 목록 CSV 내보내기\n\n## [구간 1] API 진행 상황\n\n최윤경은 대용량 요청에서 작업 상태가 늦게 갱신되는 문제로\n기존 API 업무가 지연됐다고 설명했다.\n담당자와 구현 범위는 유지하고, 기한을 내일 오후 6시로\n옮기기로 합의했다.\n\n## [구간 2] 빈 결과 오류\n\n필터 결과가 0건이면 헤더만 있는 CSV가 내려와야 하지만\n현재는 500 오류가 발생한다.\n최윤경이 내일 오후 5시까지 수정하고 0건·1건 결과를\n확인하기로 했다.\n\n## [구간 3] 테스트 데이터\n\n허민규는 기존 테스트 사용자 자료를 그대로 사용할 수 있다고\n설명했다. 추가 데이터 제작이나 담당자 변경 요청은 없었다.\n\n## [구간 4] 다운로드 이력 화면\n\n이력 화면에 대한 의견이 나왔지만, 권한과 보관 방식이 정해지지\n않아 이번 구현에서는 제외하기로 했다.\n"
+  },
+  "project": {
+    "projectId": 1,
+    "name": "CSV 내보내기",
+    "githubOwner": "MCP-Capstone",
+    "githubRepo": "mcp-capstone"
+  },
+  "projectMembers": [
+    {
+      "projectMemberId": 11,
+      "userId": 3,
+      "name": "최윤경",
+      "githubName": "0unk0"
+    },
+    {
+      "projectMemberId": 12,
+      "userId": null,
+      "name": "허민규",
+      "githubName": "mingyu-example"
+    }
+  ]
+}
