@@ -11,6 +11,7 @@ Spring이 호출하는 Agent API. Spring의 공개 API와는 다른 서버에서
 
 - POST /runs는 기본적으로 202 ACCEPTED를 반환하고 백그라운드에서 처리한다.
 - GET /runs/{task_id}로 RUNNING 또는 종료 결과 SUCCEEDED / FAILED를 조회한다.
+  RUNNING이면 진행 단계(stage)가 EXTRACTING → NORMALIZING → REVIEWING → PUBLISHING 순서로 바뀐다.
 - SUCCEEDED는 Agent 실행 완료이며, 모든 GitHub 발행 성공을 뜻하지 않는다. items와 summary를 함께 확인한다.
 - wait=true는 로컬 테스트용 동기 실행이며 HTTP 200으로 최종 결과를 반환한다.
 - 생성·조회 상태는 메모리에 있어 프로세스 재시작 시 사라진다.
@@ -40,7 +41,9 @@ class RunAccepted(CamelModel):
 
 class RunProgress(CamelModel):
     task_id: str = Field(description="기존 작업 ID")
-    status: Literal["RUNNING"] = Field(description="현재 응답은 세부 단계·항목을 포함하지 않음")
+    status: Literal["RUNNING"] = Field(description="처리 중. 항목·집계는 끝난 뒤 결과에 담김")
+    stage: Literal["EXTRACTING", "NORMALIZING", "REVIEWING", "PUBLISHING"] = Field(
+        description="지금 진행 단계. 할 일 추출 → 담당자·기한 정리와 초안 작성 → 검수(보완 포함) → 발행")
 
 
 class RunExecutionError(CamelModel):
@@ -82,7 +85,7 @@ JOB_RESPONSES = {
     200: {"model": RunProgress | RunResult | RunExecutionError,
           "description": "진행 중 또는 종료 결과. API 요청 오류와 실행 실패를 구분한다.",
           "content": {"application/json": {"examples": {
-              "running": {"summary": "실행 중", "value": {"taskId": REQUEST_EXAMPLE["taskId"], "status": "RUNNING"}},
+              "running": {"summary": "실행 중", "value": {"taskId": REQUEST_EXAMPLE["taskId"], "status": "RUNNING", "stage": "REVIEWING"}},
               "finished": {"summary": "할 일 없음으로 종료", "value": END_EXAMPLE},
               "failed": {"summary": "예기치 않은 실행 오류", "value": {"taskId": REQUEST_EXAMPLE["taskId"], "status": "FAILED", "errorCode": "INTERNAL_ERROR", "errorMessage": "실행 처리 실패"}},
           }}}},
@@ -91,5 +94,5 @@ JOB_RESPONSES = {
 }
 HEALTH_RESPONSES = {
     200: {"model": AgentHealth, "description": "현재 설정. LLM·MCP 연결 성공을 보장하지 않음",
-          "content": {"application/json": {"example": {"status": "ok", "mcp_server_url": "http://127.0.0.1:8000/mcp", "backend_reporting": False, "dry_run": True, "model": "gpt-4o-mini"}}}},
+          "content": {"application/json": {"example": {"status": "ok", "mcp_server_url": "http://127.0.0.1:8000/mcp", "backend_reporting": False, "dry_run": True, "model": "gpt-5.4-nano"}}}},
 }

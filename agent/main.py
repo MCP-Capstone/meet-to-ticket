@@ -23,9 +23,7 @@ load_env()
 from reporter import BackendReporter  # noqa: E402
 from runner import run  # noqa: E402
 from schemas import RunRequest  # noqa: E402
-
 from state import STAGE_EXTRACTING  # noqa: E402
-
 from api_docs import DESCRIPTION, HEALTH_RESPONSES, JOB_RESPONSES, REQUEST_EXAMPLE, RUN_RESPONSES  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -112,7 +110,7 @@ async def create_run(
 @app.get(
     "/runs/{task_id}", tags=["분석 실행"], operation_id="getAgentRun",
     summary="진행·최종 결과 조회", response_model=None, responses=JOB_RESPONSES,
-    description="기존 메모리 작업만 조회한다. RUNNING이면 taskId/status만 반환한다. 종료 시 RunResult 또는 예외 결과를 반환하며, 이 GET은 재실행하지 않는다.",
+    description="기존 메모리 작업만 조회한다. RUNNING이면 taskId·status와 지금 진행 단계(stage)를 반환한다. 종료 시 RunResult 또는 예외 결과를 반환하며, 이 GET은 재실행하지 않는다.",
 )
 async def get_run(task_id: str = Path(description="POST에 보낸 taskId. Agent는 문자열을 받으며 Spring은 UUID 사용", examples=["9b12ec5a-1423-4b71-8e20-f8f28d306c81"])):
     if task_id not in _jobs:
