@@ -18,36 +18,34 @@ class CamelModel(BaseModel):
 
 
 class ProjectMember(CamelModel):
-    project_member_id: int | None = None
-    user_id: int | None = None
-    name: str
-    github_name: str | None = None
-
+    project_member_id: int | None = Field(None, description="프로젝트 팀원 ID. 미지정 시 null")
+    user_id: int | None = Field(None, description="서비스 사용자 ID. 미가입이면 null")
+    name: str = Field(description="프로젝트 또는 팀원 이름")
+    github_name: str | None = Field(None, description="실제 GitHub 로그인명. 미연결은 null")
 
 
 class Project(CamelModel):
-    project_id: int | None = None
-    name: str = ""
-    github_owner: str
-    github_repo: str
+    project_id: int | None = Field(None, description="프로젝트 ID. 미지정 시 null")
+    name: str = Field("", description="프로젝트 또는 팀원 이름")
+    github_owner: str = Field(description="GitHub 소유자 또는 조직")
+    github_repo: str = Field(description="GitHub 저장소명")
 
 
 class Meeting(CamelModel):
-    meeting_id: int | str
-    title: str = ""
-    meeting_date: dt.date | None = None
-    timezone: str = "Asia/Seoul"
-    participant_ids: list[int] = Field(default_factory=list)
-    original_filename: str = ""
-    original_content: str
+    meeting_id: int | str = Field(description="회의 ID. 현재 Agent는 정수·문자열을 허용하며 Spring은 정수를 보냄")
+    title: str = Field("", description="회의 또는 업무 제목")
+    meeting_date: dt.date | None = Field(None, description="상대 날짜 계산 기준 회의 날짜. 실행 날짜가 아님")
+    timezone: str = Field("Asia/Seoul", description="회의 시간대")
+    participant_ids: list[int] = Field(default_factory=list, description="참석한 ProjectMember ID 목록")
+    original_filename: str = Field("", description="원본 TXT 파일명")
+    original_content: str = Field(description="저장된 회의 본문 그대로. 줄바꿈·근거 보존")
 
 
 class RunRequest(CamelModel):
-    task_id: str
-    meeting: Meeting
-    project: Project
-    project_members: list[ProjectMember] = Field(default_factory=list)
-
+    task_id: str = Field(description="Spring 발급 작업 ID. Agent는 문자열을 허용")
+    meeting: Meeting = Field(description="저장된 회의 정보")
+    project: Project = Field(description="대상 저장소·프로젝트")
+    project_members: list[ProjectMember] = Field(default_factory=list, description="프로젝트 전체 팀원. 참석자와 동일하지 않을 수 있음")
 
 # ---------------------------------------------------------------- API 출력 (TASK_ITEMS)
 
@@ -57,29 +55,29 @@ PublishStatus = Literal["NOT_STARTED", "SUCCEEDED", "FAILED", "SKIPPED", "BLOCKE
 
 
 class TaskItemOut(CamelModel):
-    task_item_id: str
-    work_key: str | None
-    title: str
-    content_json: dict[str, Any]
-    action: Action
-    reason: str | None = None
-    review_status: ReviewStatus
-    publish_status: PublishStatus
-    github_issue_number: int | None = None
-    github_issue_url: str | None = None
-    error_message: str | None = None
+    task_item_id: str = Field(description="항목 ID. Spring 공개 응답에서는 itemId로 변환")
+    work_key: str | None = Field(description="원문 업무 추적 키. GitHub 이슈 번호가 아님")
+    title: str = Field(description="회의 또는 업무 제목")
+    content_json: dict[str, Any] = Field(description="업무 내용·담당자·기한·검수·발행 상세. 필드 구성은 Agent 결과를 따름")
+    action: Action = Field(description="업무 동작 유형. 현재 실제 발행 경로는 신규 생성")
+    reason: str | None = Field(None, description="항목 판단 사유")
+    review_status: ReviewStatus = Field(description="검수 결과. Spring은 APPROVED 외 상태를 REJECTED/BLOCKED로 정규화")
+    publish_status: PublishStatus = Field(description="항목별 발행 결과. 현재 dry-run은 NOT_STARTED로 반환")
+    github_issue_number: int | None = Field(None, description="실제 GitHub 이슈 번호. 없으면 null")
+    github_issue_url: str | None = Field(None, description="실제 GitHub 이슈 URL. 없으면 null")
+    error_message: str | None = Field(None, description="실행 또는 항목 오류 사유")
 
 
 class RunResult(CamelModel):
-    task_id: str
-    status: Literal["SUCCEEDED", "FAILED"]
-    stage: str
-    error_code: str | None = None
-    error_message: str | None = None
-    summary: dict[str, int] = Field(default_factory=dict)
-    items: list[TaskItemOut] = Field(default_factory=list)
-    trace_id: str | None = None  # LangSmith run id. 같은 값으로 trace를 찾는다
-    metrics: dict[str, Any] = Field(default_factory=dict)  # 소요 시간, 프롬프트 버전, 모델, LLM 호출·재시도 수
+    task_id: str = Field(description="Spring 발급 작업 ID. Agent는 문자열을 허용")
+    status: Literal["SUCCEEDED", "FAILED"] = Field(description="Agent 실행 상태. SUCCEEDED가 전체 이슈 생성 성공을 뜻하지 않음")
+    stage: str = Field(description="Agent 단계. 종료 시 DONE. Spring 종료 단계는 VERIFYING으로 변환")
+    error_code: str | None = Field(None, description="전체 실행 오류 코드. 없으면 null")
+    error_message: str | None = Field(None, description="실행 또는 항목 오류 사유")
+    summary: dict[str, int] = Field(default_factory=dict, description="Agent 집계. total/approved/rejected/needsCheck/published/publishFailed/publishUnknown. Spring은 항목에서 집계를 다시 계산")
+    items: list[TaskItemOut] = Field(default_factory=list, description="최종 항목 목록")
+    trace_id: str | None = Field(None, description="LangSmith 실행 ID (Run ID). 동일한 값으로 추적(Trace)을 조회")
+    metrics: dict[str, Any] = Field(default_factory=dict, description="실행 지표. 소요 시간, 프롬프트 버전, 모델명, LLM 호출 및 재시도 횟수 포함")
 
 
 # ---------------------------------------------------------------- LLM 구조화 출력

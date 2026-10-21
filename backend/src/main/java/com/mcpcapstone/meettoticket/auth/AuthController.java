@@ -17,6 +17,8 @@ import com.mcpcapstone.meettoticket.common.error.ErrorCode;
 import com.mcpcapstone.meettoticket.common.error.ErrorResponse;
 import com.mcpcapstone.meettoticket.user.User;
 
+import com.mcpcapstone.meettoticket.common.config.ApiExamples;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.headers.Header;
@@ -46,7 +48,9 @@ public class AuthController {
 	// 가입하면 바로 로그인 상태가 된다.
 	@Operation(summary = "회원가입", description = "가입하면 바로 로그인 상태가 되고 세션 쿠키가 발급된다.")
 	@ApiResponse(responseCode = "201", description = "가입 + 로그인 성공",
-			headers = @Header(name = "Set-Cookie", description = SET_COOKIE_DESCRIPTION))
+			headers = @Header(name = "Set-Cookie", description = SET_COOKIE_DESCRIPTION),
+            content = @Content(schema = @Schema(implementation = UserResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.AUTH_USER)))
 	@ApiResponse(responseCode = "400", description = "입력값 오류",
 			content = @Content(schema = @Schema(implementation = ErrorResponse.class),
 					examples = @ExampleObject(value = """
@@ -65,7 +69,9 @@ public class AuthController {
 
 	@Operation(summary = "로그인", description = "성공하면 세션 쿠키가 발급된다. 아이디가 없을 때와 비밀번호가 틀릴 때 같은 에러를 준다.")
 	@ApiResponse(responseCode = "200", description = "로그인 성공",
-			headers = @Header(name = "Set-Cookie", description = SET_COOKIE_DESCRIPTION))
+			headers = @Header(name = "Set-Cookie", description = SET_COOKIE_DESCRIPTION),
+            content = @Content(schema = @Schema(implementation = UserResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.AUTH_USER)))
 	@ApiResponse(responseCode = "400", description = "입력값 누락",
 			content = @Content(schema = @Schema(implementation = ErrorResponse.class),
 					examples = @ExampleObject(value = """
@@ -94,11 +100,14 @@ public class AuthController {
 	}
 
 	@Operation(summary = "내 정보", description = "새로고침 시 로그인 상태를 확인할 때 쓴다.")
-	@ApiResponse(responseCode = "200", description = "로그인 상태")
+	@ApiResponse(responseCode = "200", description = "로그인 상태",
+            content = @Content(schema = @Schema(implementation = UserResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.AUTH_USER)))
 	@ApiResponse(responseCode = "401", description = "로그인하지 않음",
 			content = @Content(schema = @Schema(implementation = ErrorResponse.class),
 					examples = @ExampleObject(value = """
 							{ "code": "UNAUTHORIZED", "message": "로그인이 필요합니다." }""")))
+	@io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "sessionCookie")
 	@GetMapping("/me")
 	public UserResponse me(@Parameter(hidden = true)
 			@SessionAttribute(name = SessionConst.LOGIN_USER_ID, required = false) Long userId) {

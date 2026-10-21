@@ -6,6 +6,8 @@ import com.mcpcapstone.meettoticket.common.error.*;
 import com.mcpcapstone.meettoticket.meeting.*;
 import com.mcpcapstone.meettoticket.project.*;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Service;
@@ -208,19 +210,31 @@ public class AnalysisStore {
     public record Pending(UUID taskId, String executionMode, OffsetDateTime createdAt) {}
 
     public record TaskView(
+            @Schema(description = "분석 UUID", requiredMode = Schema.RequiredMode.REQUIRED, example = "9b12ec5a-1423-4b71-8e20-f8f28d306c81")
             UUID taskId,
+            @Schema(description = "회의 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "2")
             Long meetingId,
+            @Schema(description = "작업 상태. COMPLETED/PARTIALLY_FAILED/FAILED에서 폴링 종료", requiredMode = Schema.RequiredMode.REQUIRED, example = "RUNNING")
             TaskStatus status,
+            @Schema(description = "현재 또는 마지막 단계. QUEUED일 때 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "REVIEWING")
             TaskStage stage,
+            @Schema(description = "백엔드 실행 모드", requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"MOCK", "LIVE"}, example = "MOCK")
             String executionMode,
+            @Schema(description = "Spring 최초 접수 시각", requiredMode = Schema.RequiredMode.REQUIRED, example = "2026-10-22T10:31:00+09:00")
             OffsetDateTime createdAt,
+            @Schema(description = "종료 시각. 진행 중 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
             OffsetDateTime finishedAt,
+            @Schema(description = "전체 실패 사유. 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
             String errorMessage) {}
 
     public record ItemList(
+            @Schema(description = "분석 UUID", requiredMode = Schema.RequiredMode.REQUIRED, example = "9b12ec5a-1423-4b71-8e20-f8f28d306c81")
             UUID taskId,
+            @Schema(description = "종료 상태", requiredMode = Schema.RequiredMode.REQUIRED, example = "COMPLETED")
             TaskStatus status,
+            @Schema(description = "백엔드 실행 모드", requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"MOCK", "LIVE"}, example = "MOCK")
             String executionMode,
+            @Schema(description = "최종 항목. 할 일 없음은 빈 배열", requiredMode = Schema.RequiredMode.REQUIRED)
             List<AgentContracts.Item> items,
-            AgentContracts.Summary summary) {}
+            @Schema(description = "DB 항목으로 계산한 집계", requiredMode = Schema.RequiredMode.REQUIRED) AgentContracts.Summary summary) {}
 }

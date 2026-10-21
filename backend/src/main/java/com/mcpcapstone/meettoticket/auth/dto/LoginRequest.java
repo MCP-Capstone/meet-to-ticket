@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 
 @Schema(description = "로그인 요청")
 public record LoginRequest(
-		@Schema(description = "아이디", example = "pm01")
+		@Schema(description = "아이디", example = "demo1")
 		@NotBlank(message = "아이디를 입력해 주세요.")
 		String loginId,
 

@@ -14,7 +14,7 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 
 from config import load_env, load_settings  # noqa: E402
@@ -23,12 +23,21 @@ load_env()
 from reporter import BackendReporter  # noqa: E402
 from runner import run  # noqa: E402
 from schemas import RunRequest  # noqa: E402
+
 from state import STAGE_EXTRACTING  # noqa: E402
+
+from api_docs import DESCRIPTION, HEALTH_RESPONSES, JOB_RESPONSES, REQUEST_EXAMPLE, RUN_RESPONSES  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("agent.api")
 
-app = FastAPI(title="meet-to-ticket agent")
+app = FastAPI(
+    title="Meet-to-Ticket — Agent API",
+    version="1.0",
+    description=DESCRIPTION,
+    openapi_tags=[{"name": "분석 실행", "description": "Spring에서 호출하는 작업 접수·조회"},
+                  {"name": "상태 확인", "description": "Agent 설정과 실행 상태"}],
+)
 app.state.overrides = {}  # 테스트에서 llm, publisher, reporter, settings를 바꿔 넣는다
 
 _jobs: dict[str, dict[str, Any]] = {}
@@ -79,8 +88,15 @@ async def _execute(req: RunRequest) -> dict[str, Any]:
     return data
 
 
-@app.post("/runs")
-async def create_run(req: RunRequest, wait: bool = False):
+@app.post(
+    "/runs", tags=["분석 실행"], operation_id="createAgentRun",
+    summary="분석·검수·발행 작업 접수", response_model=None, responses=RUN_RESPONSES,
+    description="기본 응답은 202. wait=true일 때만 200으로 완료까지 기다린다. GET으로 상태를 확인하며 POST를 반복하지 않는다. 요청 형식 위반은 FastAPI 기본 422 응답이다.",
+)
+async def create_run(
+    req: RunRequest = Body(openapi_examples={"meeting": {"summary": "회의·프로젝트·팀원 JSON", "value": REQUEST_EXAMPLE}}),
+    wait: bool = Query(False, description="로컬 테스트용 동기 실행. Spring은 false(기본값) 사용"),
+):
     current = _jobs.get(req.task_id)
     if current and current.get("status") == "RUNNING":
         raise HTTPException(status_code=409, detail="이미 처리 중인 task_id입니다")
@@ -93,14 +109,19 @@ async def create_run(req: RunRequest, wait: bool = False):
     return JSONResponse(status_code=202, content={"taskId": req.task_id, "status": "ACCEPTED"})
 
 
-@app.get("/runs/{task_id}")
-async def get_run(task_id: str):
+@app.get(
+    "/runs/{task_id}", tags=["분석 실행"], operation_id="getAgentRun",
+    summary="진행·최종 결과 조회", response_model=None, responses=JOB_RESPONSES,
+    description="기존 메모리 작업만 조회한다. RUNNING이면 taskId/status만 반환한다. 종료 시 RunResult 또는 예외 결과를 반환하며, 이 GET은 재실행하지 않는다.",
+)
+async def get_run(task_id: str = Path(description="POST에 보낸 taskId. Agent는 문자열을 받으며 Spring은 UUID 사용", examples=["9b12ec5a-1423-4b71-8e20-f8f28d306c81"])):
     if task_id not in _jobs:
         raise HTTPException(status_code=404, detail="없는 task_id입니다")
     return _jobs[task_id]
 
 
-@app.get("/health")
+@app.get("/health", tags=["상태 확인"], operation_id="getAgentHealth", summary="Agent 상태·설정 조회",
+         response_model=None, responses=HEALTH_RESPONSES)
 async def health():
     s = _settings()
     return {
