@@ -167,7 +167,7 @@ docker run --rm -p 127.0.0.1:8002:8002 --env-file rag-mcp/.env -v meet-to-ticket
 
 **주의**
 
-- `.env`(토큰·키)와 로컬 `chroma-data/`는 이미지에 들어가지 않습니다(`.dockerignore`).
+- `.env`(토큰/키)와 로컬 `chroma-data/`는 이미지에 들어가지 않습니다(`.dockerignore`).
 - `.env`의 `MCP_HOST`, `CHROMA_PATH`가 비어 있으면 컨테이너 기본값(`0.0.0.0`, `/data/chroma`)을 씁니다. 값을 적으면 그 값이 우선하므로, 컨테이너로 실행할 때는 `MCP_HOST=127.0.0.1`을 적지 않습니다.
 - 다른 서비스와 함께 띄우는 `compose.full.yml`에서는 서비스 이름으로 접속합니다(예: Agent에서 `http://rag-mcp:8002/mcp`).
 
