@@ -27,6 +27,11 @@ spring:
         format_sql: true
     show-sql: true
 
+springdoc:
+  # 명세에는 프론트가 쓰는 /api/** 만 싣는다. (Agent 콜백 /internal/** 제외)
+  paths-to-match: /api/**
+  default-produces-media-type: application/json
+
 agent:
   # Agent(FastAPI) 주소. 포트 규칙은 docs/dev-env.md 참고
   base-url: ${AGENT_BASE_URL:http://localhost:8001}

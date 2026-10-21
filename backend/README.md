@@ -13,6 +13,28 @@ Java 21 + Spring Boot 4.1 + Gradle + Spring Data JPA + PostgreSQL
 
 http://localhost:8080/api/health 에서 `{"status":"UP"}`가 나오면 정상이다.
 
+## API 명세 (Swagger)
+
+서버 실행 후 http://localhost:8080/swagger-ui.html 에서 본다. (JSON: `/v3/api-docs`)
+
+- 명세는 코드(컨트롤러, DTO)에서 만들어진다. 따로 문서를 고치지 않는다.
+- 로그인이 필요한 API는 Swagger에서 먼저 `POST /api/auth/login`(또는 signup)을 실행하면 이후 요청에 세션 쿠키가 자동으로 붙는다.
+- 명세에는 `/api/**`만 나온다. Agent 콜백(`/internal/**`)은 싣지 않는다.
+
+### 작성 규칙
+
+| 위치 | 애너테이션 | 내용 |
+|---|---|---|
+| 컨트롤러 클래스 | `@Tag(name = "회의")` | 화면에 묶어 보여줄 이름 |
+| 메서드 | `@Operation(summary, description)` | 한 줄 요약, 동작 설명 |
+| 메서드 | `@ApiResponse(responseCode, description)` | 성공 / 에러 코드별 설명. 에러는 `ErrorResponse` + 예시 |
+| DTO 필드 | `@Schema(description, example)` | 필드 설명, 예시 값 |
+| 로그인 불필요 API | `@SecurityRequirements` | 자물쇠 표시 제거 (기본은 로그인 필요) |
+
+예시는 `auth/AuthController.java`, `auth/dto/SignupRequest.java` 참고.
+
+아직 구현하지 않은 API는 DTO와 컨트롤러 메서드만 먼저 만들고 `501 Not Implemented`를 돌려주는 껍데기로 둔다. 명세가 먼저 나오고, 구현할 때 메서드 안만 채운다.
+
 ## 스크립트
 
 | 명령 | 설명 |

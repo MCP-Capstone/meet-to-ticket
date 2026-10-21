@@ -2,11 +2,14 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, useMock } from '../api'
 import type { User } from '../api'
+import { Spinner } from './Spinner'
 
 type Mode = 'login' | 'signup'
 
 interface Props {
   onLogin: (user: User) => void
+  // 로그인 만료 등으로 로그인 화면에 돌아왔을 때 보여줄 안내
+  notice?: string | null
 }
 
 const LOGIN_ID_PATTERN = /^[a-zA-Z0-9]{4,20}$/
@@ -22,7 +25,7 @@ function validateSignup(loginId: string, password: string, passwordConfirm: stri
   return null
 }
 
-export function AuthForm({ onLogin }: Props) {
+export function AuthForm({ onLogin, notice }: Props) {
   const [mode, setMode] = useState<Mode>('login')
   const [loginId, setLoginId] = useState('')
   const [password, setPassword] = useState('')
@@ -72,6 +75,7 @@ export function AuthForm({ onLogin }: Props) {
         </button>
       </div>
 
+      {notice && !error && <p className="notice">{notice}</p>}
       {error && <p className="error">{error}</p>}
 
       <label>
@@ -117,7 +121,15 @@ export function AuthForm({ onLogin }: Props) {
       )}
 
       <button type="submit" className="primary" disabled={submitting}>
-        {submitting ? '처리 중...' : isSignup ? '가입하고 시작하기' : '로그인'}
+        {submitting ? (
+          <>
+            <Spinner size="sm" label="처리 중" /> 처리 중...
+          </>
+        ) : isSignup ? (
+          '가입하고 시작하기'
+        ) : (
+          '로그인'
+        )}
       </button>
 
       {useMock && !isSignup && <p className="muted hint">mock 모드 데모 계정: demo / demo1234</p>}

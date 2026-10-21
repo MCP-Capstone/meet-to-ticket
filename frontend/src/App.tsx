@@ -1,26 +1,42 @@
-import { useEffect, useState } from 'react'
-import { ActionItemList } from './components/ActionItemList'
+import { useEffect, useRef, useState } from 'react'
+import { AnalysisProgress } from './components/AnalysisProgress'
 import { AuthForm } from './components/AuthForm'
-import { ExtractingView } from './components/ExtractingView'
-import { MeetingForm } from './components/MeetingForm'
+import { ResultList } from './components/ResultList'
+import { Spinner } from './components/Spinner'
 import { Stepper } from './components/Stepper'
-import { api, useMock } from './api'
-import type { ActionItem, CreateMeetingRequest, Meeting, User } from './api'
+import { UploadForm } from './components/UploadForm'
+import { api, ApiRequestError, onUnauthorized, useMock } from './api'
+import type { AnalysisJob, Meeting, TicketResult, User } from './api'
 
-type Step = 'input' | 'extracting' | 'result'
+type Step = 'upload' | 'analyzing' | 'result'
 
-const stepIndex = { input: 0, extracting: 1, result: 2 } as const
+const stepIndex = { upload: 0, analyzing: 1, result: 2 } as const
+
+// 프로젝트 선택 화면을 만들기 전까지 시드 데이터의 데모 프로젝트를 쓴다.
+const DEMO_PROJECT_ID = 1
 
 const toMessage = (e: unknown) => (e instanceof Error ? e.message : '알 수 없는 오류가 발생했습니다.')
+
+const isUnauthorized = (e: unknown) => e instanceof ApiRequestError && e.code === 'UNAUTHORIZED'
 
 function App() {
   // undefined: 로그인 상태 확인 중, null: 로그인 안 함
   const [user, setUser] = useState<User | null | undefined>(undefined)
-  const [step, setStep] = useState<Step>('input')
-  const [meetingTitle, setMeetingTitle] = useState('')
+  const [authNotice, setAuthNotice] = useState<string | null>(null)
+  // 401 처리기 안에서 최신 로그인 상태를 보려고 ref에도 둔다.
+  const loggedIn = useRef(false)
+  const [step, setStep] = useState<Step>('upload')
   const [meeting, setMeeting] = useState<Meeting | null>(null)
-  const [actionItems, setActionItems] = useState<ActionItem[]>([])
+  const [jobId, setJobId] = useState<number | null>(null)
+  const [starting, setStarting] = useState(false)
+  const [results, setResults] = useState<TicketResult[]>([])
   const [error, setError] = useState<string | null>(null)
+  // 새 회의록을 올릴 때 업로드 화면을 처음 상태로 되돌리기 위한 키
+  const [uploadKey, setUploadKey] = useState(0)
+
+  useEffect(() => {
+    loggedIn.current = Boolean(user)
+  }, [user])
 
   // 새로고침해도 세션이 남아 있으면 로그인 상태를 이어간다.
   useEffect(() => {
@@ -30,27 +46,61 @@ function App() {
       .catch(() => setUser(null))
   }, [])
 
-  const handleExtract = async (body: CreateMeetingRequest) => {
+  const handleStart = async (target: Meeting) => {
     setError(null)
-    setMeetingTitle(body.title)
-    setStep('extracting')
+    setStarting(true)
     try {
-      const created = await api.createMeeting(body)
-      const res = await api.extractActionItems(created.meetingId)
-      setMeeting(created)
-      setActionItems(res.actionItems)
+      const res = await api.startAnalysis(target.meetingId)
+      setMeeting(target)
+      setJobId(res.jobId)
+      setStep('analyzing')
+    } catch (e) {
+      if (!isUnauthorized(e)) setError(toMessage(e))
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const handleFinish = async (job: AnalysisJob) => {
+    if (job.status === 'FAILED') {
+      setError(job.failureReason ?? '분석에 실패했습니다.')
+      setStep('upload')
+      return
+    }
+    try {
+      const res = await api.getAnalysisResults(job.jobId)
+      setResults(res.results)
       setStep('result')
     } catch (e) {
-      setError(toMessage(e))
-      setStep('input')
+      if (!isUnauthorized(e)) {
+        setError(toMessage(e))
+        setStep('upload')
+      }
     }
   }
 
   const reset = () => {
     setMeeting(null)
-    setActionItems([])
+    setJobId(null)
+    setResults([])
     setError(null)
-    setStep('input')
+    setStep('upload')
+    setUploadKey((k) => k + 1)
+  }
+
+  // 세션이 만료되면 작업 중이던 화면을 지우고 로그인 화면으로 보낸다.
+  useEffect(() => {
+    onUnauthorized(() => {
+      if (loggedIn.current) setAuthNotice('로그인이 만료되었습니다. 다시 로그인해 주세요.')
+      reset()
+      setUser(null)
+    })
+    return () => onUnauthorized(null)
+  }, [])
+
+  const handleLogin = (loggedInUser: User) => {
+    setAuthNotice(null)
+    setUser(loggedInUser)
   }
 
   const handleLogout = async () => {
@@ -64,7 +114,7 @@ function App() {
       <header className="header">
         <div>
           <h1>meet-to-ticket</h1>
-          <p className="muted">회의록에서 할 일을 찾아 티켓으로 정리합니다.</p>
+          <p className="muted">회의록에서 할 일을 찾아 GitHub 이슈로 발행합니다.</p>
         </div>
         <div className="header-side">
           {useMock && <span className="badge mock">MOCK</span>}
@@ -79,7 +129,13 @@ function App() {
         </div>
       </header>
 
-      {user === null && <AuthForm onLogin={setUser} />}
+      {user === undefined && (
+        <p className="loading">
+          <Spinner size="sm" label="로그인 확인 중" /> 로그인 상태를 확인하고 있습니다...
+        </p>
+      )}
+
+      {user === null && <AuthForm onLogin={handleLogin} notice={authNotice} />}
 
       {user && (
         <>
@@ -87,18 +143,19 @@ function App() {
 
           {error && <p className="error">{error}</p>}
 
-          {/* 입력 폼은 추출 중에도 내용을 유지하도록 숨기기만 한다. */}
-          <div hidden={step !== 'input'}>
-            <MeetingForm onSubmit={handleExtract} />
-          </div>
+          {step === 'upload' && (
+            <UploadForm key={uploadKey} projectId={DEMO_PROJECT_ID} starting={starting} onStart={handleStart} />
+          )}
 
-          {step === 'extracting' && <ExtractingView meetingTitle={meetingTitle} />}
+          {step === 'analyzing' && jobId !== null && meeting && (
+            <AnalysisProgress jobId={jobId} meetingTitle={meeting.title} onFinish={handleFinish} onCancel={reset} />
+          )}
 
           {step === 'result' && meeting && (
             <>
-              <ActionItemList meeting={meeting} actionItems={actionItems} />
+              <ResultList meeting={meeting} results={results} />
               <button className="link" onClick={reset}>
-                새 회의록 입력
+                새 회의록 업로드
               </button>
             </>
           )}
