@@ -290,6 +290,71 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 흐름: 할 일 추출·담당자·기한 정리 → 검수(보완 최대 2회) → 최종 발행 목록 → MCP로 새 이슈 생성 → 항목별 결과 보고
 
+### 파일
+
+| 파일 | 역할 |
+|---|---|
+| `main.py` | FastAPI (`POST /runs`, `GET /runs/{task_id}`, `GET /health`) |
+| `cli.py` | 백엔드 없이 회의 요약 파일로 바로 실행 |
+| `runner.py` | 요청 1건 실행 (MCP 연결, 그래프 실행) |
+| `graph.py` | LangGraph 그래프 (prepare → draft → review ⇄ draft → publish → finish) |
+| `nodes.py` | 노드 구현, 검수 판정 규칙 |
+| `parsing.py` | 회의 요약 마크다운 해석 (액션 아이템 표 등) |
+| `resolve.py` | 담당자 매핑, 기한 계산, 예상 처리 분류 |
+| `llm.py`, `prompts.py` | OpenAI 호출과 프롬프트 |
+| `publisher.py` | MCP 도구 호출, 이슈 본문 조립 |
+| `reporter.py` | 백엔드 진행·결과 보고 |
+| `mcp_check.py` | MCP 서버 연결 확인 (이슈 목록 읽기, `--write`면 테스트 이슈 생성) |
+| `samples/` | 회의 요약 예시 3종, 팀원 명단, 요청 목데이터 |
+
+### 1) 추출·검수만 확인 (OpenAI 키만 필요)
+
+```bash
+python cli.py samples/10min_1_summary.md --dry-run
+```
+
+### 2) 실제 GitHub 발행까지
+
+1. `samples/members.json`의 `github_name`에 팀원 GitHub 아이디를 채운다 (비우면 담당자 없이 발행)
+2. 다른 터미널에서 MCP 서버 실행: `cd ../mcp-server && python server.py`
+3. 실행:
+
+```bash
+python cli.py samples/10min_1_summary.md --owner MCP-Capstone --repo mcp-capstone --out out/result.json
+```
+
+### 3) API 서버
+
+```bash
+uvicorn main:app --port 8001
+curl -X POST "http://127.0.0.1:8001/runs?wait=true" -H "Content-Type: application/json" -d @request.json
+```
+
+요청 형식은 백엔드와 같은 camelCase다. 목데이터가 `samples/requests/`에 있다.
+
+| 파일 | 내용 |
+|---|---|
+| `csv_check.json` | 백엔드 예시 그대로 (액션 아이템 표 없는 짧은 회의록) |
+| `10min_1.json`, `30min_1.json`, `60min_1.json` | 회의 요약 예시 3종을 같은 형식으로 감싼 것 |
+
+```bash
+curl -X POST "http://127.0.0.1:8001/runs?wait=true" -H "Content-Type: application/json" -d @samples/requests/csv_check.json
+python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이 같은 입력으로 실행
+```
+
+요청 주요 필드: `taskId`, `meeting.{meetingId, title, meetingDate, timezone, participantIds, originalFilename, originalContent}`, `project.{githubOwner, githubRepo}`, `projectMembers[].{projectMemberId, userId, name, githubName}`
+
+결과(응답·백엔드 보고)도 camelCase: `taskId`, `status`, `stage`, `errorCode`, `errorMessage`, `summary`, `items[].{taskItemId, workKey, title, contentJson, action, reason, reviewStatus, publishStatus, githubIssueNumber, githubIssueUrl, errorMessage}`
+
+`?wait=true` 없이 보내면 202로 접수하고 백그라운드에서 처리한다. `BACKEND_BASE_URL`이 있으면 진행(`/internal/tasks/{id}/progress`)과 결과(`/internal/tasks/{id}/result`)를 보고한다(경로는 백엔드와 확정 전).
+
+### 4) MCP 연결 확인
+
+```bash
+python mcp_check.py --owner MCP-Capstone --repo mcp-capstone           # 이슈 목록 읽기
+python mcp_check.py --owner MCP-Capstone --repo mcp-capstone --write   # 테스트 이슈 1개 생성
+```
+
 ### 검수 판정
 
 | # | 점검 | 판정 | 실패 시 |
@@ -314,10 +379,14 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 - 회의록에 "발행 보류"면 `NEEDS_CHECK`, "조건부 기존 이슈 갱신"은 `CONDITIONAL_AS_NEEDS_CHECK=true`(기본)일 때 `NEEDS_CHECK`
 - `APPROVED`만 발행 단계로 넘어간다.
 
+### 1차 한계
+- 기존 GitHub 이슈를 조회하지 않는다. 같은 회의를 다시 실행하면 이슈가 다시 생성된다.
+- "기존 이슈 갱신(AUTH-112)" 같은 표기는 새 이슈 본문에 관련 키로만 남긴다.
+
 ### 테스트
 
 ```bash
 pytest
 ```
 
-가짜 LLM을 쓰므로 OpenAI를 호출하지 않는다.
+가짜 LLM·가짜 도구를 쓰므로 OpenAI와 GitHub를 호출하지 않는다.
