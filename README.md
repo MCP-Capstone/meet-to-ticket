@@ -30,6 +30,8 @@
 
 ### 전체 서비스를 Docker로 실행
 
+이 구성은 demo 프로파일과 기본 테스트 계정을 사용하는 로컬·데모용이며, 운영 배포용 구성이 아닙니다.
+
 Docker Desktop만으로 6개 서비스(프론트·Spring·Agent·MCP·DB·RabbitMQ)를 함께 실행할 수 있다. 환경 변수 초기 설정 후:
 
 ```bash

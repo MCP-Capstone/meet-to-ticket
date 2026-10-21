@@ -1,5 +1,7 @@
 # 전체 서비스 Docker 실행
 
+이 구성은 demo 프로파일과 기본 테스트 계정을 사용하는 로컬·데모용이며, 운영 배포용 구성이 아닙니다.
+
 `compose.full.yml`은 frontend, backend, agent, mcp-server, postgres, rabbitmq를 함께 실행한다.
 기존 `docker-compose.yml`은 로컬 개발용 DB·RabbitMQ 설정으로 유지한다.
 전체 구성은 별도 프로젝트 이름 `meet-to-ticket-full`을 사용해 기존 DB 컨테이너와 구분한다.
@@ -54,7 +56,7 @@ Agent는 Spring이 실행될 때까지 기다리도록 설정하지 않아 진�
 | 서비스 | 컨테이너 주소 | 기본 호스트 공개 |
 |---|---|---|
 | frontend | `frontend:80` | 5173 |
-| backend | `backend:8080` | 8080 |
+| backend | `backend:8080` | `127.0.0.1:8080` (로컬 컴퓨터에서만 접근) |
 | agent | `agent:8001` | 없음 |
 | mcp-server | `mcp-server:8000` | 없음 |
 | postgres | `postgres:5432` | 없음 |
@@ -66,8 +68,9 @@ Agent는 Spring이 실행될 때까지 기다리도록 설정하지 않아 진�
 Agent와 MCP 이미지 안에는 `.env` 파일을 넣지 않으므로 dotenv의 override 설정과 충돌하지 않는다.
 
 프론트는 Vite 개발 서버 대신 Nginx로 빌드된 화면을 제공한다. `/api/`는 Spring에 전달하고 세션 쿠키를 유지한다.
-브라우저에서 컨테이너 이름을 직접 사용하지 않는다. Spring은 별도로 `http://localhost:8080`에 공개한다.
-`/internal/**`은 프론트 프록시 대상이 아니지만 Spring 공개 포트에서 접근 가능하므로 기존 공유 토큰 검증이 적용된다.
+브라우저에서 컨테이너 이름을 직접 사용하지 않는다. Spring의 호스트 포트는 `127.0.0.1`에만 바인딩하므로 같은 컴퓨터에서 `http://127.0.0.1:8080`으로 직접 접근할 수 있다.
+다른 컴퓨터에서 Spring 호스트 포트로 직접 접근할 수 없으며, Nginx는 내부 주소 `backend:8080`으로 계속 연결한다.
+`/internal/**`은 프론트 프록시 대상이 아니지만 로컬 Spring 포트에서 접근 가능하므로 기존 공유 토큰 검증이 적용된다.
 Agent·MCP·DB·RabbitMQ에는 호스트 포트 매핑을 만들지 않는다. 브리지 네트워크는 Agent의 OpenAI 호출과 MCP의 GitHub 호출을 허용한다.
 MCP healthcheck는 TCP 기동 확인이며 GitHub 토큰의 유효성까지 검사하지 않는다.
 
@@ -98,7 +101,7 @@ docker compose -f compose.full.yml up -d --force-recreate agent backend
 2. `http://localhost:5173/api/health`와 Spring 상태 API가 정상 응답하는지 확인한다.
 3. 로그인 후 샘플 파일을 업로드하고 분석한다. 진행 보고 202와 최종 항목·집계 조회를 확인한다.
 4. 기본 DRY_RUN에서는 GitHub 이슈가 생성되지 않는지 확인한다. 실제 발행 검증은 별도 실행한다.
-5. `ps`의 호스트 포트 매핑이 frontend·backend에만 있는지 확인한다.
+5. `ps`의 호스트 포트 매핑이 frontend·backend에만 있고, backend는 `127.0.0.1`에만 바인딩되는지 확인한다.
 6. 아래 명령으로 컨테이너를 내렸다 다시 올린 뒤 업로드한 회의가 유지되는지 확인한다.
 
 ```bash
