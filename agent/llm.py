@@ -58,6 +58,8 @@ class OpenAILLM:
         }
         self._dropped: dict[str, set[str]] = {"writer": set(), "reviewer": set()}  # 모델이 거부해 뺀 설정
         self._build()
+        log.info("LLM 준비: 초안 %s, 검수 %s, 프롬프트 버전 %s",
+                 settings.openai_model, settings.review_model, prompts.PROMPT_VERSION)
 
     def _chat(self, role: str) -> Any:
         conf = self._roles[role]

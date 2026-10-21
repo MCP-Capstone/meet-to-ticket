@@ -1,58 +1,36 @@
-"""LLM 프롬프트."""
+"""LLM 프롬프트.
 
-DRAFT_SYSTEM = """당신은 개발팀 회의 요약을 GitHub 이슈로 옮기는 담당자입니다.
-입력으로 회의 요약 원문과 '액션 아이템' 목록을 받습니다. 각 액션 아이템마다 이슈 초안을 작성하세요.
+프롬프트 본문은 prompts/*.md에 두고 여기서는 읽기만 한다 (코드와 분리해 버전 관리).
+PROMPT_VERSION은 다섯 파일 내용의 해시라서, 프롬프트를 고치면 값이 바뀐다.
+실행 기록에 남겨 어떤 프롬프트로 만든 결과인지 비교할 때 쓴다.
+"""
 
-규칙
-- work_key는 입력값을 그대로 쓰고, 입력에 없는 액션 아이템을 새로 만들지 않습니다.
-- 회의 요약에 있는 내용만 씁니다. 원문에 없는 숫자, 범위, 사람, 일정을 더하지 않습니다.
-- 담당자와 기한은 코드가 따로 처리하므로 제목·설명에 쓰지 않아도 됩니다. 쓴다면 원문과 같아야 합니다.
-- title: 무엇을 하는지 바로 알 수 있게 60자 이내 한국어로 씁니다.
-- description: 무엇을 왜 하는지 2~4문장으로 씁니다. 배경과 핵심 결정 중 이 할 일과 관련된 내용을 반영합니다.
-- acceptance_criteria: 끝났는지 확인할 수 있는 조건을 1~5개 씁니다. 원문의 결정 사항에 근거합니다.
-- evidence_quotes: 근거가 되는 원문 문장을 글자 하나 바꾸지 말고 그대로 1~3개 복사합니다. 표의 '액션' 칸 문구도 됩니다.
-- open_questions: 미결 질문 중 이 할 일과 관련된 것만 원문 그대로 넣습니다.
-- 피드백이 있는 항목은 피드백을 반영해 고칩니다. 피드백이 지적하지 않은 부분은 유지합니다."""
+from __future__ import annotations
 
-DRAFT_USER = """[회의 요약 원문]
-{summary}
+import hashlib
+from pathlib import Path
 
-[작성할 액션 아이템]
-{items}"""
+PROMPT_DIR = Path(__file__).resolve().parent / "prompts"
+PROMPT_FILES = ("rows_system", "draft_system", "draft_user", "review_system", "review_user")
 
-ROWS_SYSTEM = """회의 요약에서 회의 중 '하기로 정한 일'만 뽑으세요.
-의견, 질문, 제외·보류된 항목, 조건이 충족되면 다시 논의하기로 한 항목은 뽑지 않습니다.
-담당자와 기한은 원문 표현을 글자 그대로 복사하고, 없으면 빈 문자열로 둡니다.
-기한을 날짜로 바꾸지 마세요. 예: 원문이 "내일 오후 5시까지"면 due는 "내일 오후 5시"입니다(코드가 회의 날짜 기준으로 계산합니다)."""
 
-REVIEW_SYSTEM = """당신은 자동으로 발행될 GitHub 이슈 초안을 검수하는 깐깐한 검토자입니다.
-회의 요약 원문과 이슈 초안을 비교해 아래 항목을 점검하고, 실패한 항목만 보고하세요.
+def _load(name: str) -> str:
+    # 파일 끝 줄바꿈 하나는 편집기가 붙이는 것이라 뺀다
+    return (PROMPT_DIR / f"{name}.md").read_text(encoding="utf-8").removesuffix("\n")
 
-2. 제외·보류 항목이 아님: 회의에서 이번 범위에서 제외하거나 보류한 일을 이슈로 만들지 않았는가
-3. 할 일이 맞음: 의견, 질문, 공지가 아니라 누군가 하기로 정한 일인가
-4. 원문에 없는 내용 없음: 제목·설명·완료 조건에 원문에 없는 숫자, 범위, 사람, 일정이 들어가지 않았는가
-7. 제목이 명확함: 제목만 보고 무슨 작업인지 알 수 있는가
-8. 확인 가능한 완료 조건: 완료 여부를 판단할 수 있는 조건이 1개 이상 있는가
 
-규칙
-- 모든 초안에 대해 work_key별로 2, 3, 4, 7, 8번 다섯 항목을 각각 판정합니다(passed: true/false).
-- 문제가 없으면 passed=true이고 quote, problem, fix는 빈 문자열입니다. "문제없다", "필요 없다"는 결론이면 반드시 true입니다.
-- passed=false는 초안에서 문제가 되는 문구를 quote에 글자 그대로 복사할 수 있을 때만 씁니다.
-- 4번은 그 문구가 회의 요약 원문에 정말 없는지 원문을 다시 확인한 뒤에만 false로 합니다.
-- 제외·보류 항목이 없으면 2번은 항상 true입니다.
-- "~인지 확인이 필요하다", "~일 수도 있다" 같은 추측은 실패가 아닙니다. 확실하지 않으면 통과입니다.
-- 2번은 초안의 제목·설명·완료 조건에 '제외·보류 항목'의 내용이 실제로 들어간 경우에만 실패입니다. 같은 기능 영역이라는 이유만으로는 실패가 아닙니다.
-- 3번은 액션 아이템 표에서 온 초안이면 원칙적으로 통과입니다.
-- 표현 취향 차이는 실패로 보지 않습니다."""
+def prompt_version(texts: dict[str, str]) -> str:
+    digest = hashlib.sha256()
+    for name in sorted(texts):
+        digest.update(name.encode("utf-8") + b"\0" + texts[name].encode("utf-8") + b"\0")
+    return digest.hexdigest()[:8]
 
-REVIEW_USER = """[회의 요약 원문]
-{summary}
 
-[초안 출처]
-{source_note}
+TEXTS = {name: _load(name) for name in PROMPT_FILES}
+PROMPT_VERSION = prompt_version(TEXTS)
 
-[이번 범위에서 제외·보류된 항목]
-{excluded}
-
-[이슈 초안]
-{drafts}"""
+ROWS_SYSTEM = TEXTS["rows_system"]      # 표가 없을 때 본문에서 할 일 추출
+DRAFT_SYSTEM = TEXTS["draft_system"]    # 이슈 초안 작성
+DRAFT_USER = TEXTS["draft_user"]        # format: summary, items
+REVIEW_SYSTEM = TEXTS["review_system"]  # 검수
+REVIEW_USER = TEXTS["review_user"]      # format: summary, source_note, excluded, drafts
