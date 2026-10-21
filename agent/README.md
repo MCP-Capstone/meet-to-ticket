@@ -344,12 +344,27 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 |---|---|---|
 | Instructions | 프롬프트 md 분리, 구조화 출력, 작업별 모델·추론 설정 | `prompts/*.md`, `PROMPT_VERSION`, 위 "모델" 표 |
 | Tools | MCP `create_issue`·`list_issues`, `[코드] 메시지` 오류 태그, 제목·본문 길이 제한 | `MCP_SERVER_URL`, 허용 저장소는 mcp-server `.env` |
-| Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → publish → finish) | 보완 `MAX_REVISIONS`=2, recursion 50, 배치 10건 |
-| Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입 | `DRAFT_BATCH_SIZE`, `REVIEW_BATCH_SIZE` |
+| Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → publish → finish), 작업 마감, LLM 호출 시간 한도 | 보완 `MAX_REVISIONS`=2, recursion 50, `TASK_DEADLINE_SECONDS`=600, `LLM_TIMEOUT_SECONDS`=120 |
+| Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입, 원문 길이 한도 | `MAX_SOURCE_CHARS`=40000, `DRAFT_BATCH_SIZE`·`REVIEW_BATCH_SIZE`=10 |
 | State·Memory | 노드가 끝날 때마다 상태 저장(checkpointer, thread id = taskId), 발행한 taskId 재요청은 저장된 결과로 응답, 실행 중 같은 taskId는 409, `GET /runs/{id}/history` | 메모리 저장 (재시작 시 사라짐) |
 | Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
-| Recovery | LLM 재시도·인증 오류 즉시 중단, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단 | `LLM_RETRIES`=2 |
+| Recovery | LLM 재시도(Agent 한 곳에서만, OpenAI 클라이언트 재시도는 끔)·인증 오류 즉시 중단, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단 | `LLM_RETRIES`=2 |
 | Observability | LangSmith trace(작업 1건 = trace 1개), 결과의 `traceId`·`metrics`, `GET /runs/{id}` 진행 단계, 항목별 검수 이력 JSON, task·trace id가 붙은 로그 | `LANGSMITH_TRACING`, `LANGSMITH_PROJECT`, `BACKEND_BASE_URL` |
+
+### 실행 한도
+
+| 한도 | 기본값 | 넘으면 |
+|---|---|---|
+| `LLM_TIMEOUT_SECONDS` | 120초 | 그 호출을 실패로 보고 재시도 (`LLM_RETRIES`회까지) |
+| `TASK_DEADLINE_SECONDS` | 600초 | 초안·검수 노드에 들어가기 전에 `TASK_TIMEOUT`으로 끝냄. 발행은 하지 않음 |
+| `MAX_SOURCE_CHARS` | 40,000자 | LLM을 부르지 않고 `INPUT_TOO_LONG`으로 끝냄 |
+
+- 0 이하로 두면 마감·길이 한도를 끈다.
+- 평가 자료의 권장 작업 시간은 120초다. 60분 회의(24건)는 초안·검수를 10건씩 3번 나눠 호출하고, 추론 모델(gpt-5.4-mini) 응답이 느릴 수 있어 600초로 두었다. 실제 실행 시간을 보고 줄인다.
+- 마감은 "다음 단계에 들어가지 않는다"는 기준이다. 이미 시작한 노드와 발행은 끝까지 한다(발행을 중간에 끊으면 만들어진 이슈가 결과에서 빠질 수 있다). 그래서 끝나는 시각은 마감보다 늦을 수 있다.
+  - 진행 중인 노드 1개: 배치 1번에 최대 약 6분 (120초 × 3회 + 재시도 대기 4.5초)
+  - 발행: 이슈마다 mcp-server의 GitHub 호출 한도 20초
+- LLM 재시도는 Agent(`llm.py`)에서만 한다. OpenAI 클라이언트의 자체 재시도는 꺼서 재시도가 겹치지 않게 했다(전에는 최대 9번 호출될 수 있었다).
 
 ### 1) 추출·검수만 확인 (OpenAI 키만 필요)
 
