@@ -71,3 +71,11 @@ docs/14-xxx ─┘
 
 - 이슈: `<type>(<scope>): <subject>`
 - PR: `<type>(<scope>): <subject> (#<issue-number>)`
+
+## Java 코드 스타일
+
+- 탭으로 들여쓴다. 탭 너비는 4칸이다. (`backend/.editorconfig`)
+- 와일드카드 import 대신 사용하는 타입을 명시적으로 import한다.
+- 표준 컬렉션 타입은 import하고 단순 클래스 이름을 쓴다. 이름이 충돌할 때만 FQCN을 쓴다.
+- 패키지는 기능별로 둔다. (`auth`, `user`, `project`, `meeting`, `analysis`, `agent`, 공통은 `common`)
+- 기존 코드 중 공백 들여쓰기 / 와일드카드 import가 남은 파일은 M2 이후 정리한다. 고치는 김에 다른 줄까지 재정렬하지 않는다.
