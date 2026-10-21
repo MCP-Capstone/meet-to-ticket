@@ -136,14 +136,16 @@ class AgentResultValidatorTest {
                                                 c,
                                                 "https://github.com/MCP-Capstone/mcp-capstone/issues/1"),
                                         false))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isExactlyInstanceOf(AgentResultValidationException.class)
+                .hasMessageContaining("원문에 없는 근거 인용");
         assertThatThrownBy(
                         () ->
                                 validator.validate(
                                         r,
                                         result(r, content(), "https://evil.example/issues/1"),
                                         false))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isExactlyInstanceOf(AgentResultValidationException.class)
+                .hasMessageContaining("생성 성공의 이슈 URL 불일치");
     }
 
     @Test
@@ -160,6 +162,19 @@ class AgentResultValidatorTest {
                                                 c,
                                                 "https://github.com/MCP-Capstone/mcp-capstone/issues/1"),
                                         false))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isExactlyInstanceOf(AgentResultValidationException.class)
+                .hasMessageContaining("보완 횟수·검수 버전·사유 오류");
+    }
+
+    @Test
+    void 승인_저장소_오류는_다른_검증과_구분한다() {
+        var r = request();
+        ObjectNode c = content();
+        ((ObjectNode) c.path("review").path("approvedPayload")).put("repo", "wrong-repo");
+        assertThatThrownBy(() -> validator.validate(r,
+                result(r, c, "https://github.com/MCP-Capstone/mcp-capstone/issues/1"), false))
+                .isInstanceOf(AgentResultValidationException.class)
+                .hasMessageContaining("승인 저장소 이름 불일치")
+                .hasMessageNotContaining("wrong-repo");
     }
 }

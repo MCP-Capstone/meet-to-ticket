@@ -20,6 +20,11 @@ import org.springframework.test.web.servlet.*;
 
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.List;
+import java.util.concurrent.*;
+
+import com.mcpcapstone.meettoticket.agent.MockAgentGateway;
+import com.mcpcapstone.meettoticket.common.error.BusinessException;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -27,6 +32,7 @@ import java.util.UUID;
 class BackendWorkflowTest {
     @Autowired MockMvc mvc;
     @Autowired AnalysisCoordinator coordinator;
+    @Autowired AnalysisStore store;
     @Autowired AnalysisTaskRepository tasks;
     @Autowired TaskItemRepository items;
     @Autowired UserRepository users;
@@ -96,7 +102,12 @@ class BackendWorkflowTest {
     void 로그인부터_파일저장_분석_결과조회까지_Agent없이_연결된다() throws Exception {
         mvc.perform(get("/api/projects").session(session))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.projects[0].projectId").value(projectId));
+                .andExpect(jsonPath("$.projects[0].projectId").value(projectId))
+                .andExpect(jsonPath("$.executionMode").value("MOCK"));
+        mvc.perform(get("/api/projects/{id}/members", projectId).session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.projectId").value(projectId))
+                .andExpect(jsonPath("$.members.length()").value(6));
         Long meeting = upload("회의.txt", "박종민, 허민규");
         UUID task = start(meeting);
         mvc.perform(get("/api/analysis-tasks/{id}/items", task).session(session))
@@ -206,5 +217,43 @@ class BackendWorkflowTest {
                 .andExpect(jsonPath("$.status").value("FAILED"))
                 .andExpect(jsonPath("$.items[0].reviewStatus").value("APPROVED"))
                 .andExpect(jsonPath("$.items[0].publishStatus").value("FAILED"));
+    }
+
+    @Test
+    void 동시에_같은_회의를_분석해도_한_작업만_접수한다() throws Exception {
+        Long meeting = upload("동시요청.txt", "박종민");
+        Long userId = (Long) session.getAttribute(SessionConst.LOGIN_USER_ID);
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        Callable<String> submit = () -> {
+            barrier.await(5, TimeUnit.SECONDS);
+            try {
+                return coordinator.start(meeting, userId).taskId().toString();
+            } catch (BusinessException e) {
+                return e.getErrorCode().name();
+            }
+        };
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<String> first = executor.submit(submit);
+            Future<String> second = executor.submit(submit);
+            List<String> results = List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
+            assertThat(results).filteredOn("ANALYSIS_ALREADY_REQUESTED"::equals).hasSize(1);
+            String id = results.stream().filter(r -> !r.equals("ANALYSIS_ALREADY_REQUESTED")).findFirst().orElseThrow();
+            assertThat(store.request(UUID.fromString(id)).meeting().meetingId()).isEqualTo(meeting);
+            // 요청 스냅샷으로 해당 회의에 저장된 작업 수를 확인한다.
+            assertThat(tasks.findAll().stream()
+                    .filter(t -> store.request(t.getId()).meeting().meetingId().equals(meeting)))
+                    .hasSize(1);
+        }
+        finish();
+    }
+
+    @Test
+    void MOCK_메모리를_잃으면_기존_작업을_재접수하지_않고_실패로_종료한다() throws Exception {
+        UUID task = start(upload("재시작.txt", "박종민"));
+        AnalysisCoordinator restarted = new AnalysisCoordinator(store, new MockAgentGateway(properties, json), properties);
+        restarted.pollPending();
+        mvc.perform(get("/api/analysis-tasks/{id}", task).session(session))
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.errorMessage").value(org.hamcrest.Matchers.startsWith("AGENT_TASK_UNAVAILABLE")));
     }
 }

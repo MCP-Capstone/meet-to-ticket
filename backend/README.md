@@ -98,7 +98,7 @@ curl -b cookie.txt localhost:8080/api/auth/me
 
 모든 공개 업무 API는 세션과 프로젝트 소속을 확인한다. 같은 회의에 분석을 다시 요청하면 409다. 같은 파일명으로 별개 회의를 업로드하는 것은 가능하다. 사용자의 본문 수정·승인·티켓 수정 API는 없다.
 
-DB는 `users / projects / project_members / meetings / analysis_tasks / task_items` 6개다. `participants_json / input_json / content_json`은 이번 구현에서 TEXT JSON으로 저장하고 Jackson으로 DTO에 변환한다. 파일 본문은 MEETINGS에 유지한다. 본문 파서는 회의 제목(또는 첫 Markdown 제목), ISO 날짜, 쉼표로 구분한 참여자 이름을 읽는다. `회의 날짜/일시`, `회의 참여자/참석자` 헤더와 Markdown의 `- ` 접두사를 지원한다. UTF-8 BOM은 디코딩 단계에서 한 번 제거하고 나머지 줄바꿈·본문은 보존한다. 날짜가 없거나 참여자가 미등록·동명이인이면 400으로 차단한다. 파일 크기 상한은 운영용 설정 `MAX_UPLOAD_SIZE`로 바꿀 수 있으며 기본 10MB다. 확정 제품 제한을 의미하지 않는다.
+DB는 `users / projects / project_members / meetings / analysis_tasks / task_items` 6개다. `participants_json / input_json / content_json`은 이번 구현에서 TEXT JSON으로 저장하고 Jackson으로 DTO에 변환한다. 파일 본문은 MEETINGS에 유지한다. 본문 파서는 회의 제목(또는 첫 Markdown 제목), ISO 날짜, 쉼표로 구분한 참여자 이름을 읽는다. `회의 날짜/일시`, `회의 참여자/참석자` 헤더와 Markdown의 `- ` 접두사를 지원한다. UTF-8 BOM은 디코딩 단계에서 한 번 제거하고 나머지 줄바꿈·본문은 보존한다. 참여자 이름 앞뒤 공백은 제거하지만 내부 공백과 영문 대소문자는 보존하며, 등록 이름과 정확히 일치해야 한다. 담당자를 잘못 연결하지 않도록 유사 이름을 자동 매칭하지 않는다. 날짜가 없거나 참여자가 미등록·동명이인이면 400으로 차단한다. 파일 크기 상한은 운영용 설정 `MAX_UPLOAD_SIZE`로 바꿀 수 있으며 기본 10MB다. 확정 제품 제한을 의미하지 않는다.
 
 ### Agent 없이 실행 — demo 프로필
 
@@ -110,6 +110,7 @@ DB는 `users / projects / project_members / meetings / analysis_tasks / task_ite
 
 - demo 프로필에서만 초기 사용자 `demo1 / password1`과 프로젝트, 회의 샘플의 팀원 6명을 넣는다. 실제 비밀번호는 `DEMO_PASSWORD`로 변경할 수 있다.
 - `DEMO_GITHUB_LOGINS`는 강민규, 박종민, 임나윤, 최윤경, 함주헌, 허민규 순서의 쉼표 구분 실제 로그인명이다. 미지정 계정은 NULL로 남기며 실제 계정으로 가장하지 않는다. 기존 팀원 행을 초기화할 때 덮어쓰지 않는다.
+- MOCK 실행 상태는 메모리에만 보관하므로 서버 재시작 후 진행 중 작업은 `AGENT_TASK_UNAVAILABLE`로 FAILED 처리된다. 이미 DB에 저장된 종료 결과는 유지된다.
 - Agent를 호출하지 않고 **고정 모의 응답**을 반환한다. 실제 LLM 추출·검수·GitHub 발행이 아니다.
 - `executionMode=MOCK`이며 모의 승인 항목은 `SKIPPED`, 이슈 번호·URL은 NULL이다. 가짜 GitHub 성공/링크를 만들지 않는다. 화면은 이를 모의 실행으로 표시해야 한다.
 - `AGENT_MOCK_SCENARIO=approved`(기본), `empty`, `rejected`, `failed`, `partial`로 저장·상태 시나리오를 확인한다. `approved`는 모의 승인 뒤 실제 발행 생략이며 SUCCEEDED가 아니다.
@@ -133,6 +134,8 @@ AGENT_BASE_URL=http://localhost:8001
 AGENT_INTERNAL_API_KEY=실제_내부_인증키
 ```
 
+LIVE 모드에서 `AGENT_INTERNAL_API_KEY`가 없거나 공백이면 기동에 실패한다. demo(MOCK)는 키 없이 실행할 수 있다.
+
 Spring은 `POST /internal/v1/analysis-tasks`로 JSON을 전달하고 `GET /internal/v1/analysis-tasks/{taskId}`를 약 2초 간격으로 조회한다. Agent에서 두 API를 제공해야 하며 콜백은 사용하지 않는다. Agent와 MCP 구현은 변경하지 않았다. 내부 키와 GitHub 토큰은 별개이고 요청 스냅샷에 저장하지 않는다.
 
 - `AGENT_POLL_INTERVAL_MS` 기본 2000, HTTP 연결 3초·읽기 5초, 전체 확인 제한 `AGENT_TASK_TIMEOUT` 기본 10분.
@@ -140,6 +143,8 @@ Spring은 `POST /internal/v1/analysis-tasks`로 JSON을 전달하고 `GET /inter
 - 보완 최대 2회, 원문 근거·팀원 범위·검수 버전·승인 인자·실제 이슈 링크 등 응답 계약을 확인한 뒤 저장한다.
 - 할 일 없음·모두 검수 반려는 COMPLETED. 일부 발행 실패는 PARTIALLY_FAILED, 승인 항목이 전부 실패하면 FAILED다.
 - 같은 taskId를 재접수하거나 응답 유실을 이유로 새 이슈 생성을 반복하지 않는다. 생성 여부 불명은 UNKNOWN으로 보존한다.
+- 폴링은 중첩 실행 없이 순차 처리한다. 작업 수와 Agent 응답 지연에 따라 개별 조회 간격은 설정값보다 길어질 수 있다.
+- 같은 회의의 분석 생성은 회의 행의 DB 잠금 안에서 기존 작업을 확인해 직렬화한다. 외부 Agent 호출 전에 트랜잭션을 끝낸다.
 - 종료 결과의 항목과 작업 상태는 한 트랜잭션으로 저장한다. 이미 종료된 작업을 뒤늦은 진행 상태로 되돌리지 않는다.
 - Agent가 접수 응답을 주지 않았을 때에도 기존 taskId만 조회하며 재실행하지 않는다. Agent의 프로세스가 재시작돼 작업을 잃었다면 조회 실패로 종료한다.
 

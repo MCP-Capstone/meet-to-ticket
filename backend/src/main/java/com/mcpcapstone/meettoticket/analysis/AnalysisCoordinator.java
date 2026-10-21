@@ -61,7 +61,9 @@ public class AnalysisCoordinator {
                 log.warn(
                         "Invalid Agent result for task {} ({})",
                         task.taskId(),
-                        e.getClass().getSimpleName());
+                        e instanceof AgentResultValidationException
+                                ? e.getMessage()
+                                : e.getClass().getSimpleName());
                 store.fail(
                         task.taskId(),
                         "INVALID_AGENT_RESULT: Agent 응답 검증·저장에 실패했습니다. GitHub 반영 여부를 확인하기 전 재발행하지"

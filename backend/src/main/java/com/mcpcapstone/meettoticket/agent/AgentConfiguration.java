@@ -12,6 +12,8 @@ public class AgentConfiguration {
     @Bean
     @ConditionalOnProperty(name = "agent.mode", havingValue = "live", matchIfMissing = true)
     public AgentGateway liveAgentGateway(AgentProperties properties) {
+        if (properties.getApiKey() == null || properties.getApiKey().isBlank())
+            throw new IllegalStateException("LIVE 모드에는 AGENT_INTERNAL_API_KEY 설정이 필요합니다.");
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(properties.getConnectTimeout());
         factory.setReadTimeout(properties.getReadTimeout());
