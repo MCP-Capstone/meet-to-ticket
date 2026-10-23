@@ -17,10 +17,10 @@ const seed: StoredProject = {
   ...mockProject, description: '회의에서 정한 CSV 내보내기 업무를 정리합니다.',
   githubOwner: 'MCP-Capstone', githubRepo: 'mcp-capstone', notionPageUrl: null, slackChannelId: null,
   adminUserIds: [1],
-  connections: { github: 'CONNECTED', notion: 'NOT_CONNECTED', slack: 'NOT_CONNECTED' },
+  connections: { github: null, notion: 'NOT_CONNECTED', slack: 'NOT_CONNECTED' },
   members: mockDirectoryUsers.map((user, index) => ({
     ...user, projectMemberId: index + 1,
-    repositoryPermission: !user.githubName ? 'NO_ACCOUNT' : user.userId === 3 ? 'DENIED' : 'GRANTED',
+    repositoryPermission: !user.githubName ? 'NO_ACCOUNT' : null,
   })),
 }
 
@@ -86,7 +86,7 @@ export function saveMockProject(body: ProjectSaveRequest, user: User, directory:
     if (!member) throw fail(400, 'USER_NOT_FOUND', '가입한 사용자만 멤버로 추가할 수 있습니다.')
     return {
       ...member, projectMemberId: previous?.members.find((item) => item.userId === userId)?.projectMemberId ?? nextMemberId++,
-      repositoryPermission: !member.githubName ? 'NO_ACCOUNT' : member.userId === 3 ? 'DENIED' : 'GRANTED',
+      repositoryPermission: !member.githubName ? 'NO_ACCOUNT' : null,
     }
   })
   const record: StoredProject = {
@@ -95,7 +95,7 @@ export function saveMockProject(body: ProjectSaveRequest, user: User, directory:
     notionPageUrl: body.notionPageUrl, slackChannelId: body.slackChannelId,
     members, adminUserIds: previous?.adminUserIds ?? [user.userId],
     connections: {
-      github: 'CONNECTED', notion: body.notionPageUrl ? 'CONNECTED' : 'NOT_CONNECTED',
+      github: null, notion: body.notionPageUrl ? 'CONNECTED' : 'NOT_CONNECTED',
       slack: body.slackChannelId ? 'CONNECTED' : 'NOT_CONNECTED',
     },
   }

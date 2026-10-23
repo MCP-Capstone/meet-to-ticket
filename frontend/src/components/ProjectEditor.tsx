@@ -87,7 +87,15 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
     const previous = tool === 'github' ? `${original?.githubOwner}/${original?.githubRepo}`
       : tool === 'notion' ? original?.notionPageUrl : original?.slackChannelId
     if (!original || value !== previous) return '저장 후 확인'
-    return connectionLabels[original.connections[tool]]
+    const status = original.connections[tool]
+    return status === null ? '확인되지 않음' : connectionLabels[status]
+  }
+
+  const visiblePermission = (member: SelectedMember) => {
+    if (!member.githubName) return '계정 없음'
+    if (repositoryChanged || member.repositoryPermission === undefined) return '저장 후 확인'
+    if (member.repositoryPermission === null) return '확인되지 않음'
+    return permissionLabels[member.repositoryPermission]
   }
 
   const handleSubmit = async (event: FormEvent) => {
@@ -165,7 +173,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
         </section>
         <section className="card">
           <h2>도구 연결 정보</h2>
-          <p className="muted">연결 상태와 멤버의 저장소 권한은 저장 후 확인됩니다.</p>
+          <p className="muted">‘확인되지 않음’은 아직 확인하지 않았거나 확인에 실패한 상태입니다.</p>
           <div className="project-tool">
             <div className="card-header"><strong>GitHub</strong><span className="badge mock">{visibleConnection('github')}</span></div>
             <label>GitHub 저장소 (필수)
@@ -195,7 +203,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
                 <tbody>{members.map((member) => (
                   <tr key={member.userId}>
                     <td>{member.name}</td><td>{member.githubName ?? '계정 없음'}</td>
-                    <td>{!member.githubName ? '계정 없음' : repositoryChanged || !member.repositoryPermission ? '저장 후 확인' : permissionLabels[member.repositoryPermission]}</td>
+                    <td>{visiblePermission(member)}</td>
                     <td><button type="button" className="link" aria-label={`${member.name} 멤버 제거`} onClick={() => {
                       setMembers((selected) => selected.filter((item) => item.userId !== member.userId)); markChanged()
                     }}>제거</button></td>

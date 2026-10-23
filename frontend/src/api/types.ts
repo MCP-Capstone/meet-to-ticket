@@ -29,7 +29,7 @@ export interface Project {
 
 // TASK-007: TASK-005·006에 전달한 프로젝트 편집 API 계약.
 export type ConnectionStatus = 'CONNECTED' | 'NOT_CONNECTED' | 'ERROR'
-export type RepositoryPermission = 'GRANTED' | 'DENIED' | 'NO_ACCOUNT'
+export type RepositoryPermission = 'GRANTED' | 'DENIED' | 'NO_ACCOUNT' | null
 
 export interface DirectoryUser {
   userId: number
@@ -58,7 +58,7 @@ export interface ProjectDetail extends Project {
   notionPageUrl: string | null
   slackChannelId: string | null
   members: ProjectEditorMember[]
-  connections: { github: ConnectionStatus; notion: ConnectionStatus; slack: ConnectionStatus }
+  connections: { github: ConnectionStatus | null; notion: ConnectionStatus; slack: ConnectionStatus }
   canEdit: boolean
 }
 

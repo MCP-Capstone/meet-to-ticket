@@ -161,15 +161,16 @@ TASK-001 전달 사항:
   "githubRepo": "mcp-capstone",
   "notionPageUrl": null,
   "slackChannelId": null,
-  "members": [{ "userId": 1, "name": "함주헌", "githubName": "juhun-ham", "repositoryPermission": "GRANTED" }],
-  "connections": { "github": "CONNECTED", "notion": "NOT_CONNECTED", "slack": "NOT_CONNECTED" },
+  "members": [{ "userId": 1, "name": "함주헌", "githubName": "juhun-ham", "repositoryPermission": null }],
+  "connections": { "github": null, "notion": "NOT_CONNECTED", "slack": "NOT_CONNECTED" },
   "canEdit": true
 }
 ```
 
-- 권한 값: `GRANTED` / `DENIED` / `NO_ACCOUNT`
-- 연결 값: `CONNECTED` / `NOT_CONNECTED` / `ERROR`
-- 외부 권한 확인 오류를 `DENIED`로 바꾸지 않고 `{ code, message }` 오류로 반환한다.
+- 권한 값: `GRANTED` / `DENIED` / `NO_ACCOUNT` / `null`. GitHub 계정이 없는 멤버만 `NO_ACCOUNT`이며, 미확인 또는 확인 실패는 `null`이다.
+- 연결 값: `CONNECTED` / `NOT_CONNECTED` / `ERROR`. `connections.github`은 미확인 또는 확인 실패 시 `null`도 허용한다.
+- `repositoryPermission`과 `connections.github`의 `null`은 화면에 ‘확인되지 않음’으로 표시한다. TASK-006 / #139의 확인 실패도 같은 값이므로 미확인과 실패를 구분하지 않고, ‘권한 없음’이나 ‘미연결’로 해석하지 않는다.
+- 저장 전 저장소 변경이나 멤버 추가는 ‘저장 후 확인’으로 표시하며, 저장 응답이 `null`이면 ‘확인되지 않음’으로 표시한다. 그 외 API 오류는 `{ code, message }` 오류 안내를 유지한다.
 - 검색어가 빈 문자열이면 선택 가능한 가입 사용자 목록을 반환한다. 멤버 GitHub 계정은 사용자 정보에서 가져오며 저장 요청에는 포함하지 않는다.
 - 로그인·관리자 확인, 등록자 자동 관리자 지정, 연결 계정 인증과 실제 외부 권한 확인은 백엔드 담당 범위다. 인증 토큰을 화면에서 입력·보관하지 않는다.
 
@@ -178,9 +179,9 @@ TASK-001 전달 사항:
 `VITE_USE_MOCK=true npm run dev`로 실행하고 `demo1 / password1`로 로그인한다. mock 프로젝트와 멤버 변경은 브라우저 탭의 sessionStorage에 남아 새로고침 후에도 다시 편집할 수 있다. 탭을 닫으면 초기화되며 실제 DB에는 저장하지 않는다.
 
 - 초기 사용자 6명은 화면 개발용 가입 사용자다. `member2` ~ `member6` / `password1`로도 로그인할 수 있으며 기본 프로젝트 편집은 `demo1`만 가능하다.
-- 초기 멤버 박종민은 ‘권한 없음’, 허민규는 ‘GitHub 계정 없음’ 표시 예시다. 실제 팀원의 권한·계정 상태를 뜻하지 않는다.
+- 초기 멤버 중 GitHub 계정이 있는 멤버의 권한은 `null`, 허민규는 `NO_ACCOUNT` 표시 예시다. 실제 팀원의 권한·계정 상태를 뜻하지 않는다.
 - 신규 가입한 mock 사용자도 멤버 검색 목록에 포함된다. 새 프로젝트 등록자는 자동으로 관리자·멤버가 된다.
-- mock의 ‘연결됨’과 권한은 고정 모의 결과이며 GitHub·Notion·Slack에 실제 연결하거나 검증하지 않는다.
+- mock의 GitHub 연결 상태와 계정이 있는 멤버의 권한은 조회·저장 시 `null`로 반환한다. Notion·Slack 연결 상태는 고정 모의 결과이며 외부 서비스에 실제 연결하거나 검증하지 않는다.
 - 실제 API를 확인할 때는 `VITE_USE_MOCK=false`로 실행한다. 실 API 실패 시 mock으로 자동 대체하거나 저장 성공을 표시하지 않는다.
 
 ## 분석 상태 조회 (polling)
