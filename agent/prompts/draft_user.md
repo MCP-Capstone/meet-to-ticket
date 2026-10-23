@@ -7,6 +7,9 @@
 [미결 질문]
 {open_questions}
 
+[프로젝트 기획 문서]
+{planning}
+
 [라벨 후보]
 {labels}
 

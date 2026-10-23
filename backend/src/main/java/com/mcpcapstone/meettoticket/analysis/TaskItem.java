@@ -71,6 +71,29 @@ public class TaskItem {
     @Column(name = "processing_type", nullable = false, length = 10)
     private ProcessingType processingType = ProcessingType.CREATE;
 
+    // 일괄 발행 결과 (TASK-046). 이슈 번호, URL, 사유는 위의 githubIssueNumber 등을 함께 쓴다.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "publish_batch_id")
+    private PublishBatch publishBatch;
+
+    @Column(name = "publish_error_code", length = 50)
+    private String publishErrorCode;
+
+    @ColumnDefault("false")
+    @Column(name = "publish_retryable", nullable = false)
+    private boolean publishRetryable;
+
+    // 요청은 갔지만 결과를 모르는 경우. 다시 시도하면 이슈가 두 번 생길 수 있어 구분해 둔다.
+    @ColumnDefault("false")
+    @Column(name = "publish_outcome_unknown", nullable = false)
+    private boolean publishOutcomeUnknown;
+
+    // 지난 발행이 결과 모름으로 끝났던 적이 있는지. 수정으로 되돌려 결과 칸을 비워도 남겨 두고,
+    // 다시 발행할 때 Agent가 이미 반영된 이슈, 댓글, 섹션이 있는지 반드시 대조하게 한다. 확실한 성공이 오면 지운다.
+    @ColumnDefault("false")
+    @Column(name = "previous_outcome_unknown", nullable = false)
+    private boolean previousOutcomeUnknown;
+
     @Enumerated(EnumType.STRING)
     @ColumnDefault("'GITHUB'")
     @Column(name = "publish_target", nullable = false, length = 10)
@@ -117,7 +140,60 @@ public class TaskItem {
         this.processingType = type;
     }
 
+    // 실패한 티켓을 수정하려고 검토 대기로 되돌린다. 지난 발행 결과는 비우되 결과 모름은 previousOutcomeUnknown으로 남긴다.
+    // 지난 묶음의 결과 조회는 묶음이 끝날 때 저장한 기록(PublishBatch.entriesJson)을 쓰므로 여기서 비워도 깨지지 않는다.
+    public void reviseFailed() {
+        this.previousOutcomeUnknown = this.previousOutcomeUnknown || this.publishOutcomeUnknown;
+        this.ticketStatus = TicketStatus.PENDING_REVIEW;
+        this.publishBatch = null;
+        this.publishErrorCode = null;
+        this.publishRetryable = false;
+        this.publishOutcomeUnknown = false;
+        this.errorMessage = null;
+        this.githubIssueNumber = null;
+        this.githubIssueUrl = null;
+    }
+
+    // 다시 발행할 때 Agent가 발행 직전 재대조를 반드시 하게 할지.
+    public boolean mustRecheckOnPublish() {
+        return previousOutcomeUnknown || publishOutcomeUnknown;
+    }
+
     public void moveTo(TicketStatus status) {
         this.ticketStatus = status;
+    }
+
+    // 확인한 티켓(또는 재시도하는 실패 티켓)을 일괄 발행에 담는다. 결과가 올 때까지 다시 담을 수 없다.
+    // 이전 실패 사유는 접수가 취소될 때 되살려야 해서 남겨 두고, 결과가 오면 덮어쓴다.
+    public void startPublishing(PublishBatch batch) {
+        this.publishBatch = batch;
+        this.ticketStatus = TicketStatus.PUBLISHING;
+    }
+
+    // Agent가 접수하지 않은 것이 확실하면 담기 전 상태(확인 또는 실패)로 돌려놓는다.
+    public void cancelPublishing() {
+        this.publishBatch = null;
+        this.ticketStatus = this.publishErrorCode != null ? TicketStatus.FAILED : TicketStatus.CONFIRMED;
+    }
+
+    public void recordPublishResult(
+            TicketStatus status,
+            ProcessingType executed,
+            Integer issueNumber,
+            String issueUrl,
+            String errorCode,
+            String message,
+            boolean retryable,
+            boolean outcomeUnknown) {
+        // 확실한 성공이 오면 지난 결과 모름은 풀린다. 실패는 지난 결과 모름을 이어 간다.
+        this.previousOutcomeUnknown = status == TicketStatus.FAILED && mustRecheckOnPublish();
+        this.ticketStatus = status;
+        if (executed != null) this.processingType = executed;
+        this.githubIssueNumber = issueNumber;
+        this.githubIssueUrl = issueUrl;
+        this.publishErrorCode = errorCode;
+        this.errorMessage = message;
+        this.publishRetryable = retryable;
+        this.publishOutcomeUnknown = outcomeUnknown;
     }
 }

@@ -26,10 +26,38 @@ def _ticket(source: PublishTicket) -> dict[str, Any]:
         "handling": {
             "type": source.processing_type,
             "issue_number": source.target_issue_number,
-            "edited": source.processing_type_edited,
+            # 결과 모름 재시도는 담당자가 유형을 바꿨어도 재대조가 반드시 돌아야 한다
+            "edited": source.processing_type_edited and not source.previous_outcome_unknown,
         },
     })
     return content
+
+
+def marker(kind: str, source: PublishTicket, ticket: dict[str, Any]) -> str:
+    """연결 댓글, 변경 섹션에 숨겨 넣는 표식. 결과 모름 재발행에서 이미 반영됐는지 알아내는 데 쓴다."""
+    return f"<!-- meettoticket:{kind} meeting={source.meeting_id} work_key={ticket.get('work_key')} -->"
+
+
+async def _already_applied(publisher: Any, source: PublishTicket, number: int, text: str) -> dict[str, Any] | None:
+    """표식이 이슈 본문이나 댓글에 이미 있으면 그 위치를 돌려준다. 확인하지 못하면 예외로 막아 중복 쓰기를 피한다."""
+    out = await publisher.find_marker(owner=source.project.github_owner, repo=source.project.github_repo,
+                                      number=number, marker=text)
+    if out.get("found"):
+        return out
+    if out.get("truncated"):
+        raise ToolCallError("MARKER_CHECK_INCOMPLETE", "댓글이 많아 이미 반영됐는지 끝까지 확인하지 못했습니다. GitHub에서 확인하세요")
+    return None
+
+
+async def _existing_issue(publisher: Any, source: PublishTicket, ticket: dict[str, Any]) -> dict[str, Any] | None:
+    """같은 work_key로 이미 만들어진 열린 이슈를 찾는다. 제목까지 같아야 같은 티켓으로 본다."""
+    work_key = ticket.get("work_key")
+    out = await publisher.search_issues(owner=source.project.github_owner, repo=source.project.github_repo,
+                                        query=f'"{work_key}"', state="open", limit=10)
+    for issue in out.get("issues") or []:
+        if issue.get("state") == "open" and (issue.get("title") or "").strip() == source.title.strip():
+            return issue
+    return None
 
 
 def _failure(ticket_id: str, processing_type: str, error: ToolCallError) -> PublishItemResult:
@@ -65,7 +93,14 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
         if kind == "LINK":
             if not number:
                 raise ToolCallError("INVALID_ARGUMENT", "LINK 처리에는 target_issue_number가 필요합니다")
-            body = link_comment(ticket, meeting_date=meeting_date, meeting_title=source.meeting_title)
+            tag = marker("link", source, ticket)
+            body = f"{link_comment(ticket, meeting_date=meeting_date, meeting_title=source.meeting_title)}\n\n{tag}"
+            if source.previous_outcome_unknown:
+                found = await _already_applied(publisher, source, number, tag)
+                if found:
+                    return PublishItemResult(ticket_id=source.ticket_id, processing_type=kind, status="LINKED",
+                                             github_issue_number=number, comment_url=found.get("url"),
+                                             github_issue_url=f"https://github.com/{source.project.github_owner}/{source.project.github_repo}/issues/{number}")
             sent = True
             out = await publisher.add_comment(
                 owner=source.project.github_owner, repo=source.project.github_repo, number=number, body=body,
@@ -77,7 +112,15 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
         if kind == "UPDATE":
             if not number:
                 raise ToolCallError("INVALID_ARGUMENT", "UPDATE 처리에는 target_issue_number가 필요합니다")
-            section = change_section(ticket, meeting_date=meeting_date, meeting_title=source.meeting_title)
+            tag = marker("update", source, ticket)
+            section = f"{change_section(ticket, meeting_date=meeting_date, meeting_title=source.meeting_title)}\n\n{tag}"
+            if source.previous_outcome_unknown:
+                # update_issue는 본문 끝에 덧붙이는 비멱등 쓰기라, 같은 회의의 섹션이 이미 있으면 덧붙이지 않는다
+                found = await _already_applied(publisher, source, number, tag)
+                if found:
+                    return PublishItemResult(ticket_id=source.ticket_id, processing_type=kind, status="UPDATED",
+                                             github_issue_number=number,
+                                             github_issue_url=f"https://github.com/{source.project.github_owner}/{source.project.github_repo}/issues/{number}")
             note = change_note(meeting_date=meeting_date, meeting_title=source.meeting_title)
             sent = True
             out = await publisher.update_issue(
@@ -93,6 +136,11 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             return PublishItemResult(ticket_id=source.ticket_id, processing_type=kind, status="UPDATED",
                                      github_issue_number=out.get("number", number), github_issue_url=out.get("url"),
                                      dropped_labels=out.get("dropped_labels") or [])
+        if source.previous_outcome_unknown:
+            existing = await _existing_issue(publisher, source, ticket)
+            if existing:
+                return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="PUBLISHED",
+                                         github_issue_number=existing.get("number"), github_issue_url=existing.get("url"))
         body = build_issue_body(ticket, str(source.meeting_id), ticket.get("background", ""))
         sent = True
         out = await publisher.create_issue(

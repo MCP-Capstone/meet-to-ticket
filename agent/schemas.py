@@ -29,6 +29,7 @@ class Project(CamelModel):
     name: str = Field("", description="프로젝트 또는 팀원 이름")
     github_owner: str = Field(description="GitHub 소유자 또는 조직")
     github_repo: str = Field(description="GitHub 저장소명")
+    notion_page_url: str | None = Field(None, description="맥락으로 읽을 Notion 기획 페이지 URL. 없으면 Notion 맥락 없이 진행")
     slack_channel_id: str | None = Field(None, description="프로젝트 Slack 공지 채널 ID")
 
 
@@ -83,6 +84,7 @@ class PublishTicket(CamelModel):
     processing_type: ProcessingType = Field(description="확정 처리 유형: CREATE(신규), LINK(댓글 연결), UPDATE(본문 끝 갱신)")
     target_issue_number: int | None = Field(None, ge=1, description="LINK/UPDATE 대상 기존 이슈 번호")
     processing_type_edited: bool = Field(False, description="담당자가 처리 유형을 직접 바꿨으면 재대조가 덮어쓰지 않는다")
+    previous_outcome_unknown: bool = Field(False, description="지난 발행이 결과 모름이었다. 처리 유형을 직접 바꿨어도 재대조를 하고, 이미 반영된 이슈, 댓글, 섹션이 있으면 다시 만들지 않는다")
     publish_target: PublishTarget = Field("GITHUB", description="GitHub 이슈 또는 회의 결과 Slack 공지")
     slack_members: list[dict[str, str]] = Field(default_factory=list, description="name과 slack_user_id가 있는 연결 완료 Slack 사용자. 공지 멘션에만 쓴다")
     review_status: Literal["CONFIRMED"] = Field(description="백엔드는 CONFIRMED 티켓만 보낸다")

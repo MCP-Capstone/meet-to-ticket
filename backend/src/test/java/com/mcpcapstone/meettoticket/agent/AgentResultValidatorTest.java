@@ -27,7 +27,7 @@ class AgentResultValidatorTest {
 				UUID.randomUUID(),
 				new AgentContracts.MeetingData(
 						1L, "회의", LocalDate.of(2026, 10, 22), "Asia/Seoul", List.of(11L), "a.txt", "원문"),
-				new AgentContracts.ProjectData(1L, "CSV", "MCP-Capstone", "mcp-capstone"),
+				new AgentContracts.ProjectData(1L, "CSV", "MCP-Capstone", "mcp-capstone", null),
 				List.of(new AgentContracts.MemberData(11L, null, "박종민", "jongmiiin")));
 	}
 

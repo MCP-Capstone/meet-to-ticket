@@ -24,4 +24,20 @@ public interface TaskItemRepository extends JpaRepository<TaskItem, UUID> {
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select i from TaskItem i where i.id = :id")
     Optional<TaskItem> findForUpdate(UUID id);
+
+    // 로그인 사용자가 담당인 특정 상태의 티켓 ID. projectId가 null이면 모든 프로젝트.
+    @Query("""
+            select i.id from TaskItem i
+             where i.assignee.user.id = :userId and i.ticketStatus = :status
+               and (:projectId is null or i.task.meeting.project.id = :projectId)
+             order by i.id""")
+    List<UUID> findIdsAssignedTo(Long userId, TicketStatus status, Long projectId);
+
+    // 한 발행 묶음의 티켓과 화면에 필요한 프로젝트 정보.
+    @Query("""
+            select i from TaskItem i
+              join fetch i.task t join fetch t.meeting m join fetch m.project p
+             where i.publishBatch.id = :batchId
+             order by i.id""")
+    List<TaskItem> findByBatch(UUID batchId);
 }

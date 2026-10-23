@@ -145,3 +145,124 @@ async def test_dry_run_publisher_handles_link_and_update():
 
     assert [item.status for item in out.items] == ["PUBLISHED", "LINKED", "UPDATED"]
     assert out.status == "SUCCEEDED"
+
+
+# ---------------------------------------------------------------- 결과 모름 재발행 (#211)
+
+
+class RetryPublisher(BatchPublisher):
+    """이미 GitHub에 반영된 상태를 흉내 낸다."""
+
+    def __init__(self, issues=None, marker_found=False, truncated=False):
+        super().__init__()
+        self.issues = issues or []
+        self.marker_found = marker_found
+        self.truncated = truncated
+
+    async def search_issues(self, **args):
+        self.calls.append(("search", args))
+        return {"issues": self.issues}
+
+    async def find_marker(self, **args):
+        self.calls.append(("marker", args))
+        return {"found": self.marker_found, "where": "comment" if self.marker_found else None,
+                "url": "existing-url" if self.marker_found else None, "truncated": self.truncated}
+
+
+def unknown_ticket(ticket_id, kind, number=None, **extra):
+    t = ticket(ticket_id, kind, number)
+    t.previous_outcome_unknown = True
+    t.content_json = {**t.content_json, "work_key": "WK-1", **extra}
+    return t
+
+
+def writes(publisher):
+    return [c[0] for c in publisher.calls if c[0] in {"create", "comment", "update"}]
+
+
+@pytest.mark.anyio
+async def test_unknown_create_reuses_open_issue_with_same_work_key_and_title():
+    publisher = RetryPublisher(issues=[{"number": 55, "title": "CSV 개선", "state": "open", "url": "https://github.com/o/r/issues/55"}])
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[unknown_ticket("a", "CREATE")]), publisher)
+
+    assert out.items[0].status == "PUBLISHED"
+    assert out.items[0].github_issue_number == 55 and out.items[0].github_issue_url.endswith("/55")
+    assert writes(publisher) == []
+    assert publisher.calls[0][1]["query"] == '"WK-1"' and publisher.calls[0][1]["state"] == "open"
+
+
+@pytest.mark.anyio
+async def test_unknown_create_still_creates_when_no_matching_issue():
+    # 제목이 다른 이슈는 같은 티켓이 아니다
+    publisher = RetryPublisher(issues=[{"number": 9, "title": "다른 작업", "state": "open", "url": "u"}])
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[unknown_ticket("a", "CREATE")]), publisher)
+
+    assert out.items[0].status == "PUBLISHED" and out.items[0].github_issue_number == 101
+    assert writes(publisher) == ["create"]
+
+
+@pytest.mark.anyio
+async def test_normal_create_does_not_search():
+    publisher = RetryPublisher(issues=[{"number": 55, "title": "CSV 개선", "state": "open", "url": "u"}])
+    await publish_batch(PublishBatchRequest(batch_id="b", tickets=[ticket("a", "CREATE")]), publisher)
+
+    assert [c[0] for c in publisher.calls] == ["create"]
+
+
+@pytest.mark.anyio
+async def test_unknown_link_skips_comment_when_marker_already_exists():
+    publisher = RetryPublisher(marker_found=True)
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[unknown_ticket("a", "LINK", 7)]), publisher)
+
+    assert out.items[0].status == "LINKED" and out.items[0].comment_url == "existing-url"
+    assert writes(publisher) == []
+    assert "meeting=1 work_key=WK-1" in publisher.calls[0][1]["marker"]
+
+
+@pytest.mark.anyio
+async def test_unknown_link_comments_with_marker_when_not_yet_applied():
+    publisher = RetryPublisher(marker_found=False)
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[unknown_ticket("a", "LINK", 7)]), publisher)
+
+    assert out.items[0].status == "LINKED"
+    comment = next(c for c in publisher.calls if c[0] == "comment")[1]
+    assert comment["body"].rstrip().endswith("<!-- meettoticket:link meeting=1 work_key=WK-1 -->")
+
+
+@pytest.mark.anyio
+async def test_unknown_update_skips_append_when_section_marker_already_exists():
+    publisher = RetryPublisher(marker_found=True)
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[unknown_ticket("a", "UPDATE", 8)]), publisher)
+
+    assert out.items[0].status == "UPDATED" and out.items[0].github_issue_number == 8
+    assert writes(publisher) == []
+
+
+@pytest.mark.anyio
+async def test_first_update_carries_marker_without_checking():
+    publisher = RetryPublisher(marker_found=True)
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[ticket("a", "UPDATE", 8)]), publisher)
+
+    assert out.items[0].status == "UPDATED"
+    update = publisher.calls[0]
+    assert update[0] == "update" and "<!-- meettoticket:update meeting=1 work_key=a -->" in update[1]["append_section"]
+
+
+@pytest.mark.anyio
+async def test_unknown_update_fails_instead_of_writing_when_comments_not_fully_checked():
+    publisher = RetryPublisher(marker_found=False, truncated=True)
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[unknown_ticket("a", "UPDATE", 8)]), publisher)
+
+    assert out.items[0].status == "FAILED" and out.items[0].error_code == "MARKER_CHECK_INCOMPLETE"
+    assert writes(publisher) == []
+
+
+@pytest.mark.anyio
+async def test_previous_unknown_ignores_edited_flag_so_recheck_can_override():
+    from batch_publish import _ticket
+
+    t = unknown_ticket("a", "CREATE")
+    t.processing_type_edited = True
+    assert _ticket(t)["handling"]["edited"] is False
+    t.previous_outcome_unknown = False
+    assert _ticket(t)["handling"]["edited"] is True

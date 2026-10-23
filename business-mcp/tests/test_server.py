@@ -58,11 +58,11 @@ def fake_slack(monkeypatch):
 
 @pytest.mark.anyio
 async def test_tools_registered_with_annotations():
-    # GitHub 7개, Notion 4개, Slack 3개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
+    # GitHub 8개, Notion 4개, Slack 3개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
     tools_ = {t.name: t.model_dump(by_alias=True) for t in await server.mcp.list_tools()}
     assert sorted(tools_) == [
         "add_comment", "check_member_permissions", "check_notion_page", "check_slack_channel", "create_issue", "create_page",
-        "list_issues", "list_labels", "list_pages", "lookup_slack_user", "post_message", "read_page", "search_issues", "update_issue"
+        "find_marker", "list_issues", "list_labels", "list_pages", "lookup_slack_user", "post_message", "read_page", "search_issues", "update_issue"
     ]
 
     create = tools_["create_issue"]
