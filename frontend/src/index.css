@@ -967,3 +967,7 @@ button.secondary {
   .ticket-card .card-header { flex-wrap: wrap; }
   .ticket-counts { justify-content: space-between; gap: 12px; }
 }
+
+.publish-failure { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--danger); border-radius: 6px; background: var(--danger-soft); }
+.publish-failure p { margin: 0; overflow-wrap: anywhere; }
+.publish-failure .check { display: flex; align-items: center; gap: 8px; }

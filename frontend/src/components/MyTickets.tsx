@@ -11,7 +11,7 @@ interface Props {
   onDirtyChange: (dirty: boolean) => void
 }
 const unauthorized = (e: unknown) => e instanceof ApiRequestError && e.code === 'UNAUTHORIZED'
-const countKey = (status: MyTicket['status']) => status === 'PENDING_REVIEW' ? 'pendingReview' : status === 'CONFIRMED' ? 'confirmed' : status === 'REJECTED' ? 'rejected' : null
+const countKey = (status: MyTicket['status']) => status === 'PENDING_REVIEW' ? 'pendingReview' : status === 'CONFIRMED' ? 'confirmed' : status === 'REJECTED' ? 'rejected' : status === 'FAILED' ? 'failed' : null
 
 export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChange }: Props) {
   const [projectId, setProjectId] = useState<number | undefined>()
@@ -98,6 +98,13 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
       if (lifecycle.current.mounted) { setMutating(false); onBusyChange(false) }
     }
   }
+  // 발행 중인 티켓이 있으면 결과가 올 때까지 목록을 다시 불러온다.
+  const publishing = Boolean(data?.value.tickets.some((ticket) => ticket.status === 'PUBLISHING'))
+  useEffect(() => {
+    if (!publishing || mutating) return
+    const timer = window.setTimeout(() => { if (!dirtyIds.current.size) void load() }, 3000)
+    return () => window.clearTimeout(timer)
+  }, [publishing, mutating, data, load])
   const canDiscard = () => !dirtyIds.current.size || window.confirm('저장하지 않은 수정을 버리고 목록을 변경할까요?')
   const current = data && data.filter === projectId ? data.value : null
   const manualRefresh = async () => {
@@ -126,6 +133,7 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
           <div><dt>검토 대기</dt><dd>{current.counts.pendingReview}</dd></div>
           <div><dt>확인</dt><dd>{current.counts.confirmed}</dd></div>
           <div><dt>거절</dt><dd>{current.counts.rejected}</dd></div>
+          <div><dt>실패</dt><dd>{current.counts.failed}</dd></div>
         </dl>}
         <p className="muted">확인은 발행 전 검토를 마쳤다는 뜻입니다. 거절한 티켓은 발행되지 않습니다.</p>
       </div>

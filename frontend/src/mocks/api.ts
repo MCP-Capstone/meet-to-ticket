@@ -1,7 +1,9 @@
 import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
+
 import type { AnalysisTask, DirectoryUser, DispatchResult, ExecutionMode, Meeting, StartAnalysisResponse, TaskStage, User } from '../api/types'
-import { listMockTickets, editMockTicket, changeMockTicket } from './tickets'
+import { listMockTickets, editMockTicket, changeMockTicket, retryMockTicket } from './tickets'
+
 import { mockItems } from './data'
 import { countOf, makeMockDispatch } from './dispatch'
 import { readMeetingFile, validateMeetingText, validMeetingDate } from '../meetingInput'
@@ -156,6 +158,10 @@ export const mockApi: typeof realApi = {
   async changeTicketStatus(ticketId, action) {
     await delay(300)
     return changeMockTicket(requireLogin(), ticketId, action)
+  },
+  async retryTicket(ticketId) {
+    await delay(300)
+    return retryMockTicket(requireLogin(), ticketId)
   },
 
   async listProjects() {

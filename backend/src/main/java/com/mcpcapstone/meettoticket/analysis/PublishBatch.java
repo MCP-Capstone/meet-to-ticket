@@ -39,12 +39,22 @@ public class PublishBatch {
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
+    // 묶음이 끝날 때 티켓별 결과를 그대로 저장한다. 티켓은 다시 시도하거나 수정으로 되돌리면 새 결과로 바뀌므로,
+    // 지난 묶음의 결과 조회는 티켓이 아니라 이 기록을 본다.
+    @Column(name = "entries_json", columnDefinition = "text")
+    private String entriesJson;
+
     public PublishBatch(User user, String executionMode) {
         this.id = UUID.randomUUID();
         this.user = user;
         this.status = PublishBatchStatus.RUNNING;
         this.executionMode = executionMode;
         this.createdAt = OffsetDateTime.now();
+    }
+
+    public void finish(PublishBatchStatus status, String errorMessage, String entriesJson) {
+        this.entriesJson = entriesJson;
+        finish(status, errorMessage);
     }
 
     public void finish(PublishBatchStatus status, String errorMessage) {

@@ -262,7 +262,7 @@ public final class ApiExamples {
                "meetingId":2,"meetingTitle":"CSV 중간 점검","taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81",
                "createdAt":"2026-10-22T10:31:00+09:00",
                "description":"CSV 내보내기에서 결과가 비면 오류가 난다.","due":{"text":"내일 오후 6시","date":"2026-10-23","time":"18:00"},
-               "assignee":{"projectMemberId":11,"name":"박종민"}}]}""";
+               "assignee":{"projectMemberId":11,"name":"박종민"},"publishFailure":null}]}""";
 
     public static final String PUBLISH_STARTED = """
             {"batchId":"5f1d6c1e-0f8b-4f6a-8f43-0b0a6d2b9e11","count":3}""";
@@ -302,7 +302,7 @@ public final class ApiExamples {
              "meetingId":2,"meetingTitle":"CSV 중간 점검","taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81",
              "createdAt":"2026-10-22T10:31:00+09:00",
              "description":"CSV 내보내기에서 결과가 비면 오류가 난다.","due":{"text":"내일 오후 6시","date":"2026-10-23","time":"18:00"},
-             "assignee":{"projectMemberId":11,"name":"박종민"}}""";
+             "assignee":{"projectMemberId":11,"name":"박종민"},"publishFailure":null}""";
 
     public static final String STATUS_RUNNING = """
             {

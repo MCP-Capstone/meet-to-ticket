@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api, ApiRequestError } from '../api'
 import type { MyTicket, ProjectMember, TicketAction, TicketEditRequest, TicketStatus } from '../api'
 import { validMeetingDate } from '../meetingInput'
+import { failureGuide, needsPermissionFix } from '../publishFailure'
 
 const ticketStatusLabel: Record<TicketStatus, string> = {
   ASSIGNEE_REQUIRED: '담당 지정 필요', PENDING_REVIEW: '검토 대기', CONFIRMED: '확인', REJECTED: '거절',
@@ -11,6 +12,7 @@ const actions: Partial<Record<TicketStatus, { action: TicketAction; label: strin
   PENDING_REVIEW: [{ action: 'confirm', label: '확인' }, { action: 'reject', label: '거절' }],
   CONFIRMED: [{ action: 'reopen', label: '다시 열기' }],
   REJECTED: [{ action: 'restore', label: '되돌리기' }],
+  FAILED: [{ action: 'revise', label: '수정' }],
 }
 interface Props {
   ticket: MyTicket
@@ -33,6 +35,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange }:
   const [error, setError] = useState<string | null>(null)
   const [blocked, setBlocked] = useState(false)
   const [pending, setPending] = useState(false)
+  const [checked, setChecked] = useState(false)
   const operation = useRef(false)
   const memberRequest = useRef(0)
   useEffect(() => () => { ++memberRequest.current }, [])
@@ -155,6 +158,16 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange }:
           </dl>
         </>
       )}
+      {ticket.status === 'FAILED' && ticket.publishFailure && (
+        <div className="publish-failure" role="alert">
+          <p className="error">{failureGuide(ticket.publishFailure)}</p>
+          {ticket.publishFailure.outcomeUnknown && <>
+            <p className="notice">GitHub에 이미 반영됐을 수 있습니다. 확인 후 다시 시도하세요.</p>
+            <label className="check"><input type="checkbox" checked={checked} disabled={busy || pending} onChange={(e) => setChecked(e.target.checked)} />GitHub에서 반영 여부를 확인했습니다</label>
+          </>}
+          {needsPermissionFix(ticket.publishFailure) && <p className="muted">저장소 권한은 프로젝트 관리자가 프로젝트 설정에서 풀 수 있습니다.</p>}
+        </div>
+      )}
       {error && <p className="error" role="alert">{error}</p>}
       {blocked && <button type="button" className="link" disabled={busy} onClick={() => void refresh()}>최신 내용 불러오기</button>}
       <div className="ticket-actions">
@@ -166,6 +179,10 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange }:
           <p className="muted">수정을 저장하거나 취소한 뒤 확인·거절할 수 있습니다.</p>
         </> : <>
           {ticket.status === 'PENDING_REVIEW' && <button type="button" className="secondary" disabled={busy || blocked} onClick={startEditing}>수정</button>}
+          {ticket.status === 'FAILED' && <>
+            <button type="button" className="primary" disabled={busy || pending || blocked || Boolean(ticket.publishFailure?.outcomeUnknown && !checked)}
+              onClick={() => void perform(async () => { await api.retryTicket(ticket.ticketId); return { ...ticket, status: 'PUBLISHING', publishFailure: null } })}>{pending ? '처리 중...' : '다시 시도'}</button>
+          </>}
           {(actions[ticket.status] ?? []).map(({ action, label }) => <button type="button" key={action} className={action === 'confirm' ? 'primary' : 'secondary'} disabled={busy || pending || blocked} onClick={() => void perform(() => api.changeTicketStatus(ticket.ticketId, action))}>{pending ? '처리 중...' : label}</button>)}
         </>}
       </div>

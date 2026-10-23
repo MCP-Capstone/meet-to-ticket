@@ -27,6 +27,7 @@ public interface PublishGateway {
             String processingType,
             Integer targetIssueNumber,
             boolean processingTypeEdited,
+            boolean previousOutcomeUnknown,
             String reviewStatus) {}
 
     record Project(Long projectId, String name, String githubOwner, String githubRepo) {}

@@ -158,4 +158,22 @@ public class MyTicketController {
             @Parameter(hidden = true) @SessionAttribute(SessionConst.LOGIN_USER_ID) Long userId) {
         return tickets.restore(ticketId, userId);
     }
+
+    @Operation(operationId = "reviseFailedTicket", summary = "실패한 티켓 수정하러 되돌리기", description = "발행에 실패한 티켓을 검토 대기로 되돌려 고친 뒤 다시 확인할 수 있게 한다. 지난 발행 결과(오류 코드, 재시도 가능 여부, 결과 모름)는 티켓에서 비우며, 지난 묶음의 결과 조회는 그대로 유지된다. 지난 발행이 결과 모름이었다면 다시 발행할 때 Agent가 이미 반영된 이슈, 댓글, 섹션을 반드시 대조한다. 실패 상태가 아니면 409다. 담당자만 할 수 있다.")
+    @ApiResponse(responseCode = "200", description = "변경된 티켓", content = @Content(schema = @Schema(implementation = MyTicketService.Ticket.class),
+                    examples = @ExampleObject(value = ApiExamples.TICKET)))
+    @ApiResponse(responseCode = "401", description = "로그인 세션 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_UNAUTHORIZED)))
+    @ApiResponse(responseCode = "403", description = "티켓 담당자가 아님 (TICKET_ASSIGNEE_REQUIRED)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_ASSIGNEE_REQUIRED)))
+    @ApiResponse(responseCode = "404", description = "티켓 없음 (TICKET_NOT_FOUND)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_NOT_FOUND)))
+    @ApiResponse(responseCode = "409", description = "실패 상태가 아님 (TICKET_STATUS_CONFLICT)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_STATUS_CONFLICT)))
+    @PostMapping("/api/tickets/{ticketId}/revise")
+    public MyTicketService.Ticket revise(
+            @Parameter(description = "티켓 ID", required = true) @PathVariable UUID ticketId,
+            @Parameter(hidden = true) @SessionAttribute(SessionConst.LOGIN_USER_ID) Long userId) {
+        return tickets.revise(ticketId, userId);
+    }
 }
