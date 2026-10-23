@@ -26,6 +26,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.mcpcapstone.meettoticket.agent.AgentContracts;
 import com.mcpcapstone.meettoticket.agent.AgentException;
@@ -61,6 +63,8 @@ class PublishBatchTest {
 	@Autowired JsonCodec json;
 	@Autowired PublishService publishService;
 	@Autowired PublishBatchRepository batches;
+	@Autowired PublicationTicketMapper mapper;
+	@Autowired PlatformTransactionManager txManager;
 
 	private User user;
 	private MockHttpSession session;
@@ -146,6 +150,8 @@ class PublishBatchTest {
 		assertThat(t.reviewStatus()).isEqualTo("CONFIRMED");
 		assertThat(t.processingType()).isEqualTo("CREATE");
 		assertThat(t.project().githubOwner()).isEqualTo("owner");
+		assertThat(t.publishTarget()).isEqualTo("GITHUB");
+		assertThat(t.slackMembers()).isEmpty();
 		assertThat(t.contentJson().path("description").asText()).isEqualTo("본문");
 
 		assertThat(stateOf(a)).isEqualTo(TicketStatus.PUBLISHING);
@@ -179,6 +185,31 @@ class PublishBatchTest {
 		mvc.perform(post("/api/tickets/publish").session(session)).andExpect(status().isConflict());
 	}
 
+	@Test
+	void Slack_대상은_채널과_Slack_연결된_멤버를_Agent_계약대로_담는다() throws Exception {
+		project.update(project.getName(), project.getDescription(), project.getGithubOwner(), project.getGithubRepo(),
+				null, "C0123ABCD");
+		projects.save(project);
+		user.updateSlackUserId("U0SLACK1");
+		users.save(user);
+		members.save(new ProjectMember(project, newUser(), "미연결", "gh-other"));
+		TaskItem slack = confirmed(project, "Slack 공지");
+		var slackItem = items.findById(slack.getId()).orElseThrow();
+		ReflectionTestUtils.setField(slackItem, "publishTarget", PublishTarget.SLACK);
+		items.save(slackItem);
+
+		// 회의, 프로젝트, 멤버를 지연 로딩하므로 트랜잭션 안에서 변환한다
+		var sent = new TransactionTemplate(txManager).execute(status -> mapper.toTicket(items.findById(slack.getId()).orElseThrow()));
+
+		assertThat(sent.publishTarget()).isEqualTo("SLACK");
+		assertThat(sent.project().slackChannelId()).isEqualTo("C0123ABCD");
+		assertThat(sent.slackMembers()).containsExactly(new PublishGateway.SlackMember(user.getName(), "U0SLACK1"));
+		// Agent는 slackMembers 항목을 dict로 읽어 snake_case 키를 쓴다
+		var wire = json.read(json.write(sent));
+		assertThat(wire.path("slackMembers").get(0).path("slack_user_id").asText()).isEqualTo("U0SLACK1");
+		assertThat(wire.path("project").path("slackChannelId").asText()).isEqualTo("C0123ABCD");
+	}
+
 	private TaskItem notionTicket(String title) {
 		TaskItem t = confirmed(project, title);
 		var item = items.findById(t.getId()).orElseThrow();
@@ -200,6 +231,8 @@ class PublishBatchTest {
 		var sent = captor.getValue().tickets().get(0);
 		assertThat(sent.ticketId()).isEqualTo(notion.getId().toString());
 		assertThat(sent.project().notionPageUrl()).isEqualTo("https://www.notion.so/root");
+		// 빠지면 Agent가 GITHUB로 처리해 Notion 기획이 GitHub 이슈로 만들어진다 (#250)
+		assertThat(sent.publishTarget()).isEqualTo("NOTION");
 		assertThat(sent.processingType()).isEqualTo("CREATE");
 
 		report(batch, """
