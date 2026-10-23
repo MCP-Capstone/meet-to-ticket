@@ -18,10 +18,11 @@ from typing import Any
 
 import prompts
 from config import Settings
-from parsing import ActionRow, parse_summary
+from extraction import from_llm, from_table, keep_verbatim
+from parsing import parse_summary
 from publisher import ToolCallError, build_issue_body
-from resolve import classify_expected, map_assignees, normalize_ws, parse_due, split_names
-from schemas import ProjectMember, RunResult
+from resolve import classify_expected, map_assignees, normalize_ws, parse_due
+from schemas import ExtractedTodo, ProjectMember, RunResult
 from state import (
     CHECK_NAMES,
     FATAL_PUBLISH_CODES,
@@ -101,16 +102,15 @@ def run_metrics(settings: Settings, llm: Any, started_at: float | None, rag: dic
     }
 
 
-def new_ticket(row: ActionRow, members: list[ProjectMember], meeting_date: date | None, source: str = "table") -> dict[str, Any]:
-    names = split_names(row.assignees_raw)
-    assignees = map_assignees(names, members)
-    due = parse_due(row.due_raw, meeting_date)
-    expected = classify_expected(row.expected_raw)
+def new_ticket(todo: ExtractedTodo, members: list[ProjectMember], meeting_date: date | None, source: str = "table") -> dict[str, Any]:
+    assignees = map_assignees(todo.assignees, members)
+    due = parse_due(todo.due, meeting_date)
+    expected = classify_expected(todo.expected)
     return {
         "task_item_id": str(uuid.uuid4()),
         "source": source,  # table: 회의록 액션 아이템 표, llm: 표가 없어 LLM이 뽑음
-        "work_key": row.work_key or None,
-        "action_text": row.action,
+        "work_key": todo.work_key or None,
+        "action_text": todo.action,
         "assignee_names": assignees.names,
         "assignees": assignees.logins,
         "unresolved_assignees": assignees.unresolved,
@@ -119,7 +119,7 @@ def new_ticket(row: ActionRow, members: list[ProjectMember], meeting_date: date 
         "title": "",
         "description": "",
         "acceptance_criteria": [],
-        "evidence_quotes": [],
+        "evidence_quotes": list(todo.evidence_quotes),
         "open_questions": [],
         "review_status": REVIEW_PENDING,
         "failed_items": [],
@@ -131,7 +131,7 @@ def new_ticket(row: ActionRow, members: list[ProjectMember], meeting_date: date 
         "github_issue_number": None,
         "github_issue_url": None,
         "error_message": None,
-        "warnings": [],
+        "warnings": list(todo.warnings),
         "dedupe": None,  # 중복 판단 결과 (dedupe.py). None이면 판단하지 않음
     }
 
@@ -182,34 +182,26 @@ class AgentNodes:
         meeting_date = (
             date.fromisoformat(state["meeting_date"]) if state.get("meeting_date") else parsed.meeting_date
         )
-        rows = parsed.rows
-        source = "table"
-        if not rows:
-            source = "llm"
+        if parsed.rows:
+            extraction = from_table(parsed)
+        else:
             try:
-                extracted = await self.llm.extract_rows(state["original_content"])
+                rows = await self.llm.extract_rows(state["original_content"])
             except AgentFatal as exc:
                 return {"error_code": exc.code, "error_message": exc.message, "stage": STAGE_EXTRACTING}
-            rows = [
-                ActionRow(f"{state['meeting_id']}-auto{i}", r.action, r.assignees, r.due, "")
-                for i, r in enumerate(extracted, start=1)
-            ]
-        if rows:
+            extraction = from_llm(parsed, rows, state["meeting_id"], state["original_content"])
+        if extraction.todos:
             await self._progress(state, STAGE_NORMALIZING)
         members = [ProjectMember(**m) for m in state.get("members", [])]
-        tickets = [new_ticket(row, members, meeting_date, source) for row in rows]
-        if source == "llm":
-            src = normalize_ws(state["original_content"])
-            for t in tickets:
-                text = t["due"]["text"]
-                if text and normalize_ws(text) not in src:
-                    t["warnings"].append(f"기한 '{text}'이(가) 원문 표현과 달라 확인 필요")
-        log.info("추출 준비: 액션 아이템 %d건", len(tickets))
+        tickets = [new_ticket(todo, members, meeting_date, extraction.source) for todo in extraction.todos]
+        log.info("추출 준비: 할 일 %d건, 결정 %d건, 미결 질문 %d건",
+                 len(tickets), len(extraction.decisions), len(extraction.open_questions))
         return {
             "tickets": tickets,
             "background": parsed.background,
-            "open_questions": parsed.open_questions,
-            "excluded": parsed.excluded,
+            "decisions": [d.model_dump() for d in extraction.decisions],
+            "open_questions": extraction.open_questions,
+            "excluded": extraction.excluded,
             "meeting_date": meeting_date.isoformat() if meeting_date else None,
             # 이후 초안 작성은 NORMALIZING 단계로 본다 (초안에서 실패하면 이 단계로 보고)
             "stage": STAGE_NORMALIZING if tickets else STAGE_EXTRACTING,
@@ -261,12 +253,11 @@ class AgentNodes:
                 t["title"] = d.title.strip()
                 t["description"] = d.description.strip()
                 t["acceptance_criteria"] = [c.strip() for c in d.acceptance_criteria if c.strip()]
-                normalized = normalize_ws(state["original_content"])
-                quotes = [q.strip() for q in d.evidence_quotes if q.strip()]
-                kept = [q for q in quotes if normalize_ws(q) in normalized]
-                if len(kept) < len(quotes):
-                    t["warnings"].append(f"원문과 다른 근거 인용 {len(quotes) - len(kept)}개를 제외함")
-                t["evidence_quotes"] = kept or [t["action_text"]]
+                kept, dropped = keep_verbatim(d.evidence_quotes, state["original_content"])
+                if dropped:
+                    t["warnings"].append(f"원문과 다른 근거 인용 {dropped}개를 제외함")
+                # 초안의 근거가 모두 빠지면 추출 단계의 근거, 그것도 없으면 할 일 문장을 쓴다
+                t["evidence_quotes"] = kept or t["evidence_quotes"] or [t["action_text"]]
                 t["open_questions"] = [q.strip() for q in d.open_questions if q.strip()]
         return {"tickets": tickets}
 

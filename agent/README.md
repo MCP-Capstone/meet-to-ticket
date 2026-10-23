@@ -299,6 +299,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | `graph.py` | LangGraph 그래프 (prepare → draft → review ⇄ draft → dedupe → publish → finish) |
 | `nodes.py` | 노드 구현, 검수 판정 규칙 |
 | `parsing.py` | 회의 요약 마크다운 해석 (액션 아이템 표 등) |
+| `extraction.py` | 추출 결과 조립 (표·LLM 추출을 같은 형태로, 근거 인용 원문 대조) |
 | `resolve.py` | 담당자 매핑, 기한 계산, 예상 처리 분류 |
 | `llm.py` | OpenAI 호출 (모델·추론 설정, 재시도) |
 | `prompts/*.md`, `prompts.py` | 프롬프트 본문(md)과 읽기·버전 계산 |
@@ -338,6 +339,50 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 2. `pytest`로 파일과 자리표시자가 맞는지 확인한다.
 3. 샘플 3종을 `--dry-run`으로 다시 돌려 고치기 전 결과와 비교한다 (할 일 수, 승인·확인 필요 수, 보완 횟수).
 4. 프롬프트 버전(`PROMPT_VERSION`, 프롬프트 파일 내용의 해시 8자리)이 바뀐다. 실행 로그 `LLM 준비: … 프롬프트 버전 …`으로 어떤 프롬프트로 만든 결과인지 구분한다.
+
+### 추출 결과 스키마
+
+회의록에서 뽑은 할 일, 결정, 미결 질문을 `schemas.Extraction` 하나로 모은다 (기획_v16 REQ-008). 액션 아이템 표가 있으면 표에서 읽고(`source: "table"`), 없으면 LLM이 뽑은 행으로 만든다(`source: "llm"`). 어느 쪽이든 필드는 같다. 이후 초안 작성과 담당자별 저장은 이 결과를 입력으로 쓴다.
+
+| 필드 | 내용 |
+|---|---|
+| `todos[].work_key` | 원문 추적 키. 표의 ID, 없으면 `<회의 ID>-auto<n>` |
+| `todos[].action` | 할 일 한 문장 |
+| `todos[].assignees` | 담당자 이름 원문 목록. 멤버 연결은 `resolve.map_assignees`가 한다 |
+| `todos[].due` | 기한 원문 표현. 날짜 계산은 `resolve.parse_due`가 회의 날짜 기준으로 한다 |
+| `todos[].evidence_quotes` | 근거 원문 문장 1~3개. 원문에 없는 문장은 코드가 뺀다 |
+| `todos[].expected` | 예상 티켓 처리 원문 (표에만 있음) |
+| `todos[].warnings` | 코드가 붙인 확인 메모 (원문과 다른 기한 등) |
+| `decisions[]` | 결정 사항 `content`와 근거 `evidence_quotes` |
+| `open_questions[]` | 미결 질문 원문 |
+| `excluded[]` | 제외·보류 항목 원문 |
+
+근거 인용 규칙: 표의 액션 칸과 결정 사항 줄은 원문 그대로라 그 문장을 근거로 쓴다. LLM이 뽑은 할 일은 문장이 원문에 그대로 있을 때만 근거로 쓰고, 없으면 비워 두고 초안 작성에서 근거를 찾는다. 원문 대조는 공백을 정규화해서 비교한다.
+
+```json
+{
+  "source": "table",
+  "todos": [
+    {
+      "work_key": "10m1-a7",
+      "action": "CSV 내보내기 통합 QA 실행",
+      "assignees": ["김민준", "박서연", "이도윤", "최유진", "정하늘", "오지훈"],
+      "due": "2026-10-22 14:00",
+      "evidence_quotes": ["CSV 내보내기 통합 QA 실행"],
+      "expected": "신규 티켓",
+      "warnings": []
+    }
+  ],
+  "decisions": [
+    {
+      "content": "1차 릴리스에서는 조직 관리자만 CSV 내보내기를 사용할 수 있다.",
+      "evidence_quotes": ["1차 릴리스에서는 조직 관리자만 CSV 내보내기를 사용할 수 있다."]
+    }
+  ],
+  "open_questions": ["IAM-48이 실제 권한 세분화 이슈인지"],
+  "excluded": ["알림 센터 연동"]
+}
+```
 
 ### Harness 명세
 
