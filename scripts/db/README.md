@@ -20,8 +20,39 @@
 설정은 `application.yml`의 `spring.flyway.baseline-on-migrate: true`, `baseline-version: 1`이다.
 
 - 기존 DB를 V1로 간주하므로, 기동 전에 그 DB가 현재 엔티티와 크게 다르지 않아야 한다. 컬럼이 빠졌거나 타입이 다르면 `validate`가 기동 때 실패하므로 즉시 알 수 있다. 길이와 NULL 여부 차이는 검증하지 못한다.
-- 테이블이 일부만 있는 DB는 baseline 대상이 아니다. 로컬이면 `docker compose down -v` 후 다시 띄운다.
-- V2의 FK 추가는 기존 고아 `analysis_dispatches` 행(대응하는 `analysis_tasks` 없음)을 지운다. 고아 행은 접수 기록만 남은 행이라 재실행을 막는 역할이 없다.
+- 테이블이 일부만 있는 DB는 baseline 대상이 아니다. `FlywayBaselineGuard`가 이력 테이블이 없는데 V1 테이블 9개가 모두 있지 않으면 마이그레이션 전에 기동을 중단하고 없는 테이블을 알려 준다. 로컬이면 `docker compose down -v` 후 다시 띄운다.
+- 가드는 테이블 존재만 본다. 컬럼 / 타입 / 제약 차이는 `validate`가 일부만 잡으므로(길이, NULL, 기본값은 못 잡는다) 운영 DB는 기동 전에 `pg_dump -s` 결과를 `V1__baseline.sql`과 비교하는 것을 권한다.
+- V2의 FK 추가는 기존 고아 `analysis_dispatches` 행(대응하는 `analysis_tasks` 없음)을 지운다. 지우기 전에 `analysis_dispatches_orphans` 테이블에 그대로 복사하고 `archived_at`을 붙인다. 확인과 복구:
+
+```sql
+SELECT * FROM analysis_dispatches_orphans ORDER BY archived_at;
+-- 필요하면 되살리기 (task가 없으므로 FK 때문에 task를 먼저 복구해야 한다)
+-- INSERT INTO analysis_dispatches SELECT task_id, state, published, attempts, execution_mode, updated_at FROM analysis_dispatches_orphans WHERE task_id = '...';
+```
+
+  보관 테이블은 앱이 사용하지 않는다. 확인이 끝나면 후속 마이그레이션에서 지운다.
+
+### V2 위반 값 대응
+
+V2는 enum 컬럼 14개의 check 제약을 다시 만들기 전에, 현재 enum에 없는 값이 남아 있는지 먼저 검사한다. 하나라도 있으면 아무것도 바꾸지 않고(트랜잭션 롤백, 데이터 변경 없음) 컬럼과 값을 담은 예외로 기동을 중단한다. 이 상태에서는 앱이 재시작마다 같은 메시지로 실패한다.
+
+```
+V2 중단: 현재 enum에 없는 값이 남아 있어 check 제약을 만들 수 없습니다. 데이터는 바꾸지 않았습니다.
+  task_items.ticket_status: 'RETIRED_VALUE' (허용: ASSIGNEE_REQUIRED,...)
+```
+
+대응 절차:
+
+1. 예외 메시지의 `테이블.컬럼`으로 위반 행을 확인한다. (예시는 `task_items.ticket_status`)
+   ```sql
+   SELECT ticket_status, count(*) FROM task_items
+   WHERE ticket_status NOT IN ('ASSIGNEE_REQUIRED','PENDING_REVIEW','CONFIRMED','PUBLISHING','REJECTED','PUBLISHED','LINKED','UPDATED','FAILED')
+   GROUP BY 1;
+   ```
+2. 각 값이 무엇이었는지 판단해 현재 enum 값으로 `UPDATE`한다. 어떤 값으로 바꿀지는 데이터 소유자가 정한다. 마이그레이션은 값을 임의로 바꾸지 않는다.
+3. 앱을 다시 기동한다. V2가 적용된다.
+
+V2는 검사(SELECT)를 모두 끝낸 뒤에 제약을 바꾼다. 제약 변경은 테이블별 ACCESS EXCLUSIVE 잠금을 같은 트랜잭션이 끝날 때까지 잡지만, 대상이 작은 테이블이고 기동 중(트래픽 없음)에만 실행되므로 허용한다. 큰 테이블에 같은 방식을 쓰는 후속 마이그레이션은 `NOT VALID` 후 `VALIDATE`로 나눈다.
 
 ### 마이그레이션 작성 규칙
 
@@ -35,10 +66,13 @@
 
 ### 마이그레이션 검증
 
-`MigrationSchemaTest`가 실제 PostgreSQL에서 다음을 확인한다. `MIGRATION_TEST_DB_URL`이 없으면 건너뛴다. CI는 PostgreSQL 서비스 컨테이너로 항상 실행한다.
+`MigrationSchemaTest`가 실제 PostgreSQL에서 다음을 확인한다. `MIGRATION_TEST_DB_URL`이 없으면 건너뛴다(로컬 기본). CI는 PostgreSQL 서비스 컨테이너로 실행하며, CI 환경(`CI` 또는 `GITHUB_ACTIONS`)에서 이 변수가 빠지면 `MigrationTestEnvironmentGuardTest`가 실패해 조용히 통과하지 못한다.
 
 1. Hibernate가 엔티티로 만든 스키마(`ddl-auto: create`)와 빈 스키마에 마이그레이션을 적용한 결과를 컬럼 / 제약 / 인덱스 정의로 비교해 같은지 확인한다. (이름은 비교하지 않는다. 차이는 V2의 `analysis_dispatches` FK뿐이다)
-2. V1과 같은 테이블에 오래된 check 제약과 고아 행을 넣은 "기존 DB"를 baseline으로 기동하면, 빈 DB 결과와 같은 스키마가 되는지 확인한다.
+2. V1과 같은 테이블에 오래된 check 제약과 고아 행을 넣은 "기존 DB"를 baseline으로 기동하면, 빈 DB 결과와 같은 스키마가 되고 고아 행이 보관 테이블에 남는지 확인한다.
+3. 폐기된 enum 값이 남은 기존 DB는 V2가 데이터 변경 없이 중단하고, 값을 정리하면 다음 실행에서 적용되는지 확인한다.
+
+각 테스트는 자기 스키마를 직접 만든다. 데모 시드는 끈다.
 
 ```bash
 # 로컬 PostgreSQL이 떠 있을 때 (docker compose up -d postgres). mig_* 스키마를 만들고 지운다.
