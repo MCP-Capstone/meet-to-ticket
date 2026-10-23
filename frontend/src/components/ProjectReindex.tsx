@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
 import type { ProjectReindex } from '../api'
 import { Spinner } from './Spinner'
@@ -25,7 +25,7 @@ export function ProjectReindex({ projectId, canEdit }: Props) {
   const [requesting, setRequesting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const result = await api.getProjectReindex(projectId)
       setData(result)
@@ -35,17 +35,19 @@ export function ProjectReindex({ projectId, canEdit }: Props) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [projectId])
 
   useEffect(() => {
-    void load()
-  }, [projectId])
+    // 렌더 직후 동기 setState를 피하고, 요청 완료 시점에만 상태를 갱신한다.
+    const timer = window.setTimeout(() => { void load() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [load])
 
   useEffect(() => {
     if (data?.status !== 'RUNNING') return
     const timer = window.setInterval(() => { void load() }, 1500)
     return () => window.clearInterval(timer)
-  }, [data?.status, projectId])
+  }, [data?.status, load])
 
   const request = async () => {
     if (!canEdit || requesting || data?.status === 'RUNNING') return
