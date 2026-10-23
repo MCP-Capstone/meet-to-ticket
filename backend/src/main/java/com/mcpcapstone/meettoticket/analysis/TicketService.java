@@ -99,6 +99,32 @@ public class TicketService {
         return view.view(item);
     }
 
+    // 발행 대상과 처리 유형을 바꾼다 (REQ-015). Agent의 판단은 제안이고, 틀렸을 때 담당자가 여기서 구제한다 (기획 1.7.3).
+    // 보내지 않은 항목은 그대로 둔다. 발행 대상을 GitHub 이외로 바꾸면 처리 유형은 신규 발행으로 고정한다.
+    @Transactional
+    public MyTicketService.Ticket changePublication(UUID id, Long userId, PublicationRequest request) {
+        if (request.publishTarget() == null && request.processingType() == null)
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+        TaskItem item = ownedBy(id, userId);
+        if (item.getTicketStatus() != TicketStatus.PENDING_REVIEW) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+
+        PublishTarget target = request.publishTarget() != null ? request.publishTarget() : item.getPublishTarget();
+        ProcessingType type = request.processingType() != null ? request.processingType() : item.getProcessingType();
+        if (target != PublishTarget.GITHUB) {
+            if (request.processingType() != null && type != ProcessingType.CREATE)
+                throw new BusinessException(ErrorCode.PROCESSING_TYPE_TARGET_MISMATCH);
+            type = ProcessingType.CREATE;
+        }
+        // 연결과 갱신은 중복 판단이 찾은 열린 기존 이슈에만 한다. 닫힌 이슈는 다시 열지 않는다 (기획 1.6)
+        if (type != ProcessingType.CREATE) {
+            var dedupe = json.read(item.getContentJson()).path("dedupe");
+            if (!dedupe.path("issue_number").isIntegralNumber() || !"open".equals(dedupe.path("issue_state").asText()))
+                throw new BusinessException(ErrorCode.EXISTING_ISSUE_REQUIRED);
+        }
+        item.changePublication(target, type);
+        return view.view(item);
+    }
+
     // 티켓이 없으면 404, 담당자가 아니면 403.
     private TaskItem ownedBy(UUID id, Long userId) {
         TaskItem item = items.findForUpdate(id).orElseThrow(() -> new BusinessException(ErrorCode.TICKET_NOT_FOUND));
@@ -107,6 +133,11 @@ public class TicketService {
             throw new BusinessException(ErrorCode.TICKET_ASSIGNEE_REQUIRED);
         return item;
     }
+
+    public record PublicationRequest(
+            @Schema(description = "바꿀 발행 대상. 보내지 않으면 그대로", nullable = true, example = "GITHUB") PublishTarget publishTarget,
+            @Schema(description = "바꿀 처리 유형. 보내지 않으면 그대로. GitHub 이외 대상은 CREATE만 된다", nullable = true, example = "CREATE")
+            ProcessingType processingType) {}
 
     public record EditRequest(
             @Schema(description = "고칠 본문(작업 내용). 보내지 않으면 그대로", nullable = true, example = "CSV 내보내기에서 결과가 비면 오류가 난다.")
