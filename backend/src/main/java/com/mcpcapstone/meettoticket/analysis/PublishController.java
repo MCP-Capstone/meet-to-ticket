@@ -58,7 +58,7 @@ public class PublishController {
         return service.result(batchId, userId);
     }
 
-    @Operation(operationId = "retryFailedTicket", summary = "실패한 티켓 다시 시도", description = "담당자가 실패 상태의 티켓 하나를 다시 발행한다. 담당자가 아니면 403, 실패 상태가 아니면 409다. 티켓은 발행 중이 되어 같은 티켓을 동시에 다시 시도해도 이슈가 두 번 생기지 않는다(나중 요청은 409). 202는 접수이며 결과는 batchId로 조회한다. 성공하면 발행됨, 연결됨, 갱신됨이 되고 실패하면 다시 실패가 된다. 결과의 failureCategory가 REPOSITORY_PERMISSION이면 저장소 권한 문제이므로 PM이 프로젝트 설정에서 풀어야 한다.")
+    @Operation(operationId = "retryFailedTicket", summary = "실패한 티켓 다시 시도", description = "담당자가 실패 상태의 티켓 하나를 다시 발행한다. 담당자가 아니면 403, 실패 상태가 아니면 409다. 발행 여부를 모르는 실패(outcomeUnknown)는 이슈가 이미 있을 수 있어 outcomeChecked=true 없이는 409(PUBLISH_OUTCOME_UNCONFIRMED)다. 티켓은 발행 중이 되어 같은 티켓을 동시에 다시 시도해도 이슈가 두 번 생기지 않는다(나중 요청은 409). 202는 접수이며 결과는 batchId로 조회한다. 성공하면 발행됨, 연결됨, 갱신됨이 되고 실패하면 다시 실패가 된다. 결과의 failureCategory가 REPOSITORY_PERMISSION이면 저장소 권한 문제이므로 PM이 프로젝트 설정에서 풀어야 한다.")
     @ApiResponse(responseCode = "202", description = "재시도 접수", content = @Content(schema = @Schema(implementation = PublishService.Started.class),
                     examples = @ExampleObject(value = ApiExamples.RETRY_STARTED)))
     @ApiResponse(responseCode = "401", description = "로그인 세션 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
@@ -74,7 +74,8 @@ public class PublishController {
     @PostMapping("/api/tickets/{ticketId}/retry")
     public ResponseEntity<PublishService.Started> retry(
             @Parameter(description = "실패한 티켓 ID", required = true) @PathVariable UUID ticketId,
-            @Parameter(hidden = true) @SessionAttribute(SessionConst.LOGIN_USER_ID) Long userId) {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(service.retry(ticketId, userId));
+            @Parameter(hidden = true) @SessionAttribute(SessionConst.LOGIN_USER_ID) Long userId,
+            @Parameter(description = "발행 여부를 모르는 실패(outcomeUnknown)일 때 GitHub에서 이슈가 없음을 확인했는지") @RequestParam(defaultValue = "false") boolean outcomeChecked) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(service.retry(ticketId, userId, outcomeChecked));
     }
 }

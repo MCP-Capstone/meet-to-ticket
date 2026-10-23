@@ -35,6 +35,7 @@ public enum ErrorCode {
 	TICKET_NOT_FOUND(HttpStatus.NOT_FOUND, "티켓을 찾을 수 없습니다."),
 	TICKET_ASSIGNEE_REQUIRED(HttpStatus.FORBIDDEN, "티켓 담당자만 수정하거나 상태를 바꿀 수 있습니다."),
 	TICKET_STATUS_CONFLICT(HttpStatus.CONFLICT, "현재 티켓 상태에서는 할 수 없는 작업입니다."),
+	PUBLISH_OUTCOME_UNCONFIRMED(HttpStatus.CONFLICT, "발행 여부를 알 수 없는 티켓입니다. GitHub에서 이슈가 만들어졌는지 확인한 뒤 확인했음을 표시하고 다시 시도하세요."),
 	NO_CONFIRMED_TICKETS(HttpStatus.CONFLICT, "발행할 확인된 티켓이 없습니다."),
 	PUBLISH_BATCH_NOT_FOUND(HttpStatus.NOT_FOUND, "발행 요청을 찾을 수 없습니다."),
 	PROCESSING_TYPE_TARGET_MISMATCH(HttpStatus.BAD_REQUEST, "GitHub 이외 대상은 신규 발행만 할 수 있습니다."),

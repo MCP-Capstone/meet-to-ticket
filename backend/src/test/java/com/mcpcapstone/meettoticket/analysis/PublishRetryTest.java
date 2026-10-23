@@ -172,6 +172,21 @@ class PublishRetryTest {
 	}
 
 	@Test
+	void 발행_여부를_모르는_실패는_확인했다고_밝혀야_다시_발행한다() throws Exception {
+		TaskItem t = failed();
+		t.recordPublishResult(TicketStatus.FAILED, null, null, null, "RESULT_TIMEOUT", "결과를 받지 못함", false, true);
+		items.save(t);
+
+		mvc.perform(post("/api/tickets/{id}/retry", t.getId()).session(session))
+				.andExpect(status().isConflict());
+		assertThat(reload(t).getTicketStatus()).isEqualTo(TicketStatus.FAILED);
+
+		mvc.perform(post("/api/tickets/{id}/retry", t.getId()).param("outcomeChecked", "true").session(session))
+				.andExpect(status().isAccepted());
+		assertThat(reload(t).getTicketStatus()).isEqualTo(TicketStatus.PUBLISHING);
+	}
+
+	@Test
 	void 실패가_아닌_티켓은_409이고_Agent로_보내지_않는다() throws Exception {
 		for (TicketStatus status : List.of(TicketStatus.CONFIRMED, TicketStatus.PENDING_REVIEW, TicketStatus.PUBLISHED, TicketStatus.PUBLISHING)) {
 			TaskItem t = ticket(status, null);

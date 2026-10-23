@@ -56,13 +56,15 @@ public class PublishService {
     // 실패한 티켓 하나를 다시 발행한다 (REQ-019). 담당자만 할 수 있고 실패 상태가 아니면 409다.
     // 티켓 행을 잠근 뒤 발행 중으로 바꾸므로 같은 티켓을 동시에 재시도해도 한쪽만 담기고 나머지는 409다.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public Started retry(UUID ticketId, Long userId) {
+    public Started retry(UUID ticketId, Long userId, boolean outcomeChecked) {
         return dispatch(tx.execute(status -> {
             TaskItem ticket = items.findForUpdate(ticketId).orElseThrow(() -> new BusinessException(ErrorCode.TICKET_NOT_FOUND));
             var assignee = ticket.getAssignee();
             if (assignee == null || assignee.getUser() == null || !assignee.getUser().getId().equals(userId))
                 throw new BusinessException(ErrorCode.TICKET_ASSIGNEE_REQUIRED);
             if (ticket.getTicketStatus() != TicketStatus.FAILED) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+            // 요청은 갔지만 결과를 모르는 실패는 이슈가 이미 있을 수 있다. 담당자가 GitHub에서 확인했다고 밝혀야 다시 발행한다.
+            if (ticket.isPublishOutcomeUnknown() && !outcomeChecked) throw new BusinessException(ErrorCode.PUBLISH_OUTCOME_UNCONFIRMED);
             return prepare(userId, List.of(ticket));
         }));
     }
