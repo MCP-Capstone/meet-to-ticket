@@ -13,9 +13,12 @@ public record UserResponse(
 		String loginId,
 
 		@Schema(description = "이름", example = "김PM")
-		String name) {
+		String name,
+
+		@Schema(description = "GitHub 계정. 입력하지 않았으면 null", example = "octocat", nullable = true)
+		String githubName) {
 
 	public static UserResponse from(User user) {
-		return new UserResponse(user.getId(), user.getLoginId(), user.getName());
+		return new UserResponse(user.getId(), user.getLoginId(), user.getName(), user.getGithubName());
 	}
 }

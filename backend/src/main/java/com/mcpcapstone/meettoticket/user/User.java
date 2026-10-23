@@ -36,13 +36,22 @@ public class User {
 	@Column(nullable = false, length = 100)
 	private String name;
 
+	// 선택 입력. GitHub 로그인명. 확인되면 GitHub 기준 표기로, 확인하지 못했으면 입력값 그대로 저장한다.
+	@Column(length = 100)
+	private String githubName;
+
 	@CreationTimestamp
 	@Column(nullable = false, updatable = false)
 	private OffsetDateTime createdAt;
 
 	public User(String loginId, String passwordHash, String name) {
+		this(loginId, passwordHash, name, null);
+	}
+
+	public User(String loginId, String passwordHash, String name, String githubName) {
 		this.loginId = loginId;
 		this.passwordHash = passwordHash;
 		this.name = name;
+		this.githubName = githubName;
 	}
 }

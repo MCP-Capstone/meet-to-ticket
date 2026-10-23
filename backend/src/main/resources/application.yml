@@ -66,6 +66,10 @@ agent:
   mock-scenario: ${AGENT_MOCK_SCENARIO:approved}
 
 app:
+  github:
+    # 가입 시 GitHub 계정 존재 확인에 쓴다. 토큰 없이 호출한다(IP당 시간당 60회 제한).
+    api-base-url: ${GITHUB_API_BASE_URL:https://api.github.com}
+    timeout: 3s
   analysis:
     submitting-timeout: ${ANALYSIS_SUBMITTING_TIMEOUT:2m}
     failure-reconcile-interval-ms: ${ANALYSIS_FAILURE_RECONCILE_INTERVAL_MS:5000}

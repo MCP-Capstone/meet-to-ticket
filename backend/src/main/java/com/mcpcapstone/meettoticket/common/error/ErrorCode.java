@@ -14,6 +14,7 @@ public enum ErrorCode {
 	UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다."),
 	LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "아이디 또는 비밀번호가 올바르지 않습니다."),
 	DUPLICATE_LOGIN_ID(HttpStatus.CONFLICT, "이미 사용 중인 아이디입니다."),
+	INVALID_GITHUB_ACCOUNT(HttpStatus.BAD_REQUEST, "GitHub 계정을 찾을 수 없습니다. 로그인명을 확인해 주세요."),
 	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다."),
 	PROJECT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "접근할 수 없는 프로젝트입니다."),
 	MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "회의를 찾을 수 없습니다."),

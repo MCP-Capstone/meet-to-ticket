@@ -69,6 +69,28 @@ class AuthControllerTest {
 	}
 
 	@Test
+	void GitHub_계정_형식이_잘못되면_400() throws Exception {
+		mockMvc.perform(post("/api/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"loginId\":\"pm01\",\"password\":\"password1\",\"name\":\"김PM\",\"githubName\":\"-bad name\"}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+				.andExpect(jsonPath("$.message").value("GitHub 계정 형식을 확인해 주세요."));
+	}
+
+	@Test
+	void GitHub에_없는_계정으로_가입하면_400() throws Exception {
+		given(authService.verifyGithubName(any())).willThrow(new BusinessException(ErrorCode.INVALID_GITHUB_ACCOUNT));
+
+		mockMvc.perform(post("/api/auth/signup")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"loginId\":\"pm01\",\"password\":\"password1\",\"name\":\"김PM\",\"githubName\":\"no-such-user\"}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("INVALID_GITHUB_ACCOUNT"))
+				.andExpect(request().sessionAttributeDoesNotExist(SessionConst.LOGIN_USER_ID));
+	}
+
+	@Test
 	void 로그인하지_않으면_내_정보_조회는_401() throws Exception {
 		mockMvc.perform(get("/api/auth/me"))
 				.andExpect(status().isUnauthorized())
