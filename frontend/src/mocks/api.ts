@@ -28,13 +28,13 @@ const stageDurations: [TaskStage, number][] = [
 const QUEUED_MS = 1000
 
 // 새로고침해도 가입 정보와 로그인이 유지되는 것을 흉내 내려고 sessionStorage에 저장한다.
-type MockUser = User & { password: string; githubName?: string | null }
+type MockUser = User & { password: string }
 
 const USERS_KEY = 'mock-users'
 const SESSION_KEY = 'mock-login-user'
 
 // 바로 쓸 수 있는 데모 계정
-const demoUser: MockUser = { userId: 1, loginId: 'demo1', name: '함주헌', password: 'password1', githubName: 'juhun-ham' }
+const demoUser: MockUser = { userId: 1, loginId: 'demo1', name: '함주헌', password: 'password1', githubName: 'juhun-ham', slackEmail: 'juhun@example.com', slackUserId: null }
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -60,7 +60,11 @@ const loadUsers = () => load<MockUser[]>(USERS_KEY, [
 ])
 const directory = (): DirectoryUser[] => {
   const users = new Map(mockDirectoryUsers.map((user) => [user.userId, user]))
-  for (const user of loadUsers()) users.set(user.userId, { userId: user.userId, name: user.name, githubName: user.githubName ?? users.get(user.userId)?.githubName ?? null })
+  for (const user of loadUsers()) users.set(user.userId, {
+    userId: user.userId, name: user.name, githubName: user.githubName ?? users.get(user.userId)?.githubName ?? null,
+    slackEmail: user.slackEmail ?? users.get(user.userId)?.slackEmail ?? null,
+    slackUserId: user.slackUserId ?? users.get(user.userId)?.slackUserId ?? null,
+  })
   return [...users.values()]
 }
 
@@ -85,7 +89,7 @@ function parseMeeting(text: string) {
   return { title, meetingDate, names }
 }
 
-const toUser = ({ userId, loginId, name }: User): User => ({ userId, loginId, name })
+const toUser = ({ userId, loginId, name, githubName, slackEmail, slackUserId }: User): User => ({ userId, loginId, name, githubName, slackEmail, slackUserId })
 
 export const mockApi: typeof realApi = {
   async health() {
@@ -98,7 +102,11 @@ export const mockApi: typeof realApi = {
     if (users.some((u) => u.loginId === body.loginId)) {
       throw fail(409, 'DUPLICATE_LOGIN_ID', '이미 사용 중인 아이디입니다.')
     }
-    const created: MockUser = { ...body, userId: Math.max(0, ...users.map((user) => user.userId), ...mockDirectoryUsers.map((user) => user.userId)) + 1 }
+    const created: MockUser = {
+      ...body,
+      userId: Math.max(0, ...users.map((user) => user.userId), ...mockDirectoryUsers.map((user) => user.userId)) + 1,
+      slackUserId: null,
+    }
     save(USERS_KEY, [...users, created])
     save(SESSION_KEY, toUser(created))
     return toUser(created)

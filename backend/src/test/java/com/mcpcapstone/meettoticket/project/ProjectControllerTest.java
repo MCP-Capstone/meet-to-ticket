@@ -130,6 +130,22 @@ class ProjectControllerTest {
 	}
 
 	@Test
+	void 멤버의_Slack_이메일을_저장하고_입력없는_연결은_미연결로_돌려준다() throws Exception {
+		long id = create("repo-" + suffix, memberId);
+		String request = """
+				{"name":"Slack 연결","description":null,"githubOwner":"MCP-Capstone","githubRepo":"repo-%s",
+				 "notionPageUrl":null,"slackChannelId":"C0123456789","memberUserIds":[%d],
+				 "memberSlackEmails":{"%d":"member@example.com"}}""".formatted(suffix, memberId, memberId);
+
+		mvc.perform(put("/api/projects/{id}", id).session(admin).contentType("application/json").content(request))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.connections.notion").value("NOT_CONNECTED"))
+				.andExpect(jsonPath("$.connections.slack").value(nullValue()))
+				.andExpect(jsonPath("$.members[1].slackEmail").value("member@example.com"))
+				.andExpect(jsonPath("$.members[1].slackUserId").value(nullValue()));
+	}
+
+	@Test
 	void 이미_등록된_저장소는_대소문자가_달라도_409다() throws Exception {
 		create("repo-" + suffix);
 
