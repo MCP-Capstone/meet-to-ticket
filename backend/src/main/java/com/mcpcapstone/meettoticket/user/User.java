@@ -93,7 +93,9 @@ public class User {
 			return;
 		}
 		this.slackConnectionStatus = status;
-		this.slackUserId = status == ConnectionStatus.CONNECTED ? slackUserId : null;
+		// ERROR는 일시 오류일 수 있어 이미 동기화된 ID를 보존한다(전역 사용자라 다른 프로젝트도 쓴다).
+		if (status == ConnectionStatus.CONNECTED) this.slackUserId = slackUserId;
+		else if (status == ConnectionStatus.NOT_CONNECTED) this.slackUserId = null;
 	}
 
 	public ConnectionStatus slackConnectionStatus() {

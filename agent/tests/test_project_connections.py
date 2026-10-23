@@ -43,3 +43,32 @@ def test_프로젝트_저장용_연결을_확인하고_정규화된_값을_돌�
     assert notion.calls == [{"page_url_or_id": "https://www.notion.so/original"}]
     assert channel.calls == [{"channel": "team-channel"}]
     assert user.calls == [{"email": "member@example.com"}]
+
+
+def test_멤버_조회는_동시에_실행되고_요청_순서대로_반환한다(settings):
+    import asyncio
+
+    from project_connections import check_project_connections
+    from schemas import ProjectConnectionsRequest
+
+    class SlowUser:
+        def __init__(self):
+            self.running = 0
+            self.peak = 0
+
+        async def ainvoke(self, args):
+            self.running += 1
+            self.peak = max(self.peak, self.running)
+            await asyncio.sleep(0.01)
+            self.running -= 1
+            return json.dumps({"status": "CONNECTED", "slack_user_id": "U" + args["email"][0]})
+
+    user = SlowUser()
+    req = ProjectConnectionsRequest.model_validate({
+        "members": [{"userId": i, "email": f"{i}@example.com"} for i in range(1, 5)],
+    })
+    result = asyncio.run(check_project_connections(settings, req, tools={"lookup_slack_user": user}))
+
+    assert user.peak > 1
+    assert [m.user_id for m in result.members] == [1, 2, 3, 4]
+    assert [m.slack_user_id for m in result.members] == ["U1", "U2", "U3", "U4"]

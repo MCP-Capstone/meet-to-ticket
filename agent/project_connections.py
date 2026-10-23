@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from config import Settings
 from publisher import parse_tool_result
 from schemas import ConnectionCheckOut, ProjectConnectionsRequest, ProjectConnectionsResponse, SlackUserCheckOut
+
+_MEMBER_LOOKUP_CONCURRENCY = 5
 
 
 async def _tools(settings: Settings) -> dict[str, Any]:
@@ -53,17 +56,21 @@ async def check_project_connections(
         except Exception:  # noqa: BLE001
             slack = ConnectionCheckOut(status="ERROR")
 
-    members: list[SlackUserCheckOut] = []
-    for member in req.members:
-        try:
-            data = await _invoke(tools.get("lookup_slack_user"), {"email": member.email}, "lookup_slack_user")
-            if data.get("status") == "CONNECTED" and data.get("slack_user_id"):
-                members.append(SlackUserCheckOut(
-                    user_id=member.user_id, email=member.email, status="CONNECTED", slack_user_id=data["slack_user_id"],
-                ))
-            else:
-                members.append(SlackUserCheckOut(user_id=member.user_id, email=member.email, status="NOT_CONNECTED"))
-        except Exception:  # noqa: BLE001
-            members.append(SlackUserCheckOut(user_id=member.user_id, email=member.email, status="ERROR"))
+    # 멤버 조회는 서로 독립이므로 동시에 실행한다. 순차 실행은 팀이 크면 Backend 읽기 제한 시간을 넘긴다.
+    gate = asyncio.Semaphore(_MEMBER_LOOKUP_CONCURRENCY)
+
+    async def check_member(member: Any) -> SlackUserCheckOut:
+        async with gate:
+            try:
+                data = await _invoke(tools.get("lookup_slack_user"), {"email": member.email}, "lookup_slack_user")
+                if data.get("status") == "CONNECTED" and data.get("slack_user_id"):
+                    return SlackUserCheckOut(
+                        user_id=member.user_id, email=member.email, status="CONNECTED", slack_user_id=data["slack_user_id"],
+                    )
+                return SlackUserCheckOut(user_id=member.user_id, email=member.email, status="NOT_CONNECTED")
+            except Exception:  # noqa: BLE001
+                return SlackUserCheckOut(user_id=member.user_id, email=member.email, status="ERROR")
+
+    members = list(await asyncio.gather(*(check_member(m) for m in req.members)))
 
     return ProjectConnectionsResponse(notion=notion, slack=slack, members=members)
