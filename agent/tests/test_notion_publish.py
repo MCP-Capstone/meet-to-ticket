@@ -148,3 +148,14 @@ async def test_dry_run_publisher_accepts_notion_target():
 
     assert out.items[0].status == "PUBLISHED" and out.items[0].notion_page_url is None
     assert publisher.calls[0]["root_page_url_or_id"] == ROOT
+
+
+@pytest.mark.anyio
+async def test_notion_retry_after_unknown_outcome_does_not_create_duplicate_page():
+    publisher = NotionPublisher()
+    retry = ticket().model_copy(update={"previous_outcome_unknown": True})
+    out = await run([retry], publisher)
+
+    assert publisher.calls == []
+    item = out.items[0]
+    assert item.status == "FAILED" and item.error_code == "NOTION_VERIFY_REQUIRED" and item.retryable is False
