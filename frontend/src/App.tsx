@@ -43,6 +43,13 @@ function App() {
   const [ticketDirty, setTicketDirty] = useState(false)
   const canLeaveTickets = () => !ticketDirty || window.confirm('저장하지 않은 티켓 수정을 버리고 이동할까요?')
   const [project, setProject] = useState<Project | null>(null)
+  const selectedProject = useRef<Project | null>(null)
+  const [projectSelectionNotice, setProjectSelectionNotice] = useState<string | null>(null)
+  const selectProject = (next: Project | null) => {
+    selectedProject.current = next
+    setProject(next)
+    setProjectSelectionNotice(null)
+  }
   const [members, setMembers] = useState<ProjectMember[]>([])
   const [executionMode, setExecutionMode] = useState<ExecutionMode | null>(null)
   const [projectError, setProjectError] = useState<string | null>(null)
@@ -87,26 +94,28 @@ function App() {
   useEffect(() => {
     if (!user) return
     let cancelled = false
+    const version = ++projectListRequest.current
     const load = async () => {
       try {
         const list = await api.listProjects()
-        if (cancelled) return
+        if (cancelled || version !== projectListRequest.current) return
         setExecutionMode(list.executionMode)
         setProjects(list.projects)
         const first = list.projects[0]
         if (!first) {
-          setProject(null)
+          selectProject(null)
           setMembers([])
           return
         }
-        setProject(first)
+        selectProject(first)
+        const memberVersion = ++memberRequest.current
         const memberList = await api.listMembers(first.projectId)
-        if (cancelled) return
+        if (cancelled || memberVersion !== memberRequest.current) return
         setMembers(memberList.members)
       } catch (e) {
-        if (!cancelled && !isUnauthorized(e)) setProjectError(toMessage(e))
+        if (!cancelled && version === projectListRequest.current && !isUnauthorized(e)) setProjectError(toMessage(e))
       } finally {
-        if (!cancelled) setProjectsLoading(false)
+        if (!cancelled && version === projectListRequest.current) setProjectsLoading(false)
       }
     }
     void load()
@@ -120,7 +129,7 @@ function App() {
   const handleProjectChange = (projectId: number) => {
     const selected = projects.find((item) => item.projectId === projectId)
     if (!selected || startLock.current) return
-    setProject(selected)
+    selectProject(selected)
     setMembers([])
     setProjectError(null)
     setError(null)
@@ -141,6 +150,16 @@ function App() {
       if (version !== projectListRequest.current) return
       setProjects(list.projects)
       setExecutionMode(list.executionMode)
+      // 재조회 중 바뀐 선택도 응답 시점의 최신 선택값으로 확인한다.
+      const current = selectedProject.current
+      const updated = list.projects.find((item) => item.projectId === current?.projectId)
+      if (updated) selectProject(updated)
+      else if (current) {
+        ++memberRequest.current
+        selectProject(null)
+        setMembers([])
+        setProjectSelectionNotice('선택한 프로젝트를 더 이상 사용할 수 없습니다. 업로드할 프로젝트를 다시 선택해 주세요.')
+      }
     } catch (e) {
       if (version === projectListRequest.current && !isUnauthorized(e)) setProjectError(toMessage(e))
     } finally {
@@ -154,7 +173,7 @@ function App() {
     if (project?.projectId === projectId) {
       reset()
       const next = projects.find((item) => item.projectId !== projectId)
-      setProject(null)
+      selectProject(null)
       setMembers([])
       if (next) handleProjectChange(next.projectId)
     }
@@ -162,7 +181,7 @@ function App() {
   }
 
   const handleStart = async (input: MeetingAnalysisInput) => {
-    if (!project || startLock.current) return
+    if (!project || projectsLoading || !projects.some((item) => item.projectId === project.projectId) || startLock.current) return
     const projectId = project.projectId
     const epoch = runEpoch.current
     startLock.current = true
@@ -242,7 +261,7 @@ function App() {
       if (loggedIn.current) setAuthNotice('로그인이 만료되었습니다. 다시 로그인해 주세요.')
       setLogoutError(null)
       reset()
-      setProject(null)
+      selectProject(null)
       setProjects([])
       setPage('workflow')
       setProjectSavedMessage(null)
@@ -268,7 +287,7 @@ function App() {
       await api.logout()
       ++projectListRequest.current
       reset()
-      setProject(null)
+      selectProject(null)
       setProjects([])
       setPage('workflow')
       setProjectSavedMessage(null)
@@ -291,11 +310,15 @@ function App() {
     setEditorProjectId(detail.projectId)
     setProjectSavedMessage('프로젝트를 저장했습니다.')
     if (!project || project.projectId === detail.projectId) {
-      setProject(entry)
+      selectProject(entry)
       setProjectError(null)
       // 기존 회의록 업로드의 참여자 표시는 기존 멤버 조회 API를 재사용한다.
-      api.listMembers(detail.projectId).then((result) => setMembers(result.members)).catch((e: unknown) => {
-        if (!isUnauthorized(e)) setProjectError(toMessage(e))
+      const version = ++memberRequest.current
+      setMembers([])
+      api.listMembers(detail.projectId).then((result) => {
+        if (version === memberRequest.current) setMembers(result.members)
+      }).catch((e: unknown) => {
+        if (version === memberRequest.current && !isUnauthorized(e)) setProjectError(toMessage(e))
       })
     }
   }
@@ -389,6 +412,8 @@ function App() {
         <ProjectEditor key={editorProjectId ?? 'new'} projectId={editorProjectId}
           onSaved={handleProjectSaved} onSavingChange={setProjectSaving} onChange={() => setProjectSavedMessage(null)} onCancel={() => { setPage('project-list'); void refreshProjects() }} />
       </>}
+
+      {user && page === 'workflow' && projectSelectionNotice && <p className="notice" role="status">{projectSelectionNotice}</p>}
 
       {user && page === 'workflow' && projectError && <p className="error">{projectError}</p>}
 
