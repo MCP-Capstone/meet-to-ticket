@@ -20,7 +20,7 @@ import prompts
 from config import Settings
 from extraction import from_llm, from_table, keep_verbatim
 from parsing import parse_summary
-from publisher import ToolCallError, build_issue_body
+from publisher import ToolCallError, build_issue_body, pick_labels
 from resolve import classify_expected, map_assignees, normalize_ws, parse_due
 from schemas import ExtractedTodo, ProjectMember, RunResult
 from state import (
@@ -118,8 +118,10 @@ def new_ticket(todo: ExtractedTodo, members: list[ProjectMember], meeting_date: 
         "expected": {"raw": expected.raw, "kind": expected.kind, "keys": expected.keys},
         "title": "",
         "description": "",
+        "tasks": [],
         "acceptance_criteria": [],
         "evidence_quotes": list(todo.evidence_quotes),
+        "labels": [],
         "open_questions": [],
         "review_status": REVIEW_PENDING,
         "failed_items": [],
@@ -215,6 +217,7 @@ class AgentNodes:
         if (stop := self._past_deadline(state)) is not None:
             return stop
         tickets = _copy(state["tickets"])
+        labels = state.get("label_candidates") or self.settings.issue_labels
         targets = [
             t for t in tickets
             if t["review_status"] == REVIEW_REVISE or (t["review_status"] == REVIEW_PENDING and not t["title"])
@@ -233,13 +236,15 @@ class AgentNodes:
                     item["current_draft"] = {
                         "title": t["title"],
                         "description": t["description"],
+                        "tasks": t["tasks"],
                         "acceptance_criteria": t["acceptance_criteria"],
                         "evidence_quotes": t["evidence_quotes"],
+                        "labels": t["labels"],
                     }
                     item["feedback"] = t["feedback"]
                 items.append(item)
             try:
-                drafts = await self.llm.draft(state["original_content"], items)
+                drafts = await self.llm.draft(state["original_content"], items, labels)
             except AgentFatal as exc:
                 return {"error_code": exc.code, "error_message": exc.message}
             by_key = {d.work_key: d for d in drafts}
@@ -252,7 +257,11 @@ class AgentNodes:
                     continue
                 t["title"] = d.title.strip()
                 t["description"] = d.description.strip()
+                t["tasks"] = [x.strip() for x in d.tasks if x.strip()]
                 t["acceptance_criteria"] = [c.strip() for c in d.acceptance_criteria if c.strip()]
+                t["labels"], dropped_labels = pick_labels(d.labels, labels)
+                if dropped_labels:
+                    t["warnings"].append(f"라벨 후보에 없어 뺀 라벨: {', '.join(dropped_labels)}")
                 kept, dropped = keep_verbatim(d.evidence_quotes, state["original_content"])
                 if dropped:
                     t["warnings"].append(f"원문과 다른 근거 인용 {dropped}개를 제외함")
@@ -283,7 +292,7 @@ class AgentNodes:
 
     def _verify_checks(self, t: dict[str, Any], checks: list[Any], source: str, excluded: list[str]) -> list[dict[str, Any]]:
         """LLM 검수 지적을 코드로 걸러 확실한 것만 실패로 인정한다."""
-        draft_text = normalize_ws(" ".join([t["title"], t["description"], *t["acceptance_criteria"]]))
+        draft_text = normalize_ws(" ".join([t["title"], t["description"], *t["tasks"], *t["acceptance_criteria"]]))
         src = normalize_ws(source)
         fails: list[dict[str, Any]] = []
         notes: list[str] = []
@@ -311,6 +320,8 @@ class AgentNodes:
             t["title"] = t["action_text"]
         if not t["description"] or 4 in items:
             t["description"] = f"회의에서 정한 액션 아이템: {t['action_text']}"
+        if items & {2, 4}:
+            t["tasks"] = []  # 제외·보류 항목이나 원문에 없는 내용이 남았으면 상세 작업도 믿지 않는다
         if not t["acceptance_criteria"] or 8 in items:
             t["acceptance_criteria"] = [f"{t['action_text']} 완료"]
         if not t["evidence_quotes"]:
@@ -390,6 +401,7 @@ class AgentNodes:
                     "action": t["action_text"],
                     "title": t["title"],
                     "description": t["description"],
+                    "tasks": t["tasks"],
                     "acceptance_criteria": t["acceptance_criteria"],
                     "evidence_quotes": t["evidence_quotes"],
                 }
@@ -499,7 +511,7 @@ class AgentNodes:
                     repo=state["repo"],
                     title=t["title"],
                     body=body,
-                    labels=self.settings.issue_labels,
+                    labels=t["labels"],
                     assignees=t["assignees"],
                 )
             except ToolCallError as exc:
@@ -519,6 +531,7 @@ class AgentNodes:
             dropped = res.get("dropped_assignees") or []
             if dropped:
                 t["warnings"].append(f"GitHub에서 담당자 지정이 안 됨: {', '.join(dropped)}")
+            # TODO(TASK-046): MCP가 돌려줄 droppedLabels(발행 때 빠진 라벨)를 결과에 합친다
             if self.issue_tools is not None and t["github_issue_number"]:
                 # 다음 실행의 중복 판단에서 찾을 수 있게 색인에 넣는다. 실패해도 발행 결과는 그대로
                 indexed = await self._index(t["github_issue_number"])
@@ -556,7 +569,9 @@ class AgentNodes:
                 "content_json": {
                     "action_text": t["action_text"],
                     "description": t["description"],
+                    "tasks": t["tasks"],
                     "acceptance_criteria": t["acceptance_criteria"],
+                    "labels": t["labels"],
                     "evidence_quotes": t["evidence_quotes"],
                     "assignees": {
                         "names": t["assignee_names"],

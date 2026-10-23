@@ -1,7 +1,7 @@
 """meet-to-ticket RAG MCP 서버.
 
 기존 GitHub 이슈를 저장소별 Vector DB(Chroma)에 미리 색인해 두고, Agent가 발행 전에 비슷한 이슈를 찾을 수 있게 한다.
-mcp-server(이슈 생성·조회)와 역할을 나눠, 이 서버는 색인과 의미 검색만 맡는다.
+business-mcp(이슈 생성·조회)와 역할을 나눠, 이 서버는 색인과 의미 검색만 맡는다.
 
 도구
 - search_similar_issues (조회): 의미가 비슷한 기존 이슈 찾기
@@ -70,7 +70,7 @@ def get_embedder() -> Embedder:
 @mcp.tool(
     description=(
         "기존 GitHub 이슈 중에서 query와 의미가 비슷한 이슈를 찾는다. "
-        "표현이 달라도 같은 작업인지 확인할 때 쓴다 (이슈 키나 정확한 단어로 찾을 때는 mcp-server의 search_issues). "
+        "표현이 달라도 같은 작업인지 확인할 때 쓴다 (이슈 키나 정확한 단어로 찾을 때는 business-mcp의 search_issues). "
         "결과는 score가 높은 순서이며 score는 1에 가까울수록 비슷하다. "
         "각 결과의 state(open/closed)와 closed_at으로 진행 중인 작업인지 끝난 작업인지 구분한다. "
         "색인이 비어 있으면 [INDEX_EMPTY]를 돌려준다."

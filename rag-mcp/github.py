@@ -1,6 +1,6 @@
 """GitHub 이슈 읽기 (색인용, 읽기 전용).
 
-mcp-server/github.py와 같은 방식(허용 저장소 검사, 상태 코드별 오류 태그)을 따른다.
+business-mcp/github.py와 같은 방식(허용 저장소 검사, 상태 코드별 오류 태그)을 따른다.
 두 서버는 가상환경이 따로라 코드를 공유하지 않고, 이 서버에 필요한 읽기 기능만 둔다.
 테스트에서는 make_client(transport=httpx.MockTransport(...))로 실제 요청 없이 검증한다.
 """

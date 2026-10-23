@@ -18,7 +18,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8002  # docs/dev-env.md 포트 규칙 (mcp-server 8000, agent 8001)
+DEFAULT_PORT = 8002  # docs/dev-env.md 포트 규칙 (business-mcp 8000, agent 8001)
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_CHROMA_PATH = BASE_DIR / "chroma-data"
 

@@ -1,7 +1,7 @@
 """도구 오류 형식.
 
 실패는 "[코드] 메시지" 형식의 ToolError로 돌려준다. Agent는 대괄호 안의 코드를 읽어 원인을 구분한다.
-코드 이름은 mcp-server와 같은 것을 쓰고, 이 서버에만 있는 코드(INDEX_EMPTY, EMBEDDING_ERROR)를 더한다.
+코드 이름은 business-mcp와 같은 것을 쓰고, 이 서버에만 있는 코드(INDEX_EMPTY, EMBEDDING_ERROR)를 더한다.
 """
 
 from __future__ import annotations

@@ -47,7 +47,7 @@ docs/14-xxx ─┘
 
 `<type>(<scope>): <subject> (#<issue-number>)`
 
-- `scope`는 선택이다. 영역을 밝힐 때 사용한다. (`frontend`, `backend`, `agent`, `mcp-server`, `docs` 등)
+- `scope`는 선택이다. 영역을 밝힐 때 사용한다. (`frontend`, `backend`, `agent`, `business-mcp`, `rag-mcp`, `docs` 등)
 - `subject`는 한국어 명사형으로 끝낸다. (예: "추가", "수정", "제거")
 - 제목 한 줄만 작성한다.
 - 예: `feat(backend): 회의록 업로드 API 추가 (#12)`
