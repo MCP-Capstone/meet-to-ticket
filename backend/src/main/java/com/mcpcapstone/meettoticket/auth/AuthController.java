@@ -65,7 +65,8 @@ public class AuthController {
 	@PostMapping("/signup")
 	public ResponseEntity<UserResponse> signup(@Valid @RequestBody SignupRequest request,
 			@Parameter(hidden = true) HttpServletRequest httpRequest) {
-		User user = authService.signup(request);
+		String githubName = authService.verifyGithubName(request.githubName());
+		User user = authService.signup(request, githubName);
 		startSession(httpRequest, user);
 		return ResponseEntity.status(HttpStatus.CREATED).body(UserResponse.from(user));
 	}

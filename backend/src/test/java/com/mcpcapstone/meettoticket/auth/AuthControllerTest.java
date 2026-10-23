@@ -80,7 +80,7 @@ class AuthControllerTest {
 
 	@Test
 	void GitHub에_없는_계정으로_가입하면_400() throws Exception {
-		given(authService.signup(any())).willThrow(new BusinessException(ErrorCode.INVALID_GITHUB_ACCOUNT));
+		given(authService.verifyGithubName(any())).willThrow(new BusinessException(ErrorCode.INVALID_GITHUB_ACCOUNT));
 
 		mockMvc.perform(post("/api/auth/signup")
 				.contentType(MediaType.APPLICATION_JSON)
