@@ -1,6 +1,8 @@
 # 전체 서비스 Docker 실행
 
 이 구성은 demo 프로파일과 기본 테스트 계정을 사용하는 로컬·데모용이며, 운영 배포용 구성이 아닙니다.
+demo가 아닌 프로파일에서는 `BACKEND_INTERNAL_TOKEN`, `DB_PASSWORD`, `RABBITMQ_PASSWORD`가 비어 있거나 기본값이면 backend가 기동을 거부합니다.
+루트 `docker-compose.yml`의 DB/브로커 포트는 `127.0.0.1`로만 바인딩됩니다.
 
 `compose.full.yml`은 frontend, backend, agent, business-mcp, rag-mcp, postgres, rabbitmq를 함께 실행한다.
 기존 `docker-compose.yml`은 로컬 개발용 DB·RabbitMQ 설정으로 유지한다.
