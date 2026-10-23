@@ -21,6 +21,10 @@
 | POST | /api/auth/logout | 204 | 세션 제거 |
 | GET | /api/auth/me | 200 | 내 정보 |
 | GET | /api/projects | 200 | 내 프로젝트·실행 모드 |
+| POST | /api/projects | 201 | 프로젝트 등록 (등록자는 관리자) |
+| GET | /api/projects/{projectId} | 200 | 프로젝트 상세, 멤버, 편집 가능 여부 |
+| PUT | /api/projects/{projectId} | 200 | 프로젝트 편집 (관리자만) |
+| GET | /api/users?keyword= | 200 | 멤버로 고를 가입 사용자 검색 |
 | GET | /api/projects/{projectId}/members | 200 | 팀원·GitHub 계정 |
 | POST | /api/projects/{projectId}/meetings | 201 | multipart file 업로드·회의 저장 |
 | GET | /api/meetings/{meetingId} | 200 | 본문을 제외한 회의 메타데이터 |
@@ -31,6 +35,10 @@
 가입의 `githubName`(GitHub 로그인명)은 선택이다. 미입력이나 공백만 있으면 확인 없이 가입한다.
 입력하면 GitHub `GET /users/{login}`으로 사용자 계정인지 확인하고 GitHub 기준 표기로 저장한다. 없는 계정이나 조직 계정은 400 `INVALID_GITHUB_ACCOUNT`이다.
 호출 한도(토큰 없이 IP당 시간당 60회)나 장애로 확인하지 못하면 입력값 그대로 저장하고 가입한다.
+
+프로젝트를 등록한 사용자는 관리자(ADMIN)이자 멤버가 되고, 편집(PUT)은 관리자만 한다(아니면 403 `PROJECT_ADMIN_REQUIRED`).
+`memberUserIds`는 변경 후 전체 멤버 목록이며, 관리자는 목록에 없어도 남는다. 같은 GitHub 저장소는 대소문자가 달라도 409 `DUPLICATE_PROJECT_REPOSITORY`이다.
+멤버 저장소 권한과 도구 연결은 TASK-006 전까지 확인하지 않는다. GitHub 계정이 없는 멤버만 `NO_ACCOUNT`이고, 확인 전 값은 `null`이다.
 
 로그인·가입·로그아웃·health 외에는 JSESSIONID 세션이 필요하다. Swagger에서 먼저 로그인하면 같은 출처 요청에 쿠키가 적용된다.
 Authorize에 쿠키를 직접 넣기보다 login API를 실행한다. 세션 사용자 ID는 입력값으로 노출하지 않는다.
