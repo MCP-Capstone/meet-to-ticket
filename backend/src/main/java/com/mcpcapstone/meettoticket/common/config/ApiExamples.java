@@ -61,6 +61,24 @@ public final class ApiExamples {
             }
             """;
 
+    public static final String ERROR_TICKET_NOT_FOUND = """
+            {
+              "code": "TICKET_NOT_FOUND",
+              "message": "티켓을 찾을 수 없습니다."
+            }""";
+
+    public static final String ERROR_TICKET_ASSIGNEE_REQUIRED = """
+            {
+              "code": "TICKET_ASSIGNEE_REQUIRED",
+              "message": "티켓 담당자만 수정하거나 상태를 바꿀 수 있습니다."
+            }""";
+
+    public static final String ERROR_TICKET_STATUS_CONFLICT = """
+            {
+              "code": "TICKET_STATUS_CONFLICT",
+              "message": "현재 티켓 상태에서는 할 수 없는 작업입니다."
+            }""";
+
     public static final String ERROR_LAST_PROJECT_ADMIN = """
             {
               "code": "LAST_PROJECT_ADMIN",
@@ -195,7 +213,17 @@ public final class ApiExamples {
              "tickets":[{"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정",
                "status":"PENDING_REVIEW","processingType":"CREATE","projectId":1,"projectName":"CSV 내보내기",
                "meetingId":2,"meetingTitle":"CSV 중간 점검","taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81",
-               "createdAt":"2026-10-22T10:31:00+09:00"}]}""";
+               "createdAt":"2026-10-22T10:31:00+09:00",
+               "description":"CSV 내보내기에서 결과가 비면 오류가 난다.","due":{"text":"내일 오후 6시","date":"2026-10-23","time":"18:00"},
+               "assignee":{"projectMemberId":11,"name":"박종민"}}]}""";
+
+    public static final String TICKET = """
+            {"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정",
+             "status":"CONFIRMED","processingType":"CREATE","projectId":1,"projectName":"CSV 내보내기",
+             "meetingId":2,"meetingTitle":"CSV 중간 점검","taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81",
+             "createdAt":"2026-10-22T10:31:00+09:00",
+             "description":"CSV 내보내기에서 결과가 비면 오류가 난다.","due":{"text":"내일 오후 6시","date":"2026-10-23","time":"18:00"},
+             "assignee":{"projectMemberId":11,"name":"박종민"}}""";
 
     public static final String STATUS_RUNNING = """
             {

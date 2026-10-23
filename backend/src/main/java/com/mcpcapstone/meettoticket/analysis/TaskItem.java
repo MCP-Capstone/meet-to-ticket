@@ -95,4 +95,14 @@ public class TaskItem {
         this.assignee = member;
         this.ticketStatus = member == null ? TicketStatus.ASSIGNEE_REQUIRED : TicketStatus.PENDING_REVIEW;
     }
+
+    // 담당자가 카드에서 고친 내용을 반영한다. 담당 멤버는 바꾸지 않으면 null을 넘긴다.
+    public void edit(ProjectMember newAssignee, String contentJson) {
+        if (newAssignee != null) this.assignee = newAssignee;
+        this.contentJson = contentJson;
+    }
+
+    public void moveTo(TicketStatus status) {
+        this.ticketStatus = status;
+    }
 }
