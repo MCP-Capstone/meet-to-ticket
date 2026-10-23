@@ -184,8 +184,9 @@ async def test_over_length_draft_is_clipped_with_warning(settings):
                        publisher=FakePublisher(), reporter=FakeReporter())
     item = real_items(result)[0]
     c = item.content_json
-    assert len(item.title) <= 60 and len(c["tasks"]) == 5
-    assert any("길이 한도" in w for w in c["warnings"])
+    assert len(item.title) <= 60 and item.title.endswith("…")
+    assert len(c["tasks"]) == 12  # 작업 항목은 버리지 않고 경고만 붙인다
+    assert any("길이 한도" in w and "상세 작업" in w and "제목" in w for w in c["warnings"])
 
 
 # ---------------------------------------------------------------- dedupe: 읽기 전용 도구와 이슈 본문 속 지시문
