@@ -41,6 +41,7 @@ export function deleteMockProjectTickets(projectId: number) {
 }
 const view = ({ assigneeUserId: _owner, ...ticket }: StoredTicket): MyTicket => structuredClone(ticket)
 export function listMockTickets(user: User, projectId?: number): MyTicketList {
+  settleMockBatches(user)
   const tickets = read(user).filter((ticket) => ticket.assigneeUserId === user.userId && (projectId === undefined || ticket.projectId === projectId))
   return {
     counts: { pendingReview: tickets.filter((t) => t.status === 'PENDING_REVIEW').length, confirmed: tickets.filter((t) => t.status === 'CONFIRMED').length, rejected: tickets.filter((t) => t.status === 'REJECTED').length, failed: tickets.filter((t) => t.status === 'FAILED').length },
@@ -93,6 +94,7 @@ const BATCH_KEY = 'mock-publish-batches-v1'
 type MockBatch = { userId: number; result: PublishBatchResult }
 const readBatches = (): MockBatch[] => JSON.parse(sessionStorage.getItem(BATCH_KEY) ?? '[]')
 export function publishMockTickets(user: User, projectId: number, meetingId: number, ticketIds: string[]) {
+  settleMockBatches(user)
   const tickets = read(user)
   const group = tickets.filter((t) => t.assigneeUserId === user.userId && t.projectId === projectId && t.meetingId === meetingId)
   const selection = publishSelection(group)
@@ -112,26 +114,32 @@ export function publishMockTickets(user: User, projectId: number, meetingId: num
   write(tickets)
   return { batchId, count: ids.size }
 }
-export function getMockPublishResult(user: User, batchId: string) {
+// 패널 조회 여부와 관계없이, 목록 조회에서도 경과한 발행을 완료한다.
+function settleMockBatches(user: User) {
   const batches = readBatches()
-  const batch = batches.find((b) => b.userId === user.userId && b.result.batchId === batchId)
-  if (!batch) throw fail(404, 'PUBLISH_BATCH_NOT_FOUND', '발행 묶음을 찾을 수 없습니다.')
-  const result = batch.result
-  if (result.status === 'RUNNING' && Date.now() - Date.parse(result.createdAt) > 1800) {
+  const ready = batches.filter((batch) => batch.userId === user.userId
+    && batch.result.status === 'RUNNING' && Date.now() - Date.parse(batch.result.createdAt) > 1800)
+  if (!ready.length) return
+  const tickets = read(user)
+  for (const { result } of ready) {
     result.status = 'SUCCEEDED'
     result.finishedAt = new Date().toISOString()
-    const tickets = read(user)
     for (const entry of result.tickets) {
       entry.status = entry.processingType === 'LINK' ? 'LINKED' : entry.processingType === 'UPDATE' ? 'UPDATED' : 'PUBLISHED'
       const ticket = tickets.find((t) => t.ticketId === entry.ticketId && t.assigneeUserId === user.userId)
-      if (ticket) { ticket.status = entry.status; ticket.publishFailure = null }
+      if (ticket?.status === 'PUBLISHING') { ticket.status = entry.status; ticket.publishFailure = null }
     }
     result.summary.publishing = 0
     result.summary.published = result.tickets.filter((t) => t.status === 'PUBLISHED').length
     result.summary.linked = result.tickets.filter((t) => t.status === 'LINKED').length
     result.summary.updated = result.tickets.filter((t) => t.status === 'UPDATED').length
-    write(tickets)
-    sessionStorage.setItem(BATCH_KEY, JSON.stringify(batches))
   }
-  return structuredClone(result)
+  write(tickets)
+  sessionStorage.setItem(BATCH_KEY, JSON.stringify(batches))
+}
+export function getMockPublishResult(user: User, batchId: string) {
+  settleMockBatches(user)
+  const batch = readBatches().find((b) => b.userId === user.userId && b.result.batchId === batchId)
+  if (!batch) throw fail(404, 'PUBLISH_BATCH_NOT_FOUND', '발행 묶음을 찾을 수 없습니다.')
+  return structuredClone(batch.result)
 }
