@@ -1,6 +1,7 @@
 package com.mcpcapstone.meettoticket.project;
 
 import com.mcpcapstone.meettoticket.agent.RepositoryPermissionGateway;
+import com.mcpcapstone.meettoticket.agent.ProjectConnectionGateway;
 import com.mcpcapstone.meettoticket.common.error.*;
 import com.mcpcapstone.meettoticket.meeting.MeetingRepository;
 import com.mcpcapstone.meettoticket.project.dto.ProjectDetail;
@@ -32,6 +33,7 @@ public class ProjectService {
     private final ProjectMemberRepository members;
     private final UserRepository users;
     private final RepositoryPermissionGateway permissions;
+    private final ProjectConnectionGateway connections;
     private final TransactionTemplate tx;
     private final MeetingRepository meetings;
 
@@ -113,7 +115,7 @@ public class ProjectService {
     // 저장소나 멤버 구성이 바뀌었을 수 있으므로 저장할 때마다 기존 결과를 지우고 GitHub 계정이 있는 멤버를 다시 확인한다.
     // 전체 실패는 저장 자체를 막지 않고 해당 멤버 권한 null, connections.github=ERROR로 남긴다.
     private ProjectDetail checkAndLoad(Long projectId, Long userId) {
-        record Plan(String owner, String repo, List<CheckTarget> targets) {}
+        record Plan(String owner, String repo, List<CheckTarget> targets, String notionPageUrl, String slackChannelId) {}
         Plan plan = tx.execute(status -> {
             Project project = projects.getReferenceById(projectId);
             project.recordGithubConnection(null);
@@ -122,22 +124,35 @@ public class ProjectService {
                 m.recordPermission(null);
                 if (m.getGithubName() != null) targets.add(new CheckTarget(m.getId(), m.getGithubName()));
             }
-            return new Plan(project.getGithubOwner(), project.getGithubRepo(), targets);
+            return new Plan(project.getGithubOwner(), project.getGithubRepo(), targets,
+                    project.getNotionPageUrl(), project.getSlackChannelId());
         });
-        if (plan.targets().isEmpty()) return loadDetail(projectId, userId);
 
-        List<String> names = plan.targets().stream().map(CheckTarget::githubName).distinct().toList();
         Map<String, String> results = new HashMap<>();
-        try {
-            for (var r : permissions.check(plan.owner(), plan.repo(), names))
-                if (r.githubName() != null) results.put(r.githubName().toLowerCase(Locale.ROOT), r.permission());
-        } catch (RuntimeException e) {
-            log.warn("프로젝트 {} 멤버 저장소 권한 확인 실패: {}", projectId, e.getMessage());
-            results.clear();
+        if (!plan.targets().isEmpty()) {
+            List<String> names = plan.targets().stream().map(CheckTarget::githubName).distinct().toList();
+            try {
+                for (var r : permissions.check(plan.owner(), plan.repo(), names))
+                    if (r.githubName() != null) results.put(r.githubName().toLowerCase(Locale.ROOT), r.permission());
+            } catch (RuntimeException e) {
+                log.warn("프로젝트 {} 멤버 저장소 권한 확인 실패: {}", projectId, e.getMessage());
+                results.clear();
+            }
         }
 
+        ProjectConnectionGateway.ConnectionCheck external = null;
+        if (plan.notionPageUrl() != null || plan.slackChannelId() != null) {
+            try {
+                external = connections.check(plan.notionPageUrl(), plan.slackChannelId());
+            } catch (RuntimeException e) {
+                log.warn("프로젝트 {} Notion·Slack 연결 확인 실패: {}", projectId, e.getMessage());
+                external = ProjectConnectionGateway.ConnectionCheck.failed();
+            }
+        }
+        ProjectConnectionGateway.ConnectionCheck connectionResult = external;
+
         tx.executeWithoutResult(status -> {
-            boolean error = results.isEmpty();
+            boolean error = !plan.targets().isEmpty() && results.isEmpty();
             for (CheckTarget t : plan.targets()) {
                 ProjectMember m = members.findById(t.memberId()).orElse(null);
                 // 확인하는 사이 GitHub 계정이 바뀐 멤버는 결과를 적용하지 않는다.
@@ -146,8 +161,15 @@ public class ProjectService {
                 m.recordPermission(permission);
                 if (permission == null) error = true;
             }
-            projects.getReferenceById(projectId)
-                    .recordGithubConnection(error ? ProjectDetail.ConnectionStatus.ERROR : ProjectDetail.ConnectionStatus.CONNECTED);
+            Project project = projects.getReferenceById(projectId);
+            if (!plan.targets().isEmpty())
+                project.recordGithubConnection(error ? ProjectDetail.ConnectionStatus.ERROR : ProjectDetail.ConnectionStatus.CONNECTED);
+            if (connectionResult != null) {
+                if (plan.notionPageUrl() != null && Objects.equals(plan.notionPageUrl(), project.getNotionPageUrl()))
+                    project.updateNotionConnectionStatus(toConnectionStatus(connectionResult.notion().status()));
+                if (plan.slackChannelId() != null && Objects.equals(plan.slackChannelId(), project.getSlackChannelId()))
+                    project.recordSlackConnection(toConnectionStatus(connectionResult.slack().status()), connectionResult.slack().value());
+            }
         });
         return loadDetail(projectId, userId);
     }
@@ -157,6 +179,12 @@ public class ProjectService {
         if ("GRANTED".equals(value)) return ProjectDetail.RepositoryPermission.GRANTED;
         if ("DENIED".equals(value)) return ProjectDetail.RepositoryPermission.DENIED;
         return null;
+    }
+
+    private static ProjectDetail.ConnectionStatus toConnectionStatus(String value) {
+        if ("CONNECTED".equals(value)) return ProjectDetail.ConnectionStatus.CONNECTED;
+        if ("NOT_CONNECTED".equals(value)) return ProjectDetail.ConnectionStatus.NOT_CONNECTED;
+        return ProjectDetail.ConnectionStatus.ERROR;
     }
 
     private ProjectDetail loadDetail(Long projectId, Long userId) {
