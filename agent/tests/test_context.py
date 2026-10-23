@@ -104,12 +104,16 @@ async def test_planning_docs_go_to_draft_and_progress(draft_settings):
     result = await run(request_with_notion(), draft_settings, llm=llm, publisher=FakePublisher(), reporter=rep,
                        issue_tools=issue_tools, notion_tools=tools)
     assert result.status == "SUCCEEDED"
-    planning = llm.draft_contexts[0]["planning"]
-    assert "### CSV 내보내기 기획" in planning and "팀 회식" not in planning
-    # 진행 화면의 맥락 파악: 불러오기 전에 먼저 보고하고, 불러온 뒤 기존 이슈 수와 기획 문서 수를 채운다
+    project_context = llm.draft_contexts[0]["project_context"]
+    assert project_context["issues"] == []
+    assert [doc["title"] for doc in project_context["notionDocs"]] == [page["title"] for page in PAGES]
+    # 진행 화면의 맥락 파악: 불러오기 전에 먼저 보고하고, 실제로 읽은 문서 수를 채운다
     contexts = [p["context"] for p in rep.progress_details if p["step"] == "CONTEXT"]
-    assert contexts == [{"members": 6, "issues": None, "notionDocs": None},
-                        {"members": 6, "issues": 128, "notionDocs": 3}]
+    assert contexts[0] == {"members": 6, "issues": None, "notionDocs": None}
+    assert contexts[1]["members"] == 6
+    assert contexts[1]["issues"] == 0
+    assert contexts[1]["notionDocs"] == 3
+    assert len(contexts[1]["warnings"]) == 1
     # 근거는 여전히 회의록 원문에서만 나온다
     source = make_request().meeting.original_content
     assert all(q in source for i in result.items for q in i.content_json.get("evidence_quotes", []))
@@ -120,8 +124,8 @@ async def test_without_notion_runs_as_before(draft_settings):
     tools, reader = notion_tools()
     await run(make_request(), draft_settings, llm=llm, publisher=FakePublisher(), reporter=rep, notion_tools=tools)
     assert reader.calls == [] and tools["list_pages"].calls == []  # 기획 페이지가 없으면 부르지 않는다
-    assert llm.draft_contexts[0]["planning"] == ""
-    assert rep.progress_details[-1]["context"] == {"members": 6, "issues": None, "notionDocs": None}
+    assert llm.draft_contexts[0]["project_context"] == {"issues": [], "notionDocs": [], "warnings": []}
+    assert rep.progress_details[-1]["context"] == {"members": 6, "issues": 0, "notionDocs": 0, "warnings": []}
 
 
 async def test_slow_context_is_skipped(draft_settings):
@@ -129,7 +133,7 @@ async def test_slow_context_is_skipped(draft_settings):
     llm = FakeLLM()
     result = await run(request_with_notion(), s, llm=llm, publisher=FakePublisher(), reporter=FakeReporter(),
                        notion_tools={"list_pages": SlowTool(), "read_page": SlowTool()})
-    assert result.status == "SUCCEEDED" and llm.draft_contexts[0]["planning"] == ""
+    assert result.status == "SUCCEEDED" and llm.draft_contexts[0]["project_context"]["notionDocs"] == []
 
 
 async def test_timeout_keeps_documents_already_read(draft_settings):
@@ -138,9 +142,10 @@ async def test_timeout_keeps_documents_already_read(draft_settings):
     tools, _ = notion_tools(slow_for={"p3"})
     llm, rep = FakeLLM(), FakeReporter()
     await run(request_with_notion(), s, llm=llm, publisher=FakePublisher(), reporter=rep, notion_tools=tools)
-    planning = llm.draft_contexts[0]["planning"]
-    assert "### CSV 내보내기 기획" in planning and "관리자 권한 정책" not in planning
-    assert rep.progress_details[-1]["context"]["notionDocs"] == 3
+    docs = llm.draft_contexts[0]["project_context"]["notionDocs"]
+    assert [d["page_id"] for d in docs] == ["p1", "p2"]  # 시간 초과 전에 읽은 문서는 버리지 않는다
+    assert any("끝나지 않음" in w for w in rep.progress_details[-1]["context"]["warnings"])
+    assert rep.progress_details[-1]["context"]["notionDocs"] == 2
 
 
 async def test_context_step_is_reported_before_slow_loading(draft_settings):

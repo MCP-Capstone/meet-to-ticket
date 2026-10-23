@@ -174,13 +174,13 @@ class OpenAILLM:
     async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None,
                     context: dict[str, Any] | None = None) -> list[DraftTicket]:
         """context: 추출 결과의 회의 단위 값 (decisions: 결정 문장, open_questions: 미결 질문)과
-        프로젝트 맥락 (planning: Notion 기획 문서 묶음, TASK-019)."""
+        프로젝트 맥락 (project_context: 기존 GitHub 이슈와 Notion 문서, TASK-019)."""
         context = context or {}
         user = prompts.DRAFT_USER.format(
             summary=summary,
             decisions=_bullet_list(context.get("decisions", [])),
             open_questions=_bullet_list(context.get("open_questions", [])),
-            planning=context.get("planning") or "- 없음",
+            project_context=json.dumps(context.get("project_context") or {}, ensure_ascii=False, indent=2),
             labels=_bullet_list(labels or []),
             items=json.dumps(items, ensure_ascii=False, indent=2),
         )
@@ -193,6 +193,7 @@ class OpenAILLM:
             summary=summary,
             source_note=context.get("source_note", ""),
             excluded=_bullet_list(context.get("excluded_or_held", [])),
+            project_context=json.dumps(context.get("project_context") or {}, ensure_ascii=False, indent=2),
             drafts=json.dumps(drafts, ensure_ascii=False, indent=2),
         )
         out = await self._call("review", [("system", prompts.REVIEW_SYSTEM), ("user", user)], "검수")
