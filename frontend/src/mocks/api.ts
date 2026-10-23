@@ -1,6 +1,7 @@
 import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
 import type { AnalysisProgress, AnalysisTask, DirectoryUser, ExecutionMode, Meeting, ProgressStep, StartAnalysisResponse, TaskStage, User } from '../api/types'
+import { listMockTickets, editMockTicket, changeMockTicket } from './tickets'
 import { mockItems } from './data'
 import { readMeetingFile, validateMeetingText, validMeetingDate } from '../meetingInput'
 import { changeMockProjectRole, getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
@@ -153,6 +154,19 @@ export const mockApi: typeof realApi = {
     const user = load<User | null>(SESSION_KEY, null)
     if (!user) throw fail(401, 'UNAUTHORIZED', '로그인이 필요합니다.')
     return user
+  },
+
+  async listMyTickets(projectId) {
+    await delay(200)
+    return listMockTickets(requireLogin(), projectId)
+  },
+  async editTicket(ticketId, body) {
+    await delay(300)
+    return editMockTicket(requireLogin(), ticketId, body)
+  },
+  async changeTicketStatus(ticketId, action) {
+    await delay(300)
+    return changeMockTicket(requireLogin(), ticketId, action)
   },
 
   async listProjects() {

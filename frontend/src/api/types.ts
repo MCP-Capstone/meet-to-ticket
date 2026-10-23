@@ -227,3 +227,33 @@ export interface ApiError {
   code: string
   message: string
 }
+
+// TASK-026·028·029 서버 계약. 분석 결과의 reviewStatus와 구분한다.
+export type TicketStatus = 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'REJECTED' | 'PUBLISHING' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'FAILED'
+export type TicketAction = 'confirm' | 'reject' | 'reopen' | 'restore'
+export interface TicketDue { text: string | null; date: string | null; time: string | null }
+export interface MyTicket {
+  ticketId: string
+  title: string
+  status: TicketStatus
+  processingType: 'CREATE' | 'LINK' | 'UPDATE'
+  publishTarget: 'GITHUB' | 'SLACK' | 'NOTION'
+  projectId: number
+  projectName: string
+  meetingId: number
+  meetingTitle: string
+  taskId: string
+  createdAt: string
+  description: string | null
+  due: TicketDue
+  assignee: { projectMemberId: number; name: string } | null
+}
+export interface MyTicketList {
+  counts: { pendingReview: number; confirmed: number; rejected: number }
+  tickets: MyTicket[]
+}
+export interface TicketEditRequest {
+  description?: string
+  assigneeMemberId?: number
+  due?: TicketDue
+}

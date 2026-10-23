@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AnalysisProgress } from './components/AnalysisProgress'
 import { AuthForm } from './components/AuthForm'
 import { ResultList } from './components/ResultList'
+import { MyTickets } from './components/MyTickets'
 import { ProjectEditor } from './components/ProjectEditor'
 import { Spinner } from './components/Spinner'
 import { Stepper } from './components/Stepper'
@@ -28,12 +29,15 @@ function App() {
   const logoutPending = useRef(false)
   // 401 처리기 안에서 최신 로그인 상태를 보려고 ref에도 둔다.
   const loggedIn = useRef(false)
-  const [page, setPage] = useState<'workflow' | 'project-editor'>('workflow')
+  const [page, setPage] = useState<'workflow' | 'project-editor' | 'my-tickets'>('workflow')
   const [projects, setProjects] = useState<Project[]>([])
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [editorProjectId, setEditorProjectId] = useState<number | null>(null)
   const [projectSavedMessage, setProjectSavedMessage] = useState<string | null>(null)
   const [projectSaving, setProjectSaving] = useState(false)
+  const [ticketBusy, setTicketBusy] = useState(false)
+  const [ticketDirty, setTicketDirty] = useState(false)
+  const canLeaveTickets = () => !ticketDirty || window.confirm('저장하지 않은 티켓 수정을 버리고 이동할까요?')
   const [project, setProject] = useState<Project | null>(null)
   const [members, setMembers] = useState<ProjectMember[]>([])
   const [executionMode, setExecutionMode] = useState<ExecutionMode | null>(null)
@@ -222,7 +226,7 @@ function App() {
   }
 
   const handleLogout = async () => {
-    if (logoutPending.current) return
+    if (logoutPending.current || ticketBusy || !canLeaveTickets()) return
     logoutPending.current = true
     setLoggingOut(true)
     setLogoutError(null)
@@ -279,7 +283,7 @@ function App() {
           {user && (
             <>
               <span className="user-name">{user.name}님</span>
-              <button className="link" onClick={handleLogout} disabled={projectSaving || starting || loggingOut}>
+              <button className="link" onClick={handleLogout} disabled={projectSaving || ticketBusy || starting || loggingOut}>
                 {loggingOut ? '로그아웃 중...' : '로그아웃'}
               </button>
             </>
@@ -290,7 +294,7 @@ function App() {
       {user && logoutError && (
         <div role="alert">
           <p className="error">{logoutError}</p>
-          <button type="button" className="link" onClick={handleLogout} disabled={loggingOut || projectSaving}>
+          <button type="button" className="link" onClick={handleLogout} disabled={loggingOut || projectSaving || ticketBusy}>
             로그아웃 다시 시도
           </button>
         </div>
@@ -316,14 +320,18 @@ function App() {
 
       {user && (
         <nav className="workspace-nav" aria-label="서비스 메뉴">
-          <button type="button" aria-current={page === 'workflow' ? 'page' : undefined} disabled={projectSaving} onClick={() => setPage('workflow')}>회의록 업로드</button>
-          <button type="button" aria-current={page === 'project-editor' ? 'page' : undefined} disabled={projectsLoading || step === 'analyzing' || starting || projectSaving} onClick={() => {
+          <button type="button" aria-current={page === 'workflow' ? 'page' : undefined} disabled={projectSaving || ticketBusy || loggingOut} onClick={() => { if (canLeaveTickets()) setPage('workflow') }}>회의록 업로드</button>
+          <button type="button" aria-current={page === 'project-editor' ? 'page' : undefined} disabled={projectsLoading || step === 'analyzing' || starting || projectSaving || ticketBusy || loggingOut} onClick={() => {
+            if (!canLeaveTickets()) return
             setEditorProjectId(project?.projectId ?? projects[0]?.projectId ?? null)
             setProjectSavedMessage(null)
             setPage('project-editor')
           }}>프로젝트 설정</button>
+          <button type="button" aria-current={page === 'my-tickets' ? 'page' : undefined} disabled={projectSaving || starting || step === 'analyzing' || ticketBusy || loggingOut} onClick={() => setPage('my-tickets')}>내 티켓</button>
         </nav>
       )}
+
+      {user && page === 'my-tickets' && <MyTickets projects={projects} projectsLoading={projectsLoading} onBusyChange={setTicketBusy} onDirtyChange={setTicketDirty} />}
 
       {user && page === 'project-editor' && <>
         <div className="project-toolbar">
