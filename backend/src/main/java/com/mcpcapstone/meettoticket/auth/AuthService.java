@@ -12,7 +12,9 @@ import com.mcpcapstone.meettoticket.user.User;
 import com.mcpcapstone.meettoticket.user.UserRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -20,14 +22,33 @@ public class AuthService {
 
 	private final UserRepository userRepository;
 	private final PasswordEncoder passwordEncoder;
+	private final GitHubAccountClient gitHubAccountClient;
 
 	@Transactional
 	public User signup(SignupRequest request) {
 		if (userRepository.existsByLoginId(request.loginId())) {
 			throw new BusinessException(ErrorCode.DUPLICATE_LOGIN_ID);
 		}
-		User user = new User(request.loginId(), passwordEncoder.encode(request.password()), request.name().trim());
+		String githubName = verifyGithubName(request.githubName());
+		User user = new User(request.loginId(), passwordEncoder.encode(request.password()), request.name().trim(),
+				githubName);
 		return userRepository.save(user);
+	}
+
+	// 빈 값은 입력하지 않은 것으로 본다. GitHub에 없는 계정이면 가입을 막는다.
+	// 호출 한도나 장애로 확인하지 못하면 입력값을 그대로 저장한다 (존재하는 계정을 입력한다고 가정).
+	private String verifyGithubName(String githubName) {
+		if (githubName == null || githubName.isBlank()) {
+			return null;
+		}
+		String input = githubName.trim();
+		try {
+			return gitHubAccountClient.findLogin(input)
+					.orElseThrow(() -> new BusinessException(ErrorCode.INVALID_GITHUB_ACCOUNT));
+		} catch (GitHubAccountClient.UnavailableException e) {
+			log.warn("GitHub 계정을 확인하지 못해 입력값으로 저장합니다: {} ({})", input, e.getMessage());
+			return input;
+		}
 	}
 
 	// 아이디가 없을 때와 비밀번호가 틀릴 때 같은 에러를 돌려준다.

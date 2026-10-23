@@ -537,6 +537,6 @@ public final class ApiExamples {
             """;
 
     public static final String AUTH_USER = """
-            {"userId": 1, "loginId": "demo1", "name": "함주헌"}
+            {"userId": 1, "loginId": "demo1", "name": "함주헌", "githubName": null}
             """;
 }

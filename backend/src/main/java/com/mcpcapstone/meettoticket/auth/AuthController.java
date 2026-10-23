@@ -51,10 +51,13 @@ public class AuthController {
 			headers = @Header(name = "Set-Cookie", description = SET_COOKIE_DESCRIPTION),
             content = @Content(schema = @Schema(implementation = UserResponse.class),
                     examples = @ExampleObject(value = ApiExamples.AUTH_USER)))
-	@ApiResponse(responseCode = "400", description = "입력값 오류",
+	@ApiResponse(responseCode = "400", description = "입력값 오류 (VALIDATION_FAILED) 또는 GitHub에 없는 계정 (INVALID_GITHUB_ACCOUNT)",
 			content = @Content(schema = @Schema(implementation = ErrorResponse.class),
-					examples = @ExampleObject(value = """
-							{ "code": "VALIDATION_FAILED", "message": "아이디는 영문 / 숫자 4~20자입니다." }""")))
+					examples = {
+							@ExampleObject(name = "VALIDATION_FAILED", value = """
+									{ "code": "VALIDATION_FAILED", "message": "아이디는 영문 / 숫자 4~20자입니다." }"""),
+							@ExampleObject(name = "INVALID_GITHUB_ACCOUNT", value = """
+									{ "code": "INVALID_GITHUB_ACCOUNT", "message": "GitHub 계정을 찾을 수 없습니다. 로그인명을 확인해 주세요." }""") }))
 	@ApiResponse(responseCode = "409", description = "이미 사용 중인 아이디",
 			content = @Content(schema = @Schema(implementation = ErrorResponse.class),
 					examples = @ExampleObject(value = """

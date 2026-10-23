@@ -20,5 +20,14 @@ public record SignupRequest(
 		@Schema(description = "이름 (20자 이하). 회의록 참여자 / 담당자 이름과 맞춘다.", example = "김PM")
 		@NotBlank(message = "이름을 입력해 주세요.")
 		@Size(max = 20, message = "이름은 20자 이하입니다.")
-		String name) {
+		String name,
+
+		@Schema(description = "GitHub 계정 (선택). 입력하면 GitHub에 있는 계정인지 확인한다.", example = "octocat",
+				requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+		@Pattern(regexp = "^\\s*([a-zA-Z0-9](-?[a-zA-Z0-9]){0,38})?\\s*$", message = "GitHub 계정 형식을 확인해 주세요.")
+		String githubName) {
+
+	public SignupRequest(String loginId, String password, String name) {
+		this(loginId, password, name, null);
+	}
 }
