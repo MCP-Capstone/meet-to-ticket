@@ -11,7 +11,7 @@ agent 폴더에서, MCP 서버(python server.py)를 켠 상태로 실행한다.
     # rag-mcp까지: 색인 갱신 후 중복 판단용 도구 3개(유사 검색, 키워드 검색, 원문 읽기)를 한 번씩 호출
     python mcp_check.py --owner <owner> --repo <repo> --rag "검색할 문장"
 
-저장소는 mcp-server/.env의 GITHUB_OWNER·GITHUB_REPO(또는 GITHUB_ALLOWED_REPOS)에 허용돼 있어야 한다.
+저장소는 business-mcp/.env의 GITHUB_OWNER·GITHUB_REPO(또는 GITHUB_ALLOWED_REPOS)에 허용돼 있어야 한다.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ async def main() -> None:
         tools = {t.name: t for t in await client.get_tools()}
     except Exception as exc:  # noqa: BLE001
         print(f"[실패] MCP 서버에 연결하지 못함: {exc}")
-        print("  → mcp-server 폴더에서 python server.py 가 켜져 있는지, MCP_SERVER_URL이 맞는지 확인")
+        print("  → business-mcp 폴더에서 python server.py 가 켜져 있는지, MCP_SERVER_URL이 맞는지 확인")
         return
     print(f"[연결 OK] 도구: {sorted(tools)}")
 
@@ -96,7 +96,7 @@ async def check_rag(args, settings, github: dict) -> None:
     if "search_issues" in github:
         print(f"[키워드 검색] {await tools.search_issues(args.rag)}")
     else:
-        print("[키워드 검색] mcp-server에 search_issues가 아직 없음")
+        print("[키워드 검색] business-mcp에 search_issues가 아직 없음")
     try:
         top = json.loads(found)["results"][0]["number"]
     except (ValueError, KeyError, IndexError, TypeError):

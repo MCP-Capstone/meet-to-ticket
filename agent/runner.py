@@ -116,7 +116,7 @@ def _mcp_client(name: str, url: str) -> Any:
 
 
 async def github_tools(settings: Settings) -> dict[str, Any]:
-    """mcp-server의 도구 (create_issue, search_issues 등). 연결이 안 되면 예외."""
+    """business-mcp의 도구 (create_issue, search_issues 등). 연결이 안 되면 예외."""
     tools = await _mcp_client("github", settings.mcp_server_url).get_tools(server_name="github")
     return {t.name: t for t in tools}
 
@@ -273,7 +273,7 @@ async def _run(
             try:
                 github = await github_tools(settings)
             except Exception as exc:  # noqa: BLE001
-                log.warning("mcp-server 조회 도구를 쓰지 못함 (키워드 검색 없이 진행): %s", exc)
+                log.warning("business-mcp 조회 도구를 쓰지 못함 (키워드 검색 없이 진행): %s", exc)
         issue_tools, rag_status = await make_issue_tools(
             settings, req.project.github_owner, req.project.github_repo, github)
     else:

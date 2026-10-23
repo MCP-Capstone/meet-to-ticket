@@ -1,7 +1,7 @@
 """중복 판단에 쓰는 기존 이슈 조회 도구.
 
 모델에게 주는 도구(조회만)와 코드만 부르는 도구(색인)를 나눈다.
-- 모델용: search_similar_issues(rag-mcp, 의미 검색), search_issues(mcp-server, 키·단어 검색),
+- 모델용: search_similar_issues(rag-mcp, 의미 검색), search_issues(business-mcp, 키·단어 검색),
           read_issue(rag-mcp Resource issue://{owner}/{repo}/{number}를 도구로 감쌈)
 - 코드용: sync(실행마다 1회 색인 갱신), index(발행한 이슈 색인)
 
@@ -60,7 +60,7 @@ class IssueTools:
         repo: str,
         *,
         similar: Any | None = None,      # rag-mcp search_similar_issues (MCP 도구)
-        keyword: Any | None = None,      # mcp-server search_issues (MCP 도구)
+        keyword: Any | None = None,      # business-mcp search_issues (MCP 도구)
         reader: ResourceReader | None = None,  # rag-mcp Resource 읽기
         sync_tool: Any | None = None,    # rag-mcp sync_issues
         index_tool: Any | None = None,   # rag-mcp index_issue

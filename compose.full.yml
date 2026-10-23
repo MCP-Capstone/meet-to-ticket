@@ -38,11 +38,11 @@ services:
       start_period: 20s
     networks: [app]
 
-  mcp-server:
-    build: ./mcp-server
+  business-mcp:
+    build: ./business-mcp
     restart: unless-stopped
     env_file:
-      - path: ./mcp-server/.env
+      - path: ./business-mcp/.env
         required: false
     environment:
       MCP_HOST: 0.0.0.0
@@ -84,7 +84,7 @@ services:
       - path: ./agent/.env
         required: false
     environment:
-      MCP_SERVER_URL: http://mcp-server:8000/mcp
+      MCP_SERVER_URL: http://business-mcp:8000/mcp
       BACKEND_BASE_URL: http://backend:8080
       BACKEND_INTERNAL_TOKEN: ${BACKEND_INTERNAL_TOKEN:?루트 .env에 BACKEND_INTERNAL_TOKEN을 설정하세요}
       # 루트 값이 agent/.env보다 우선한다. 기본값은 실제 이슈 생성 없음.
@@ -93,7 +93,7 @@ services:
       RAG_ENABLED: ${RAG_ENABLED:-true}
       RAG_MCP_URL: http://rag-mcp:8002/mcp
     depends_on:
-      mcp-server:
+      business-mcp:
         condition: service_healthy
       # rag-mcp 준비를 기다리지 않는다 (중복 판단은 선택 기능이라 Agent 기동을 막지 않음)
       rag-mcp:

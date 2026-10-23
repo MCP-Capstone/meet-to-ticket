@@ -20,5 +20,5 @@ Closes #
 <!-- 패키지를 바꿨다면 머지 후 팀원이 실행할 명령을 적는다.
   - frontend: 패키지 업데이트 필요: `cd frontend && npm ci`
   - backend: 패키지 업데이트 필요: `cd backend && ./gradlew build` (IDE는 Gradle 새로고침)
-  - agent / mcp-server: 패키지 업데이트 필요: `uv pip sync requirements-dev.txt`
+  - agent / business-mcp: 패키지 업데이트 필요: `uv pip sync requirements-dev.txt`
 -->
