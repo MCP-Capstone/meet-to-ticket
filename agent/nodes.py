@@ -662,7 +662,10 @@ class AgentNodes:
             dropped = res.get("dropped_assignees") or []
             if dropped:
                 t["warnings"].append(f"GitHub에서 담당자 지정이 안 됨: {', '.join(dropped)}")
-            # TODO(TASK-046): MCP가 돌려줄 droppedLabels(발행 때 빠진 라벨)를 결과에 합친다
+            # 저장소에 없는 라벨은 MCP가 빼고 만든다. 담당자가 알 수 있게 경고로 남긴다 (TASK-046)
+            dropped_labels = res.get("dropped_labels") or []
+            if dropped_labels:
+                t["warnings"].append(f"저장소에 없는 라벨이라 빠짐: {', '.join(dropped_labels)}")
             if self.issue_tools is not None and t["github_issue_number"]:
                 # 다음 실행의 중복 판단에서 찾을 수 있게 색인에 넣는다. 실패해도 발행 결과는 그대로
                 indexed = await self._index(t["github_issue_number"])
