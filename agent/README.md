@@ -615,6 +615,25 @@ model ──(조회 도구 호출)──▶ tools ──▶ model ── … ─
   - `change_section(...)`: `update_issue`의 `append_section` (`## 회의 변경 사항 (날짜)`, 변경 전 → 후, 원문 할 일, 근거)
   - `change_note(...)`: `update_issue`의 `note` (갱신 알림 댓글)
 
+#### 발행 직전 재대조 (TASK-042, `recheck.py`)
+
+대조는 초안 생성 때(그래프의 `dedupe` 노드) 1회, 발행 직전 1회 한다. 초안을 만든 뒤 담당자가 확인하기까지 그사이에 생긴 이슈를 잡기 위해서다. 일괄 발행(TASK-034)이 저장소마다 한 번 부른다.
+
+```python
+out = await recheck(tickets, issue_tools=tools, llm=llm, settings=settings)
+for t in out["tickets"]:
+    t["handling"]   # 실제로 실행할 처리 유형 {type, issue_number, overlap, judged, changed}
+    t["recheck"]    # 재대조 판정 (contentJson.dedupe와 같은 형식)
+```
+
+- 입력 티켓은 결과 `contentJson` 형태(`action_text`, `evidence_quotes`, `expected`, `title`, `work_key`)에 담당자가 확인한 `handling`을 더한 것이다. 입력은 바꾸지 않고 복사본을 돌려준다.
+- 대조 전에 색인을 한 번 증분 동기화한다(`sync_issues(full=false)`, `RAG_SYNC_TIMEOUT_SECONDS`=30). 실패하거나 시간을 넘기면 기존 색인으로 계속한다.
+- 판정 루프와 한도는 초안 생성 때와 같다.
+- 최종 처리 유형(`handling.after_recheck`)
+  - 재대조가 열린 같은 작업(`LINK`)을 찾으면 연결로 바꾸고 `changed=true`. 이미 확인된 티켓이라 다시 묻지 않고 댓글로 연결하며, 결과 화면에 표시한다.
+  - 그 밖에는 담당자가 확인한 처리 유형을 그대로 쓴다. 카드에서 바꾼 유형을 재대조가 덮지 않는다.
+  - 재대조에 실패하거나 rag-mcp가 없어도 확인한 처리 유형으로 발행한다.
+
 #### 발행 처리 (현재 발행 노드)
 
 일괄 발행(TASK-034)으로 옮기기 전까지 그래프의 발행 노드는 아래처럼 동작한다. `UPDATE`(CHANGE + 열린 이슈)도 지금은 새로 발행한다.
