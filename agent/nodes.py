@@ -18,7 +18,7 @@ from typing import Any
 
 import prompts
 from config import Settings
-from extraction import from_llm, from_table, keep_verbatim
+from extraction import NO_EVIDENCE_WARNING, from_llm, from_table, keep_verbatim
 from parsing import parse_summary
 from publisher import ToolCallError, build_issue_body, pick_labels
 from resolve import classify_expected, map_assignees, normalize_ws, parse_due
@@ -54,6 +54,12 @@ log = logging.getLogger("agent.nodes")
 
 # 새 이슈를 색인에 넣을 때 기다리는 시간. 넘으면 색인 없이 넘어간다 (발행 결과는 그대로)
 INDEX_TIMEOUT_SECONDS = 10
+
+# 초안 단계 카드 경고 (초안을 다시 쓸 때마다 지우고 새로 붙인다)
+LABEL_WARNING = "라벨 후보에 없어 뺀 라벨"
+DRAFT_QUOTE_WARNING = "초안의 근거 인용 중 원문과 다른"
+DRAFT_WARNING_PREFIXES = (LABEL_WARNING, DRAFT_QUOTE_WARNING)
+MISSING_DRAFT_FEEDBACK = "[9] 초안 작성 결과에 이 할 일이 빠짐 → 이 할 일의 초안을 작성"
 
 
 def _chunks(items: list[Any], size: int) -> list[list[Any]]:
@@ -218,6 +224,11 @@ class AgentNodes:
             return stop
         tickets = _copy(state["tickets"])
         labels = state.get("label_candidates") or self.settings.issue_labels
+        # 추출 결과의 회의 단위 값. 초안의 미결 질문은 이 목록 안에서만 고른다
+        context = {
+            "decisions": [d["content"] for d in state.get("decisions", [])],
+            "open_questions": state.get("open_questions", []),
+        }
         targets = [
             t for t in tickets
             if t["review_status"] == REVIEW_REVISE or (t["review_status"] == REVIEW_PENDING and not t["title"])
@@ -231,20 +242,21 @@ class AgentNodes:
                     "assignees": t["assignee_names"],
                     "due": t["due"]["text"],
                     "expected_handling": t["expected"]["raw"],
+                    "evidence_quotes": t["evidence_quotes"],  # 추출 단계에서 원문과 대조한 근거
                 }
-                if t["review_status"] == REVIEW_REVISE:
+                if t["review_status"] == REVIEW_REVISE and t["title"]:
                     item["current_draft"] = {
                         "title": t["title"],
                         "description": t["description"],
                         "tasks": t["tasks"],
                         "acceptance_criteria": t["acceptance_criteria"],
-                        "evidence_quotes": t["evidence_quotes"],
                         "labels": t["labels"],
                     }
+                if t["review_status"] == REVIEW_REVISE:
                     item["feedback"] = t["feedback"]
                 items.append(item)
             try:
-                drafts = await self.llm.draft(state["original_content"], items, labels)
+                drafts = await self.llm.draft(state["original_content"], items, labels, context)
             except AgentFatal as exc:
                 return {"error_code": exc.code, "error_message": exc.message}
             by_key = {d.work_key: d for d in drafts}
@@ -253,22 +265,41 @@ class AgentNodes:
                 if t["review_status"] == REVIEW_REVISE:
                     t["revisions"] += 1
                     t["review_status"] = REVIEW_PENDING
-                if d is None:
-                    continue
-                t["title"] = d.title.strip()
-                t["description"] = d.description.strip()
-                t["tasks"] = [x.strip() for x in d.tasks if x.strip()]
-                t["acceptance_criteria"] = [c.strip() for c in d.acceptance_criteria if c.strip()]
-                t["labels"], dropped_labels = pick_labels(d.labels, labels)
-                if dropped_labels:
-                    t["warnings"].append(f"라벨 후보에 없어 뺀 라벨: {', '.join(dropped_labels)}")
-                kept, dropped = keep_verbatim(d.evidence_quotes, state["original_content"])
-                if dropped:
-                    t["warnings"].append(f"원문과 다른 근거 인용 {dropped}개를 제외함")
-                # 초안의 근거가 모두 빠지면 추출 단계의 근거, 그것도 없으면 할 일 문장을 쓴다
-                t["evidence_quotes"] = kept or t["evidence_quotes"] or [t["action_text"]]
-                t["open_questions"] = [q.strip() for q in d.open_questions if q.strip()]
+                if d is not None:
+                    self._apply_draft(t, d, labels, state["original_content"], context["open_questions"])
+                elif t["revisions"] < self.settings.max_revisions:
+                    # 초안이 빠진 할 일은 검수로 보내지 않고 다시 작성한다 (보완 한도를 같이 쓴다).
+                    # 보완 중이던 티켓은 같은 피드백으로 다시 쓴다. 한도에 닿으면 검수가 처리한다
+                    log.warning("초안 작성 결과에 %s가 빠짐 (보완 %d회)", t["work_key"] or t["task_item_id"], t["revisions"])
+                    t["review_status"] = REVIEW_REVISE
+                    if not t["title"]:
+                        t["feedback"] = [MISSING_DRAFT_FEEDBACK]
         return {"tickets": tickets}
+
+    @staticmethod
+    def _apply_draft(t: dict[str, Any], d: Any, labels: list[str], source: str, open_questions: list[str]) -> None:
+        # 초안 단계 경고는 초안을 다시 쓸 때마다 새로 계산한다 (보완할 때 같은 경고가 쌓이지 않게)
+        t["warnings"] = [w for w in t["warnings"] if not w.startswith(DRAFT_WARNING_PREFIXES)]
+        t["title"] = d.title.strip()
+        t["description"] = d.description.strip()
+        t["tasks"] = [x.strip() for x in d.tasks if x.strip()]
+        t["acceptance_criteria"] = [c.strip() for c in d.acceptance_criteria if c.strip()]
+        t["labels"], dropped_labels = pick_labels(d.labels, labels)
+        if dropped_labels:
+            t["warnings"].append(f"{LABEL_WARNING}: {', '.join(dropped_labels)}")
+        kept, dropped = keep_verbatim(d.evidence_quotes, source)
+        if dropped:
+            t["warnings"].append(f"{DRAFT_QUOTE_WARNING} {dropped}개를 제외함")
+        # 초안의 근거가 모두 빠지면 추출 단계의 근거를 그대로 둔다. 원문에 없는 문장은 근거로 쓰지 않는다
+        if kept:
+            t["evidence_quotes"] = kept
+        if t["evidence_quotes"]:
+            t["warnings"] = [w for w in t["warnings"] if w != NO_EVIDENCE_WARNING]
+        allowed = {normalize_ws(q): q for q in open_questions}
+        picked = [allowed[k] for q in d.open_questions if (k := normalize_ws(q)) in allowed]
+        if len(picked) < len([q for q in d.open_questions if q.strip()]):
+            log.info("추출된 미결 질문에 없는 초안 질문을 뺌: %s", t["work_key"] or t["task_item_id"])
+        t["open_questions"] = list(dict.fromkeys(picked))
 
     # ------------------------------------------------------------ 3. 검수
 
@@ -324,8 +355,6 @@ class AgentNodes:
             t["tasks"] = []  # 제외·보류 항목이나 원문에 없는 내용이 남았으면 상세 작업도 믿지 않는다
         if not t["acceptance_criteria"] or 8 in items:
             t["acceptance_criteria"] = [f"{t['action_text']} 완료"]
-        if not t["evidence_quotes"]:
-            t["evidence_quotes"] = [t["action_text"]]
         t["review_status"] = REVIEW_APPROVED
         t["fallback"] = True
         t["review_notes"] = feedback
@@ -591,6 +620,8 @@ class AgentNodes:
                     },
                     "warnings": t["warnings"],
                     "dedupe": t.get("dedupe"),
+                    # 발행할 때 쓰는 것과 같은 이슈 본문. 발행 전 초안 저장과 미리보기에 쓴다
+                    "issue_body": build_issue_body(t, state["meeting_id"], state.get("background", "")),
                 },
                 "action": t["action"],
                 "reason": t["reason"],

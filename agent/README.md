@@ -327,7 +327,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | 파일 | 쓰는 곳 | 채워 넣는 값 |
 |---|---|---|
 | `prompts/extract_system.md` | 표가 없을 때 본문에서 할 일·결정·미결 질문·제외 항목 추출 | - |
-| `prompts/draft_system.md`, `draft_user.md` | 이슈 초안 작성 | `{summary}`, `{items}` |
+| `prompts/draft_system.md`, `draft_user.md` | 이슈 초안 작성 | `{summary}`, `{decisions}`, `{open_questions}`, `{labels}`, `{items}` |
 | `prompts/review_system.md`, `review_user.md` | 검수 | `{summary}`, `{source_note}`, `{excluded}`, `{drafts}` |
 | `prompts/dedupe_system.md`, `dedupe_user.md` | 중복 판단 (도구 고르기, 관계 판단) | `{title}`, `{action}`, `{evidence}`, `{keys}`, `{expected}` |
 
@@ -395,16 +395,25 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | 작업 내용 | 무엇을 왜 하는지 2~4문장 | 초안 `description` |
 | 상세 작업 | 체크리스트 1~5개 (`- [ ]`) | 초안 `tasks` |
 | 완료 조건 | 확인 가능한 조건 1~5개 | 초안 `acceptance_criteria` |
-| 근거 | 회의록 원문 인용 1~3개 | 초안 `evidence_quotes` (원문 대조 후) |
+| 근거 | 회의록 원문 인용 1~3개 | 초안 `evidence_quotes` (원문 대조 후). 모두 빠지면 추출 단계 근거 |
 | 담당 | 회의록 담당자 이름, GitHub 계정. 계정이 없으면 이름만 | 추출 + 멤버 매핑 |
 | 기한 | 계산한 날짜와 원문 표현 | 추출 + `resolve.parse_due` |
 | 관련 이슈 | 회의록 예상 처리, 관련 키, 중복 판단으로 찾은 기존 이슈 | 추출 + 중복 판단 |
 | 상위 이슈 | 예상 처리가 "하위 티켓"일 때의 키 | 추출 |
-| 확인 필요 | 이 할 일과 관련된 미결 질문 | 초안 `open_questions` |
+| 확인 필요 | 이 할 일과 관련된 미결 질문 | 초안 `open_questions` (추출된 미결 질문 안에서만) |
 | 검수 메모 | 기본 초안으로 바뀌었을 때 남은 검수 지적 | 검수 |
 | 회의 배경 | 접힌 블록(`<details>`)으로 배경 요약 | 회의록 배경 |
 
 라벨은 본문이 아니라 이슈 생성 인자로 넘긴다. 초안이 라벨 후보 중에서 티켓마다 0~3개를 고르고, 코드가 후보에 없는 값을 빼서 카드 경고(`warnings`)에 남긴다(`publisher.pick_labels`). 후보(`label_candidates`)는 Agent가 MCP `list_labels`로 저장소 라벨을 받아 채운다(도구가 생기면 연결). 비어 있으면 설정 `ISSUE_LABELS`를 쓰고, 그것도 없으면 라벨 없이 발행한다.
+
+초안 작성(`nodes.draft`)은 추출 결과를 입력으로 쓴다. 할 일마다 추출 단계에서 원문과 대조한 근거(`evidence_quotes`)를 넘기고, 회의의 결정 사항과 미결 질문을 프롬프트에 함께 넣는다. 코드가 초안을 다시 확인한다.
+
+- 근거: 원문에 없는 인용은 뺀다. 모두 빠지면 추출 단계의 근거를 그대로 두고, 원문에 없는 문장(할 일 문장 포함)은 근거로 쓰지 않는다. 근거가 채워지면 추출 단계의 "근거를 찾지 못해 확인 필요" 경고를 지운다.
+- 미결 질문: 추출된 미결 질문 목록에 있는 것만 남긴다 (공백만 다르면 원문 표현으로 맞춤).
+- 빠진 초안: LLM이 어떤 할 일의 초안을 돌려주지 않으면 검수로 보내지 않고 그 할 일만 다시 작성한다. 보완 중이던 티켓은 같은 피드백으로 다시 쓴다. 재작성은 보완 한도(`MAX_REVISIONS`)를 같이 써서 티켓당 LLM 호출 수를 묶는다. 한도까지 빠지면 검수가 처리한다 (빈 초안은 9번 점검, 이전 초안은 다시 검수).
+- 카드 경고: 초안 단계 경고(뺀 라벨, 원문과 다른 초안 근거)는 초안을 다시 쓸 때마다 새로 계산해 쌓이지 않는다. 문구로 추출 단계 경고와 구분한다.
+
+결과의 `content_json.issue_body`에는 발행할 때와 같은 방법으로 조립한 이슈 본문이 들어간다. 발행 전에 초안을 저장하거나 미리보기를 보여줄 때 쓴다. 본문에는 회의록 원문(근거, 배경)과 `<details>` HTML이 들어 있으므로, 미리보기에서 HTML로 그릴 때는 반드시 sanitize한다 (스크립트, 이벤트 속성 제거).
 
 ### Harness 명세
 
@@ -415,7 +424,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | Instructions | 프롬프트 md 분리, 구조화 출력, 작업별 모델·추론 설정 | `prompts/*.md`, `PROMPT_VERSION`, 위 "모델" 표 |
 | Tools | MCP 서버 2개(business-mcp, rag-mcp) 연결, 모델용 조회 도구 3개(저장소 고정, 결과 길이 제한, 오류는 `[코드] 메시지`로 모델에게 전달), 쓰기 도구는 코드만 호출 | `MCP_SERVER_URL`, `RAG_MCP_URL`, `TOOL_RESULT_MAX_CHARS` |
 | Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → dedupe → publish → finish), 중복 판단은 티켓마다 model ⇄ tools 루프(모델이 도구 선택), 작업 마감, LLM 호출 시간 한도 | 보완 `MAX_REVISIONS`=2, recursion 50, `TASK_DEADLINE_SECONDS`=600, `LLM_TIMEOUT_SECONDS`=120, 판단 `DEDUPE_MAX_TOOL_CALLS`=4·`DEDUPE_MAX_SAME_TOOL`=3·`DEDUPE_TIMEOUT_SECONDS`=30·`DEDUPE_CONCURRENCY`=4 |
-| Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입, 원문 길이 한도 | `MAX_SOURCE_CHARS`=40000, `DRAFT_BATCH_SIZE`·`REVIEW_BATCH_SIZE`=10 |
+| Context | 원문과 코드가 정리한 표만 전달, 초안에 추출 결과(할 일별 근거, 결정 사항, 미결 질문) 주입, 검수에 제외·보류 목록 주입, 원문 길이 한도 | `MAX_SOURCE_CHARS`=40000, `DRAFT_BATCH_SIZE`·`REVIEW_BATCH_SIZE`=10 |
 | State·Memory | 노드가 끝날 때마다 상태 저장(checkpointer, thread id = taskId), 발행한 taskId 재요청은 저장된 결과로 응답, 실행 중 같은 taskId는 409, `GET /runs/{id}/history` | 메모리 저장 (재시작 시 사라짐) |
 | Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행, 중복 판단 도구 호출 수·같은 도구 수·시간 한도, 도구 결과에서 본 이슈 번호만 인정, 기존 이슈는 연결만 하고 수정·닫기·댓글 안 함 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
 | Recovery | LLM 오류를 종류별로 처리(아래 "LLM 오류 처리"), 대체 모델, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단, 검수 보완 한도 초과 시 기본 초안, 중복 판단·색인 추가가 실패해도 새로 발행 | `LLM_RETRIES`=2, `OPENAI_FALLBACK_MODEL` |

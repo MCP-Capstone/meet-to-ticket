@@ -15,6 +15,8 @@ from schemas import ActionRowsOut, DecisionOut, ExtractedDecision, ExtractedTodo
 log = logging.getLogger("agent.extraction")
 
 MAX_QUOTES = 3
+# 할 일의 근거를 찾지 못했을 때의 카드 경고. 초안 작성에서 근거를 찾으면 지운다
+NO_EVIDENCE_WARNING = "회의록 원문에서 근거를 찾지 못해 확인 필요"
 
 
 def keep_verbatim(quotes: list[str], source: str) -> tuple[list[str], int]:
@@ -72,7 +74,7 @@ def from_llm(parsed: ParsedSummary, out: ActionRowsOut, meeting_id: str, source:
             # 할 일 문장이 원문에 그대로 있으면 그것을 근거로 쓴다
             quotes, _ = keep_verbatim([r.action], source)
         if not quotes:
-            todo.warnings.append("회의록 원문에서 근거를 찾지 못해 확인 필요")
+            todo.warnings.append(NO_EVIDENCE_WARNING)
         todo.evidence_quotes = quotes
         todos.append(todo)
     found = parsed.found
