@@ -1065,3 +1065,14 @@ button.danger { color: var(--danger); border: 1px solid var(--danger); }
 .ticket-dedupe-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .ticket-dedupe-comparison > div { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); }
 @media (max-width: 560px) { .ticket-dedupe-comparison { grid-template-columns: 1fr; } }
+
+/* #245: 저장된 발행 내용과 상세 백로그 */
+.ticket-publication-preview { min-width: 0; }
+.publication-preview-panel { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); }
+.publication-preview-panel h4, .publication-preview-panel h5 { margin: 0; }
+.publication-preview-panel p, .publication-preview-panel li { white-space: pre-wrap; overflow-wrap: anywhere; }
+.publication-preview-panel .issue-markdown { min-width: 0; }
+.publication-backlog { border-top: 1px solid var(--border); padding-top: 12px; }
+.publication-backlog summary { cursor: pointer; }
+.publication-backlog > div { margin-top: 12px; }
+@media (max-width: 560px) { .publication-preview-panel { padding: 12px; } }

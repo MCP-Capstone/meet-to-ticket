@@ -165,3 +165,9 @@ AGENT_MODE=live ./gradlew bootRun --args='--spring.profiles.active=demo'
 ## Spring·Agent Swagger 명세 (#58)
 
 [공개·내부 API 구분, Swagger 접속 및 전체 흐름 테스트 안내](../docs/api/README.md)를 참고한다.
+
+### 내 티켓 본문·상세 백로그 조회 (#245)
+
+`GET /api/tickets/{ticketId}/preview`는 로그인한 담당자이며 현재 프로젝트 멤버인 사용자만 사용할 수 있다. 저장된 내용의 스냅샷을 만든 후 DB 트랜잭션 밖에서 Agent `POST /publication-preview`를 호출한다. 실제 발행과 동일한 `PublicationTicketMapper`를 사용한다. 조회는 티켓 상태·승인·발행 큐를 변경하지 않는다. Agent 조회 실패 시 502 `TICKET_PREVIEW_UNAVAILABLE`, 미로그인 401, 다른 담당자 403, 없는 티켓 404이다.
+
+기존 전송 결과 미리보기와 별개의 조회이며, GitHub 외 대상은 `publication: null`과 백로그를 반환한다. `agent.mode=mock`이면 외부 호출 없이 모의 미리보기를 반환한다. 새 endpoint가 필요하므로 backend와 Agent를 함께 재시작/재빌드한다. 추가 의존성·DB 변경은 없다.

@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import tools.jackson.databind.JsonNode;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -34,6 +33,7 @@ public class PublishService {
     private final PublishGateway gateway;
     private final JsonCodec json;
     private final TransactionTemplate tx;
+    private final PublicationTicketMapper publicationMapper;
 
     // 확인한 티켓을 발행 중으로 바꿔 한 묶음으로 보낸다. 중복 클릭은 이미 발행 중이어서 담기지 않는다.
     // Agent 호출은 트랜잭션 밖에서 해 DB 연결을 붙잡지 않는다.
@@ -250,24 +250,7 @@ public class PublishService {
 
     // 담당자가 카드에서 고친 내용(contentJson)과 처리 유형을 그대로 보낸다. 발행 본문은 Agent가 이 내용으로 조립한다.
     private PublishGateway.Ticket toTicket(TaskItem i) {
-        var meeting = i.getTask().getMeeting();
-        var project = meeting.getProject();
-        JsonNode content = json.read(i.getContentJson());
-        ProcessingType type = i.getProcessingType();
-        // 처음 정해진 값(Agent 제안)과 다르면 담당자가 고른 값이다. Agent는 발행 직전 재대조에서 이 선택을 덮어쓰지 않는다.
-        boolean edited = type != ProcessingType.from(i.getAction(), content);
-        Integer target = null;
-        if (type != ProcessingType.CREATE) {
-            JsonNode number = content.path("dedupe").path("issue_number");
-            target = number.isInt() ? number.intValue() : null;
-            // 연결, 갱신할 기존 이슈를 모르면 신규 발행으로 보낸다. Agent가 발행 직전에 다시 대조한다.
-            if (target == null) type = ProcessingType.CREATE;
-        }
-        return new PublishGateway.Ticket(
-                i.getId().toString(),
-                new PublishGateway.Project(project.getId(), project.getName(), project.getGithubOwner(), project.getGithubRepo()),
-                meeting.getId(), meeting.getTitle(), meeting.getMeetingDate(),
-                i.getTitle(), content, type.name(), target, edited, i.mustRecheckOnPublish(), "CONFIRMED");
+        return publicationMapper.toTicket(i);
     }
 
     public record Started(

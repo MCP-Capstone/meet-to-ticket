@@ -31,7 +31,7 @@ from permissions import check_members  # noqa: E402
 from project_connections import check_project_connections  # noqa: E402
 from reindex import create_router  # noqa: E402
 from publisher import ToolCallError  # noqa: E402
-from schemas import CheckMembersRequest, CheckMembersResponse, ProjectConnectionsRequest, ProjectConnectionsResponse, PublishBatchRequest, RunRequest  # noqa: E402
+from schemas import PublishTicket, PublicationPreview, CheckMembersRequest, CheckMembersResponse, ProjectConnectionsRequest, ProjectConnectionsResponse, PublishBatchRequest, RunRequest  # noqa: E402
 from state import STAGE_EXTRACTING  # noqa: E402
 from api_docs import (  # noqa: E402
     CHECK_MEMBERS_EXAMPLE, CHECK_MEMBERS_RESPONSES, DESCRIPTION, HEALTH_RESPONSES, HISTORY_RESPONSES, JOB_RESPONSES, REQUEST_EXAMPLE, RUN_RESPONSES,
@@ -226,3 +226,14 @@ async def health():
         "dry_run": s.dry_run,
         "model": s.openai_model,
     }
+
+
+@app.post("/publication-preview", tags=["분석 실행"], response_model=PublicationPreview,
+          summary="저장된 티켓의 GitHub 발행 본문 미리보기", operation_id="previewPublication")
+async def preview_publication(req: PublishTicket):
+    # 상태 변경·LLM 호출·발행 작업 생성 없이 발행과 동일한 순수 함수를 사용한다.
+    from batch_publish import publication_preview
+    try:
+        return publication_preview(req)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

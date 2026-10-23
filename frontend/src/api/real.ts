@@ -8,6 +8,7 @@ import type {
   PublishStarted,
   PublishBatchResult,
   TicketEditRequest,
+  TicketPublicationPreview,
   TicketAction,
   LoginRequest,
   Meeting,
@@ -41,6 +42,9 @@ export const realApi = {
 
   listMyTickets: (projectId?: number) =>
     request<MyTicketList>(`/tickets/me${projectId === undefined ? '' : `?projectId=${projectId}`}`),
+
+  getTicketPreview: (ticketId: string) =>
+    request<TicketPublicationPreview>(`/tickets/${encodeURIComponent(ticketId)}/preview`),
 
   editTicket: (ticketId: string, body: TicketEditRequest) =>
     request<MyTicket>(`/tickets/${encodeURIComponent(ticketId)}`, { method: 'PATCH', body: JSON.stringify(body) }),

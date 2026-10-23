@@ -1,11 +1,11 @@
-import type { MyTicket, MyTicketList, TicketAction, TicketEditRequest, TicketDedupe, User } from '../api/types'
+import type { MyTicket, MyTicketList, TicketAction, TicketEditRequest, TicketDedupe, TicketPublicationPreview, User } from '../api/types'
 import { ApiRequestError } from '../api/client'
 import type { PublishBatchResult } from '../api/types'
 import { publishSelection } from '../batchPublish'
 import { validMeetingDate } from '../meetingInput'
 import { listMockMembers, listMockProjects } from './projects'
 
-type StoredTicket = MyTicket & { assigneeUserId: number }
+type StoredTicket = MyTicket & { assigneeUserId: number; backlog?: Omit<TicketPublicationPreview['backlog'], 'description'> }
 const KEY = 'mock-my-tickets-v2'
 const fail = (status: number, code: string, message: string) => new ApiRequestError(status, { code, message })
 function read(user: User): StoredTicket[] {
@@ -37,6 +37,7 @@ function read(user: User): StoredTicket[] {
     publishTarget: index === 3 ? 'NOTION' : 'GITHUB', processingType: index === 1 ? 'UPDATE' : index === 2 ? 'LINK' : 'CREATE', dedupe: dedupes[index], publishFailure: failures[index] ?? null,
     projectId: project.projectId, projectName: project.name, meetingId: 2101, meetingTitle: 'CSV 내보내기 점검 회의',
     taskId: '21000000-0000-4000-8000-000000000100', createdAt: '2026-10-23T10:00:00+09:00',
+    backlog: { tasks: [`${titles[index]}에 필요한 상세 작업을 구현한다.`], acceptanceCriteria: ['정상 및 오류 상황을 검증한다.'], evidenceQuotes: ['회의에서 해당 작업을 진행하기로 했다.'], openQuestions: index === 0 ? ['빈 결과 안내 문구를 확인한다.'] : [] },
     description: `${titles[index]}에 필요한 작업 내용을 확인하고 수정해 주세요.`,
     due: { text: index === 0 ? '다음 회의 전까지' : null, date: index === 0 ? '2026-10-30' : null, time: null },
     assignee: { projectMemberId: owner.projectMemberId, name: owner.name }, assigneeUserId: 1,
@@ -49,7 +50,7 @@ export function deleteMockProjectTickets(projectId: number) {
   const raw = sessionStorage.getItem(KEY)
   if (raw) write((JSON.parse(raw) as StoredTicket[]).filter((ticket) => ticket.projectId !== projectId))
 }
-const view = ({ assigneeUserId: _owner, ...ticket }: StoredTicket): MyTicket => structuredClone(ticket)
+const view = ({ assigneeUserId: _owner, backlog: _backlog, ...ticket }: StoredTicket): MyTicket => structuredClone(ticket)
 export function listMockTickets(user: User, projectId?: number): MyTicketList {
   settleMockBatches(user)
   const tickets = read(user).filter((ticket) => ticket.assigneeUserId === user.userId && (projectId === undefined || ticket.projectId === projectId))
@@ -152,4 +153,16 @@ export function getMockPublishResult(user: User, batchId: string) {
   const batch = readBatches().find((b) => b.userId === user.userId && b.result.batchId === batchId)
   if (!batch) throw fail(404, 'PUBLISH_BATCH_NOT_FOUND', '발행 묶음을 찾을 수 없습니다.')
   return structuredClone(batch.result)
+}
+
+
+// 읽기 전용 mock. 이전 세션의 티켓에 상세 정보가 없으면 빈 배열로 반환한다.
+export function previewMockTicket(user: User, ticketId: string): TicketPublicationPreview {
+  const { ticket } = owned(user, ticketId)
+  const backlog = structuredClone({ description: ticket.description, tasks: ticket.backlog?.tasks ?? [], acceptanceCriteria: ticket.backlog?.acceptanceCriteria ?? [], evidenceQuotes: ticket.backlog?.evidenceQuotes ?? [], openQuestions: ticket.backlog?.openQuestions ?? [] })
+  const lines = ['## 작업 내용', ticket.description ?? '']
+  for (const [title, values] of [['상세 작업', backlog.tasks], ['완료 조건', backlog.acceptanceCriteria], ['근거', backlog.evidenceQuotes]] as const) if (values.length) lines.push(`## ${title}`, ...values.map((v) => `- ${v}`))
+  lines.push('## 담당', ticket.assignee?.name ?? '미정', '## 기한', [ticket.due.text, ticket.due.date, ticket.due.time].filter(Boolean).join(' · ') || '미정')
+  return { ticketId, title: ticket.title, status: ticket.status, publishTarget: ticket.publishTarget, executionMode: 'MOCK', backlog,
+    publication: ticket.publishTarget === 'GITHUB' ? { kind: ticket.processingType, body: lines.join('\n\n'), secondaryBody: null, labels: [], githubAssignees: [], targetIssueNumber: ticket.processingType === 'CREATE' ? null : ticket.dedupe?.issue?.number ?? null } : null }
 }
