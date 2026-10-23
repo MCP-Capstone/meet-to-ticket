@@ -22,7 +22,8 @@ COPY requirements.txt .
 # 실행용 잠금 파일(requirements.txt)만 설치한다. 테스트 도구(requirements-dev.txt)는 넣지 않는다
 RUN uv pip install --system --no-cache -r requirements.txt
 
-COPY github.py server.py ./
+COPY common.py server.py ./
+COPY integrations ./integrations
 
 # root가 아닌 사용자로 실행한다
 RUN useradd --create-home --uid 1000 app
