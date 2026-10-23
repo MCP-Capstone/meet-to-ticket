@@ -89,10 +89,10 @@ public final class ApiExamples {
             }
             """;
 
-    public static final String ERROR_MEMBER_GITHUB_UNLINKED = """
+    public static final String ERROR_INVALID_MEETING_INPUT = """
             {
-              "code": "MEMBER_GITHUB_UNLINKED",
-              "message": "참여자의 실제 GitHub 계정을 등록해 주세요."
+              "code": "INVALID_MEETING_INPUT",
+              "message": "회의 날짜와 회의록(UTF-8 .md·.txt 파일 또는 붙여넣은 텍스트 중 하나)을 확인해 주세요."
             }
             """;
 

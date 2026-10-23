@@ -19,7 +19,7 @@ public enum ErrorCode {
 	MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "회의를 찾을 수 없습니다."),
 	INVALID_MEETING_FILE(HttpStatus.BAD_REQUEST, "UTF-8 .txt 파일의 제목·날짜·참여자를 확인해 주세요."),
 	PARTICIPANT_MAPPING_FAILED(HttpStatus.BAD_REQUEST, "미등록 또는 동명이인 참여자가 있어 연결할 수 없습니다."),
-	MEMBER_GITHUB_UNLINKED(HttpStatus.BAD_REQUEST, "참여자의 실제 GitHub 계정을 등록해 주세요."),
+	INVALID_MEETING_INPUT(HttpStatus.BAD_REQUEST, "회의 날짜와 회의록(UTF-8 .md·.txt 파일 또는 붙여넣은 텍스트 중 하나)을 확인해 주세요."),
 	TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "분석 작업을 찾을 수 없습니다."),
 	TASK_NOT_FINISHED(HttpStatus.CONFLICT, "처리 중입니다. 진행 상태를 계속 조회해 주세요."),
 	ANALYSIS_ALREADY_REQUESTED(HttpStatus.CONFLICT, "이미 분석을 요청한 회의입니다."),
