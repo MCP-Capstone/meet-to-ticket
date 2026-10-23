@@ -81,6 +81,22 @@ public class ProjectService {
         return detail(project, userId);
     }
 
+    // 관리자 지정과 해제 (REQ-030). 관리자는 항상 1명 이상 남긴다.
+    @Transactional
+    public ProjectDetail changeRole(Long projectId, Long targetUserId, ProjectRole role, Long userId) {
+        List<ProjectMember> admins = members.lockByProjectIdAndRole(projectId, ProjectRole.ADMIN);
+        // 잠금을 잡은 뒤 확인해야 그 사이에 해제된 관리자를 걸러낸다.
+        if (admins.stream().noneMatch(m -> m.getUser() != null && m.getUser().getId().equals(userId)))
+            requireAdmin(projectId, userId);
+        ProjectMember target =
+                members.findByProjectIdAndUserId(projectId, targetUserId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.PROJECT_MEMBER_NOT_FOUND));
+        if (role == ProjectRole.MEMBER && target.isAdmin() && admins.size() <= 1)
+            throw new BusinessException(ErrorCode.LAST_PROJECT_ADMIN);
+        target.changeRole(role);
+        return detail(projects.getReferenceById(projectId), userId);
+    }
+
     private void apply(Project project, ProjectSaveRequest request) {
         project.update(
                 request.name().trim(),

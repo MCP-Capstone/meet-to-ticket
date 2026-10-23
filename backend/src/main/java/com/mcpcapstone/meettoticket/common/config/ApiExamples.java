@@ -61,6 +61,20 @@ public final class ApiExamples {
             }
             """;
 
+    public static final String ERROR_LAST_PROJECT_ADMIN = """
+            {
+              "code": "LAST_PROJECT_ADMIN",
+              "message": "관리자는 1명 이상 있어야 합니다. 다른 멤버를 먼저 관리자로 지정해 주세요."
+            }
+            """;
+
+    public static final String ERROR_PROJECT_MEMBER_NOT_FOUND = """
+            {
+              "code": "PROJECT_MEMBER_NOT_FOUND",
+              "message": "프로젝트 멤버가 아닌 사용자입니다."
+            }
+            """;
+
     public static final String ERROR_DUPLICATE_PROJECT_REPOSITORY = """
             {
               "code": "DUPLICATE_PROJECT_REPOSITORY",
