@@ -187,6 +187,7 @@ class FakeReporter:
         self.progress_calls: list[tuple[str, str, str]] = []
         self.progress_details: list[dict[str, Any] | None] = []  # progress_calls와 같은 순서
         self.results: list[dict[str, Any]] = []
+        self.publish_results: list[dict[str, Any]] = []
 
     async def progress(self, task_id: str, status: str, stage: str, progress: dict[str, Any] | None = None) -> None:
         self.progress_calls.append((task_id, status, stage))
@@ -194,6 +195,10 @@ class FakeReporter:
 
     async def result(self, task_id: str, payload: dict[str, Any]) -> bool:
         self.results.append(payload)
+        return True
+
+    async def publish_result(self, batch_id: str, payload: dict[str, Any]) -> bool:
+        self.publish_results.append(payload)
         return True
 
 
