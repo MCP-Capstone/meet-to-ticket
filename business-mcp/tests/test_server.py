@@ -1,4 +1,4 @@
-"""server.py와 GitHub 도구(integrations/github/tools.py) 테스트.
+"""server.py와 GitHub·Notion·Slack 도구 테스트.
 
 도구 등록 정보와, 도구 함수가 저장소 확인 → api 호출을 제대로 하는지 확인한다.
 """
@@ -11,6 +11,8 @@ import server
 from integrations.github import api, tools
 from integrations.notion import api as notion_api
 from integrations.notion import tools as notion_tools
+from integrations.slack import api as slack_api
+from integrations.slack import tools as slack_tools
 
 
 @pytest.fixture
@@ -42,13 +44,25 @@ def fake_notion(monkeypatch):
     return use
 
 
+@pytest.fixture
+def fake_slack(monkeypatch):
+    """slack_api.make_client를 가짜 transport로 바꾼다."""
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "test-token")
+    real = slack_api.make_client
+
+    def use(handler):
+        monkeypatch.setattr(slack_api, "make_client", lambda: real(transport=httpx.MockTransport(handler)))
+
+    return use
+
+
 @pytest.mark.anyio
 async def test_tools_registered_with_annotations():
-    # GitHub 7개 + Notion 4개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
+    # GitHub 7개, Notion 4개, Slack 3개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
     tools_ = {t.name: t.model_dump(by_alias=True) for t in await server.mcp.list_tools()}
     assert sorted(tools_) == [
-        "add_comment", "check_member_permissions", "check_notion_page", "create_issue", "create_page", "list_issues", "list_labels",
-        "list_pages", "read_page", "search_issues", "update_issue"
+        "add_comment", "check_member_permissions", "check_notion_page", "check_slack_channel", "create_issue", "create_page",
+        "list_issues", "list_labels", "list_pages", "lookup_slack_user", "post_message", "read_page", "search_issues", "update_issue"
     ]
 
     create = tools_["create_issue"]
@@ -88,6 +102,19 @@ async def test_tools_registered_with_annotations():
     create_page = tools_["create_page"]
     assert create_page["annotations"]["readOnlyHint"] is False
     assert set(create_page["inputSchema"]["required"]) == {"root_page_url_or_id", "title", "markdown"}
+
+    channel = tools_["check_slack_channel"]
+    assert channel["annotations"]["readOnlyHint"] is True
+    assert set(channel["inputSchema"]["required"]) == {"channel"}
+
+    user = tools_["lookup_slack_user"]
+    assert user["annotations"]["readOnlyHint"] is True
+    assert set(user["inputSchema"]["required"]) == {"email"}
+
+    message = tools_["post_message"]
+    assert message["annotations"]["readOnlyHint"] is False
+    assert message["annotations"]["idempotentHint"] is False
+    assert set(message["inputSchema"]["required"]) == {"channel_id", "text"}
 
 
 def test_tool_rejects_not_allowed_repo(monkeypatch):
@@ -190,3 +217,11 @@ def test_notion_tools(fake_notion):
     fake_notion(handler)
     assert notion_tools.check_notion_page("11111111111111111111111111111111")["page_id"] == "page-id"
     assert notion_tools.list_pages("11111111111111111111111111111111") == {"pages": []}
+
+
+def test_slack_tools_open_the_client_and_return_api_results(fake_slack):
+    def channel_handler(request):
+        return httpx.Response(200, json={"ok": True, "channel": {"id": "C12345678", "name": "project", "is_member": True}})
+
+    fake_slack(channel_handler)
+    assert slack_tools.check_slack_channel("C12345678")["status"] == "CONNECTED"
