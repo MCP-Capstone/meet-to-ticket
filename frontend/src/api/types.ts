@@ -10,6 +10,8 @@ export interface SignupRequest {
   loginId: string
   password: string
   name: string
+  // 선택 입력. 앞뒤 공백 제거 후 빈 값은 null로 전송한다.
+  githubName: string | null
 }
 
 export interface LoginRequest {
