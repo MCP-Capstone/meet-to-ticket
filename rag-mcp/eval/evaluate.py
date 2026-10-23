@@ -49,6 +49,11 @@ def calculate_metrics(cases: Iterable[Case], search: Search, k: int = 5) -> dict
     }
 
 
+def results_search(tool: Callable[..., dict[str, Any]], owner: str, repo: str, k: int) -> Search:
+    """search_similar_issues는 {"repository", "index", "results": [...]}를 돌려주므로 results만 꺼낸다."""
+    return lambda query: tool(owner, repo, query, k)["results"]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate issue search quality")
     parser.add_argument("--owner", required=True)
@@ -62,7 +67,7 @@ def main() -> None:
     cases = json.loads(args.cases.read_text())
     report = calculate_metrics(
         cases,
-        lambda query: search_similar_issues(args.owner, args.repo, query, args.k),
+        results_search(search_similar_issues, args.owner, args.repo, args.k),
         args.k,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))

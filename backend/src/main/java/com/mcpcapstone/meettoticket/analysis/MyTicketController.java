@@ -62,6 +62,31 @@ public class MyTicketController {
         return tickets.edit(ticketId, userId, request);
     }
 
+    @Operation(operationId = "changeTicketPublication", summary = "발행 대상과 처리 유형 변경",
+            description = "담당자가 카드에서 발행 대상(GITHUB, SLACK, NOTION)과 처리 유형(CREATE, LINK, UPDATE)을 바꾼다. 검토 대기에서만 할 수 있고, 보낸 항목만 바꾼다. "
+                    + "GitHub 이외 대상으로 바꾸면 처리 유형은 CREATE로 고정된다. LINK, UPDATE는 중복 판단이 찾은 열린 기존 이슈가 있을 때만 된다 (닫힌 이슈는 다시 열지 않음).")
+    @ApiResponse(responseCode = "200", description = "변경된 티켓", content = @Content(schema = @Schema(implementation = MyTicketService.Ticket.class),
+                    examples = @ExampleObject(value = ApiExamples.TICKET)))
+    @ApiResponse(responseCode = "400", description = "입력값 오류 (VALIDATION_FAILED), GitHub 이외 대상에 연결/갱신 (PROCESSING_TYPE_TARGET_MISMATCH), 열린 기존 이슈 없음 (EXISTING_ISSUE_REQUIRED)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class), examples = {
+                    @ExampleObject(name = "PROCESSING_TYPE_TARGET_MISMATCH", value = ApiExamples.ERROR_PROCESSING_TYPE_TARGET_MISMATCH),
+                    @ExampleObject(name = "EXISTING_ISSUE_REQUIRED", value = ApiExamples.ERROR_EXISTING_ISSUE_REQUIRED)}))
+    @ApiResponse(responseCode = "401", description = "로그인 세션 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_UNAUTHORIZED)))
+    @ApiResponse(responseCode = "403", description = "티켓 담당자가 아님 (TICKET_ASSIGNEE_REQUIRED)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_ASSIGNEE_REQUIRED)))
+    @ApiResponse(responseCode = "404", description = "티켓 없음 (TICKET_NOT_FOUND)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_NOT_FOUND)))
+    @ApiResponse(responseCode = "409", description = "검토 대기가 아님 (TICKET_STATUS_CONFLICT)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_STATUS_CONFLICT)))
+    @PatchMapping("/api/tickets/{ticketId}/publication")
+    public MyTicketService.Ticket changePublication(
+            @Parameter(description = "티켓 ID", required = true) @PathVariable UUID ticketId,
+            @RequestBody TicketService.PublicationRequest request,
+            @Parameter(hidden = true) @SessionAttribute(SessionConst.LOGIN_USER_ID) Long userId) {
+        return tickets.changePublication(ticketId, userId, request);
+    }
+
     @Operation(operationId = "confirmTicket", summary = "티켓 확인", description = "검토 대기에서 확인으로 바꾼다. 확인한 티켓만 일괄 발행 대상이 된다. 담당자만 할 수 있다.")
     @ApiResponse(responseCode = "200", description = "변경된 티켓", content = @Content(schema = @Schema(implementation = MyTicketService.Ticket.class),
                     examples = @ExampleObject(value = ApiExamples.TICKET)))
