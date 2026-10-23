@@ -132,6 +132,23 @@ def test_index_issue_adds_one(store):
     assert store.get_collection("o", "r").count() == 1
 
 
+def test_index_issue_does_not_move_sync_cursor(store):
+    # index_issue가 last_synced_at을 올리면 다음 증분 동기화가 그 사이 바뀐 다른 이슈를 놓친다
+    gh = FakeGitHub({"o/r": [gh_item(1, "a"), gh_item(9, "새 이슈")]})
+    emb = FakeEmbedder()
+    sync(gh, emb, store)
+    before = store.get_collection("o", "r").metadata["last_synced_at"]
+    indexer.index_issue("o", "r", 9, client=gh.client(), embedder=emb, store=store)
+    assert store.get_collection("o", "r").metadata["last_synced_at"] == before
+
+
+def test_index_issue_on_new_collection_leaves_cursor_unset(store):
+    # 컬렉션이 없을 때 만들어도 커서를 두지 않아, 다음 동기화가 전체를 받는다
+    gh = FakeGitHub({"o/r": [gh_item(9, "새 이슈")]})
+    indexer.index_issue("o", "r", 9, client=gh.client(), embedder=FakeEmbedder(), store=store)
+    assert "last_synced_at" not in (store.get_collection("o", "r").metadata or {})
+
+
 def test_build_text_limits_body():
     # 본문은 앞 2,000자만 쓴다
     text = indexer.build_text({"title": "t", "body": "x" * 5000})
