@@ -132,7 +132,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
   }
   const savePublication = () => {
     if (publishTarget === 'GITHUB' && processingType !== 'CREATE' && !existingIssueAvailable) {
-      setError('연결·갱신은 서버가 제공한 열린 기존 이슈가 있어야 선택할 수 있습니다.')
+      setError('연결/갱신은 서버가 제공한 열린 기존 이슈가 있어야 선택할 수 있습니다.')
       return
     }
     void perform(() => api.changeTicketPublication(ticket.ticketId, publicationRequest(publishTarget, processingType)))
@@ -183,7 +183,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
         </>
       )}
       {publicationEditing && <fieldset className="ticket-fields ticket-publication-fields" disabled={busy || pending || blocked}>
-        <legend>발행 대상·처리 유형 수정</legend>
+        <legend>발행 대상/처리 유형 수정</legend>
         <label>발행 대상
           <select aria-label="발행 대상" value={publishTarget} onChange={(e) => {
             const value = e.target.value as MyTicket['publishTarget']
@@ -201,10 +201,10 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
           </select>
         </label>
         <p className="muted" id={`publication-help-${ticket.ticketId}`}>{publishTarget !== 'GITHUB'
-          ? 'Notion·Slack은 신규 생성만 선택할 수 있습니다.'
+          ? 'Notion/Slack은 신규 생성만 선택할 수 있습니다.'
           : existingIssueAvailable
-            ? `연결·갱신 대상: #${ticket.dedupe!.issue!.number} ${ticket.dedupe!.issue!.title ?? ''} (열림). 다른 이슈 번호를 직접 지정할 수 없습니다.`
-            : '열린 기존 이슈 정보가 없어 신규 생성만 선택할 수 있습니다. 닫힌 이슈는 연결·갱신할 수 없습니다.'}</p>
+            ? `연결/갱신 대상: #${ticket.dedupe!.issue!.number} ${ticket.dedupe!.issue!.title ?? ''} (열림). 다른 이슈 번호를 직접 지정할 수 없습니다.`
+            : '열린 기존 이슈 정보가 없어 신규 생성만 선택할 수 있습니다. 닫힌 이슈는 연결/갱신할 수 없습니다.'}</p>
         {publishTarget !== 'GITHUB' && <p className="notice">{publishTarget === 'NOTION' ? 'Notion' : 'Slack'}으로 분류해 저장할 수 있습니다. 현재 일괄 발행은 GitHub만 지원하므로 이 대상으로 저장하면 발행할 수 없습니다.</p>}
         {publicationDirty && <p className="notice">아직 저장하지 않은 발행 설정입니다. 카드와 미리보기는 저장된 설정을 표시합니다.</p>}
       </fieldset>}
@@ -230,7 +230,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
           <button type="button" className="secondary" disabled={busy || pending} onClick={() => {
             if (!publicationDirty || window.confirm('저장하지 않은 발행 설정을 취소할까요?')) { setPublicationEditing(false); setError(null) }
           }}>발행 설정 취소</button>
-          <p className="muted">발행 설정을 저장하거나 취소한 뒤 본문 수정·확인·거절할 수 있습니다.</p>
+          <p className="muted">발행 설정을 저장하거나 취소한 뒤 본문 수정/확인/거절할 수 있습니다.</p>
         </> : editing ? <>
           <button type="button" className="primary" disabled={busy || pending || blocked || !dirty} onClick={save}>{pending ? '저장 중...' : '저장'}</button>
           <button type="button" className="secondary" disabled={busy || pending} onClick={() => {

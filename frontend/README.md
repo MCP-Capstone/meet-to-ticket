@@ -364,10 +364,10 @@ GitHub 신규 이슈, 연결 댓글, 갱신 추가 섹션·알림 댓글을 구�
 
 ### 내 티켓 발행 설정 수정 (#247)
 
-검토 대기 카드의 **발행 설정 수정**에서 GitHub / Notion / Slack과 처리 유형을 선택한다. GitHub의 연결·갱신은 목록 API가 제공한 열린 기존 이슈만 대상으로 하며, 다른 이슈 번호를 직접 지정하지 않는다. 닫혔거나 정보가 없는 이슈는 선택할 수 없다. Notion·Slack은 신규 생성으로 고정하며, 현재 실제 일괄 발행은 GitHub만 지원한다는 안내를 표시한다.
+검토 대기 카드의 **발행 설정 수정**에서 GitHub / Notion / Slack과 처리 유형을 선택한다. GitHub의 연결/갱신은 목록 API가 제공한 열린 기존 이슈만 대상으로 하며, 다른 이슈 번호를 직접 지정하지 않는다. 닫혔거나 정보가 없는 이슈는 선택할 수 없다. Notion/Slack은 신규 생성으로 고정하며, 현재 실제 일괄 발행은 GitHub만 지원한다는 안내를 표시한다.
 
-**발행 설정 저장**은 `PATCH /api/tickets/{ticketId}/publication`에 `{publishTarget, processingType}`를 전송한다. 서버 응답으로 카드와 열린 본문 미리보기를 갱신하고 승인·발행은 수행하지 않는다. 본문·담당자·기한 수정은 별도의 저장이며, 두 편집 화면을 동시에 열지 않는다. 수정 중 확인·거절을 숨기고, 미저장 변경이 있으면 발행을 막으며 화면 이동·취소 시 확인한다.
+**발행 설정 저장**은 `PATCH /api/tickets/{ticketId}/publication`에 `{publishTarget, processingType}`를 전송한다. 서버 응답으로 카드와 열린 본문 미리보기를 갱신하고 승인/발행은 수행하지 않는다. 본문/담당자/기한 수정은 별도의 저장이며, 두 편집 화면을 동시에 열지 않는다. 수정 중 확인/거절을 숨기고, 미저장 변경이 있으면 발행을 막으며 화면 이동/취소 시 확인한다.
 
-오류 시 선택값을 보존한다. 403/404/409는 최신 목록을 확인한 후 다시 편집하며, 저장 성공 후 목록 조회만 실패한 경우 PATCH를 재전송하지 않는다. 모의 API에도 동일한 선택·상태 제한을 적용한다.
+오류 시 선택값을 보존한다. 403/404/409는 최신 목록을 확인한 후 다시 편집하며, 저장 성공 후 목록 조회만 실패한 경우 PATCH를 재전송하지 않는다. 모의 API에도 동일한 선택/상태 제한을 적용한다.
 
-검증: `npm run test:publication`, 기존 `test:preview`·`test:progress`·`test:publish`·`test:dedupe`, `npm run build`, `npm run lint`. 의존성·백엔드·Agent 변경 없음.
+검증: `npm run test:publication`, 기존 `test:preview`/`test:progress`/`test:publish`/`test:dedupe`, `npm run build`, `npm run lint`. 의존성/백엔드/Agent 변경 없음.

@@ -87,7 +87,7 @@ export function changeMockTicketPublication(user: User, ticketId: string, body: 
   const { tickets, ticket } = owned(user, ticketId)
   if (ticket.status !== 'PENDING_REVIEW') throw fail(409, 'TICKET_STATUS_CONFLICT', '검토 대기에서만 수정할 수 있습니다.')
   if (!['GITHUB', 'NOTION', 'SLACK'].includes(body.publishTarget) || !['CREATE', 'LINK', 'UPDATE'].includes(body.processingType)) throw fail(400, 'VALIDATION_FAILED', '발행 대상과 처리 유형을 확인해 주세요.')
-  if (body.publishTarget !== 'GITHUB' && body.processingType !== 'CREATE') throw fail(400, 'PROCESSING_TYPE_TARGET_MISMATCH', 'Notion·Slack은 신규 생성만 가능합니다.')
+  if (body.publishTarget !== 'GITHUB' && body.processingType !== 'CREATE') throw fail(400, 'PROCESSING_TYPE_TARGET_MISMATCH', 'Notion/Slack은 신규 생성만 가능합니다.')
   if (body.processingType !== 'CREATE' && !canUseExistingIssue(ticket)) throw fail(400, 'EXISTING_ISSUE_REQUIRED', '열린 기존 이슈가 필요합니다.')
   ticket.publishTarget = body.publishTarget
   ticket.processingType = body.processingType
