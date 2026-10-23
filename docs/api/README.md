@@ -22,6 +22,7 @@
 | GET | /api/auth/me | 200 | 내 정보 |
 | GET | /api/projects | 200 | 내 프로젝트·실행 모드 |
 | GET | /api/projects/{projectId}/members | 200 | 팀원·GitHub 계정 |
+| POST | /api/projects/{projectId}/analysis-tasks | 202 | 회의록 처리 요청 (회의 저장 + 분석 접수, 기획_v16) |
 | POST | /api/projects/{projectId}/meetings | 201 | multipart file 업로드·회의 저장 |
 | GET | /api/meetings/{meetingId} | 200 | 본문을 제외한 회의 메타데이터 |
 | POST | /api/meetings/{meetingId}/analysis-tasks | 202 | 저장된 회의 분석 접수 |
@@ -34,9 +35,34 @@
 
 로그인·가입·로그아웃·health 외에는 JSESSIONID 세션이 필요하다. Swagger에서 먼저 로그인하면 같은 출처 요청에 쿠키가 적용된다.
 Authorize에 쿠키를 직접 넣기보다 login API를 실행한다. 세션 사용자 ID는 입력값으로 노출하지 않는다.
-업무 오류는 `{code, message}`. 400(파일/형식/참여자/계정), 401(미로그인), 403(프로젝트 권한),
+업무 오류는 `{code, message}`. 400(파일/형식/참여자), 401(미로그인), 403(프로젝트 권한),
 404(회의/작업 없음), 409(중복 요청/미종료)를 각 API에서 확인한다.
 #75부터 분석은 RabbitMQ 큐에 접수하며 Agent 중지 시에도 202를 반환한다. 재시도 후 최종 실패는 상태 조회의 FAILED로 확인한다.
+
+### 회의록 처리 요청 (#153)
+
+`POST /api/projects/{projectId}/analysis-tasks`는 회의 저장과 분석 접수를 한 번에 한다 (기획_v16 REQ-006). 업로드 화면은 이 API를 쓴다. 기존 업로드(`POST /api/projects/{projectId}/meetings`)와 분석 시작(`POST /api/meetings/{meetingId}/analysis-tasks`)은 프론트가 옮길 때까지 유지한다.
+
+요청은 `multipart/form-data`다.
+
+| 필드 | 필수 | 내용 |
+|---|---|---|
+| `meetingDate` | O | 회의 날짜 `YYYY-MM-DD`. 상대 기한 계산 기준 |
+| `content` | 둘 중 하나 | 붙여넣은 회의록 텍스트 |
+| `file` | 둘 중 하나 | 회의록 파일. UTF-8 `.md` 또는 `.txt` |
+| `title` | | 회의 제목. 비우면 회의록 첫 `#`·`##` 제목줄, 파일 이름, `<회의 날짜> 회의` 순 |
+
+- 참석자 줄과 멤버 GitHub 계정은 요구하지 않는다. 담당자는 추출 단계에서 멤버와 연결하고, 계정이 없는 멤버는 이슈에 이름만 적는다 (REQ-010).
+- 응답은 기존 분석 시작과 같은 `{taskId, meetingId, status: "QUEUED", executionMode}`다. 이후 `GET /api/analysis-tasks/{taskId}`로 조회한다.
+- 날짜 누락·형식 오류, 회의록 없음, `content`와 `file` 동시 입력, 확장자·인코딩 오류는 400 `INVALID_MEETING_INPUT`이다. 이때 회의는 저장되지 않는다.
+
+```bash
+# 붙여넣기
+curl -b cookie.txt -F meetingDate=2026-10-22 -F 'content=# CSV 점검
+박서연이 내일까지 API를 수정한다.' http://localhost:8080/api/projects/1/analysis-tasks
+# md 파일
+curl -b cookie.txt -F meetingDate=2026-10-22 -F file=@회의록.md http://localhost:8080/api/projects/1/analysis-tasks
+```
 
 ### 외부 AI·GitHub 없이 테스트
 

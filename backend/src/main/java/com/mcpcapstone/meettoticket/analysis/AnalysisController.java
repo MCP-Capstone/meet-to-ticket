@@ -30,8 +30,8 @@ public class AnalysisController {
     @Operation(operationId = "startAnalysis", summary = "분석 작업 접수", description = "요청 본문 없이 저장된 회의로 분석을 시작한다. 작업을 DB에 저장한 뒤 Agent POST /runs를 호출한다. 202는 이슈 생성 성공을 의미하지 않는다. 동일 회의 재요청은 409이며 자동 재발행하지 않는다. 프론트는 반환된 taskId로 상태를 조회한다.")
     @ApiResponse(responseCode = "202", description = "작업 접수", content = @Content(schema = @Schema(implementation = AnalysisCoordinator.Started.class),
                     examples = @ExampleObject(value = ApiExamples.ANALYSIS_ACCEPTED)))
-    @ApiResponse(responseCode = "400", description = "형식 오류 또는 LIVE 참여자 GitHub 계정 미등록", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
-                    examples = @ExampleObject(value = ApiExamples.ERROR_MEMBER_GITHUB_UNLINKED)))
+    @ApiResponse(responseCode = "400", description = "경로 변수·요청 형식 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_VALIDATION_FAILED)))
     @ApiResponse(responseCode = "401", description = "로그인 세션 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_UNAUTHORIZED)))
     @ApiResponse(responseCode = "403", description = "프로젝트 소속 아님", content = @Content(schema = @Schema(implementation = ErrorResponse.class),

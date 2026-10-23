@@ -90,6 +90,7 @@ curl -b cookie.txt localhost:8080/api/auth/me
 |---|---|---|
 | GET | `/api/projects` | 로그인한 사용자의 프로젝트. 실행 모드 `executionMode`도 반환 |
 | GET | `/api/projects/{projectId}/members` | 프로젝트 팀원·GitHub 계정 |
+| POST | `/api/projects/{projectId}/analysis-tasks` | 회의록 처리 요청. multipart `meetingDate` + `content` 또는 `file`(.md/.txt), 회의 저장과 분석 접수, 202 + taskId |
 | POST | `/api/projects/{projectId}/meetings` | multipart `file`로 UTF-8 .txt 업로드·저장, 201 |
 | GET | `/api/meetings/{meetingId}` | 본문을 제외한 회의 메타데이터 |
 | POST | `/api/meetings/{meetingId}/analysis-tasks` | 분석 실행 요청, 202 + taskId |
