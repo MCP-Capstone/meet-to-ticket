@@ -49,3 +49,52 @@ def test_RAG가_꺼져있으면_실패_상태를_돌려준다():
         result = client.get(f"/projects/reindex/{job_id}").json()
     assert result["status"] == "FAILED"
     assert result["errorCode"] == "RAG_DISABLED"
+
+
+def test_프로젝트_저장소_색인을_삭제한다():
+    drop = FakeTool({"repository": "MCP-Capstone/meet-to-ticket", "deleted": True, "count": 0})
+    app = FastAPI()
+    app.include_router(create_router(lambda: Settings(rag_enabled=True), lambda: {"rag_tools": {"drop_index": drop}}))
+    with TestClient(app) as client:
+        result = client.post("/projects/drop-index", json={"githubOwner": " MCP-Capstone ", "githubRepo": "meet-to-ticket"})
+    assert result.status_code == 200
+    assert result.json() == {"status": "DROPPED", "deleted": True}
+    assert drop.calls == [{"owner": "MCP-Capstone", "repo": "meet-to-ticket"}]
+
+
+def test_RAG가_꺼져있으면_색인_삭제를_건너뛴다():
+    app = FastAPI()
+    app.include_router(create_router(lambda: Settings(rag_enabled=False)))
+    with TestClient(app) as client:
+        result = client.post("/projects/drop-index", json={"githubOwner": "o", "githubRepo": "r"})
+    assert result.status_code == 200
+    assert result.json() == {"status": "SKIPPED", "deleted": False}
+
+
+def test_색인_삭제_도구가_없으면_502를_돌려준다():
+    app = FastAPI()
+    app.include_router(create_router(lambda: Settings(rag_enabled=True), lambda: {"rag_tools": {}}))
+    with TestClient(app) as client:
+        result = client.post("/projects/drop-index", json={"githubOwner": "o", "githubRepo": "r"})
+    assert result.status_code == 502
+    assert "MCP_UNAVAILABLE" in result.json()["detail"]
+
+
+def test_재색인_중인_저장소는_색인을_삭제하지_않는다():
+    import asyncio
+
+    class SlowTool(FakeTool):
+        async def ainvoke(self, args):
+            await asyncio.sleep(0.5)
+            return await super().ainvoke(args)
+
+    sync = SlowTool({"indexed": 0, "skipped": 0, "total": 0})
+    drop = FakeTool({"deleted": True})
+    app = FastAPI()
+    app.include_router(create_router(lambda: Settings(rag_enabled=True), lambda: {
+        "rag_tools": {"sync_issues": sync, "index_status": FakeTool({"count": 0}), "drop_index": drop}}))
+    with TestClient(app) as client:
+        assert client.post("/projects/reindex", json={"githubOwner": "o", "githubRepo": "r"}).status_code == 202
+        result = client.post("/projects/drop-index", json={"githubOwner": "O", "githubRepo": "R"})
+    assert result.status_code == 409
+    assert drop.calls == []
