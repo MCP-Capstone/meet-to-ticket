@@ -111,21 +111,25 @@ public class ProjectService {
     }
 
     private record CheckTarget(Long memberId, String githubName) {}
+    private record SlackTarget(Long userId, String email) {}
 
     // 저장소나 멤버 구성이 바뀌었을 수 있으므로 저장할 때마다 기존 결과를 지우고 GitHub 계정이 있는 멤버를 다시 확인한다.
     // 전체 실패는 저장 자체를 막지 않고 해당 멤버 권한 null, connections.github=ERROR로 남긴다.
     private ProjectDetail checkAndLoad(Long projectId, Long userId) {
-        record Plan(String owner, String repo, List<CheckTarget> targets, String notionPageUrl, String slackChannelId) {}
+        record Plan(String owner, String repo, List<CheckTarget> targets, String notionPageUrl, String slackChannelId, List<SlackTarget> slackTargets) {}
         Plan plan = tx.execute(status -> {
             Project project = projects.getReferenceById(projectId);
             project.recordGithubConnection(null);
             List<CheckTarget> targets = new ArrayList<>();
+            List<SlackTarget> slackTargets = new ArrayList<>();
             for (ProjectMember m : members.findByProjectIdOrderById(projectId)) {
                 m.recordPermission(null);
                 if (m.getGithubName() != null) targets.add(new CheckTarget(m.getId(), m.getGithubName()));
+                if (m.getUser() != null && m.getUser().getSlackEmail() != null)
+                    slackTargets.add(new SlackTarget(m.getUser().getId(), m.getUser().getSlackEmail()));
             }
             return new Plan(project.getGithubOwner(), project.getGithubRepo(), targets,
-                    project.getNotionPageUrl(), project.getSlackChannelId());
+                    project.getNotionPageUrl(), project.getSlackChannelId(), slackTargets);
         });
 
         Map<String, String> results = new HashMap<>();
@@ -141,12 +145,14 @@ public class ProjectService {
         }
 
         ProjectConnectionGateway.ConnectionCheck external = null;
-        if (plan.notionPageUrl() != null || plan.slackChannelId() != null) {
+        if (plan.notionPageUrl() != null || plan.slackChannelId() != null || !plan.slackTargets().isEmpty()) {
             try {
-                external = connections.check(plan.notionPageUrl(), plan.slackChannelId());
+                external = connections.check(plan.notionPageUrl(), plan.slackChannelId(),
+                        plan.slackTargets().stream().map(target -> new ProjectConnectionGateway.SlackMember(target.userId(), target.email())).toList());
             } catch (RuntimeException e) {
                 log.warn("프로젝트 {} Notion·Slack 연결 확인 실패: {}", projectId, e.getMessage());
-                external = ProjectConnectionGateway.ConnectionCheck.failed();
+                external = ProjectConnectionGateway.ConnectionCheck.failed(
+                        plan.slackTargets().stream().map(target -> new ProjectConnectionGateway.SlackMember(target.userId(), target.email())).toList());
             }
         }
         ProjectConnectionGateway.ConnectionCheck connectionResult = external;
@@ -169,6 +175,15 @@ public class ProjectService {
                     project.updateNotionConnectionStatus(toConnectionStatus(connectionResult.notion().status()));
                 if (plan.slackChannelId() != null && Objects.equals(plan.slackChannelId(), project.getSlackChannelId()))
                     project.recordSlackConnection(toConnectionStatus(connectionResult.slack().status()), connectionResult.slack().value());
+                Map<Long, ProjectConnectionGateway.MemberConnection> byUserId = connectionResult.members().stream()
+                        .collect(Collectors.toMap(ProjectConnectionGateway.MemberConnection::userId, Function.identity(), (left, right) -> left));
+                for (SlackTarget target : plan.slackTargets()) {
+                    ProjectConnectionGateway.MemberConnection result = byUserId.get(target.userId());
+                    User member = users.findById(target.userId()).orElse(null);
+                    // 확인 중 이메일이 바뀐 사용자의 이전 결과를 적용하지 않는다.
+                    if (member == null || !Objects.equals(member.getSlackEmail(), target.email()) || result == null) continue;
+                    member.recordSlackConnection(toConnectionStatus(result.status()), result.slackUserId());
+                }
             }
         });
         return loadDetail(projectId, userId);
@@ -264,6 +279,7 @@ public class ProjectService {
                         m.getUser().getGithubName(),
                         m.getUser().getSlackEmail(),
                         m.getUser().getSlackUserId(),
+                        m.getUser().slackConnectionStatus(),
                         m.isAdmin(),
                         m.getUser().getGithubName() == null
                                 ? ProjectDetail.RepositoryPermission.NO_ACCOUNT

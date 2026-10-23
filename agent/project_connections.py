@@ -6,7 +6,7 @@ from typing import Any
 
 from config import Settings
 from publisher import parse_tool_result
-from schemas import ConnectionCheckOut, ProjectConnectionsRequest, ProjectConnectionsResponse
+from schemas import ConnectionCheckOut, ProjectConnectionsRequest, ProjectConnectionsResponse, SlackUserCheckOut
 
 
 async def _tools(settings: Settings) -> dict[str, Any]:
@@ -53,4 +53,17 @@ async def check_project_connections(
         except Exception:  # noqa: BLE001
             slack = ConnectionCheckOut(status="ERROR")
 
-    return ProjectConnectionsResponse(notion=notion, slack=slack)
+    members: list[SlackUserCheckOut] = []
+    for member in req.members:
+        try:
+            data = await _invoke(tools.get("lookup_slack_user"), {"email": member.email}, "lookup_slack_user")
+            if data.get("status") == "CONNECTED" and data.get("slack_user_id"):
+                members.append(SlackUserCheckOut(
+                    user_id=member.user_id, email=member.email, status="CONNECTED", slack_user_id=data["slack_user_id"],
+                ))
+            else:
+                members.append(SlackUserCheckOut(user_id=member.user_id, email=member.email, status="NOT_CONNECTED"))
+        except Exception:  # noqa: BLE001
+            members.append(SlackUserCheckOut(user_id=member.user_id, email=member.email, status="ERROR"))
+
+    return ProjectConnectionsResponse(notion=notion, slack=slack, members=members)

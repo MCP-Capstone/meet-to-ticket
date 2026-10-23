@@ -14,6 +14,8 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import com.mcpcapstone.meettoticket.project.dto.ProjectDetail.ConnectionStatus;
+
 // PostgreSQL에서 user는 예약어라 테이블 이름을 users로 쓴다.
 @Entity
 @Table(name = "users")
@@ -47,6 +49,10 @@ public class User {
 	@Column(name = "slack_user_id", length = 30)
 	private String slackUserId;
 
+	@jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+	@Column(name = "slack_connection_status", length = 20)
+	private ConnectionStatus slackConnectionStatus;
+
 	@CreationTimestamp
 	@Column(nullable = false, updatable = false)
 	private OffsetDateTime createdAt;
@@ -72,10 +78,25 @@ public class User {
 			this.slackEmail = slackEmail;
 			// 이메일이 바뀌면 이전 워크스페이스 사용자 ID를 재사용하면 안 된다.
 			this.slackUserId = null;
+			this.slackConnectionStatus = slackEmail == null ? ConnectionStatus.NOT_CONNECTED : null;
 		}
 	}
 
 	public void updateSlackUserId(String slackUserId) {
 		this.slackUserId = slackUserId;
+	}
+
+	public void recordSlackConnection(ConnectionStatus status, String slackUserId) {
+		if (slackEmail == null) {
+			this.slackConnectionStatus = ConnectionStatus.NOT_CONNECTED;
+			this.slackUserId = null;
+			return;
+		}
+		this.slackConnectionStatus = status;
+		this.slackUserId = status == ConnectionStatus.CONNECTED ? slackUserId : null;
+	}
+
+	public ConnectionStatus slackConnectionStatus() {
+		return slackEmail == null ? ConnectionStatus.NOT_CONNECTED : slackConnectionStatus;
 	}
 }
