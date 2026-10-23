@@ -2,8 +2,7 @@ import pytest
 
 from conftest import FakeLLM, FakePublisher, FakeReporter, make_state, run_review
 from nodes import AgentNodes, new_ticket
-from parsing import ActionRow
-from schemas import ActionRowOut
+from schemas import ActionRowOut, ExtractedTodo
 
 pytestmark = pytest.mark.anyio
 
@@ -103,12 +102,12 @@ async def test_llm_extracted_ticket_persistent_scope_doubt_needs_check(settings)
 
 async def test_only_missing_action_item_is_rejected(settings):
     nodes = AgentNodes(FakeLLM(), FakePublisher(), FakeReporter(), settings)
-    t = new_ticket(ActionRow("", "", "", "", ""), [], None)
+    t = new_ticket(ExtractedTodo(work_key="", action=""), [], None)
     t.update(title="제목", description="설명", acceptance_criteria=["완료"])
     nodes._decide(t, nodes._code_checks(t, None))
     assert t["review_status"] == "REJECTED"
     # 2·3번 지적은 반려가 아니라 보완
-    t2 = new_ticket(ActionRow("k", "할 일", "", "", ""), [], None)
+    t2 = new_ticket(ExtractedTodo(work_key="k", action="할 일"), [], None)
     nodes._decide(t2, [{"item": 2, "problem": "제외 항목", "fix": "뺀다"}, {"item": 3, "problem": "할 일 아님", "fix": "-"}])
     assert t2["review_status"] == "REVISE"
 

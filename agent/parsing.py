@@ -34,6 +34,7 @@ class ParsedSummary:
     meeting_date: date | None = None
     background: str = ""
     rows: list[ActionRow] = field(default_factory=list)
+    decisions: list[str] = field(default_factory=list)
     open_questions: list[str] = field(default_factory=list)
     excluded: list[str] = field(default_factory=list)
 
@@ -135,6 +136,7 @@ def parse_summary(text: str) -> ParsedSummary:
     background_lines = _find(sections, "배경", "논의 요약")
     result.background = "\n".join(ln for ln in background_lines).strip()
     result.rows = _parse_table(_find(sections, "액션 아이템", "액션", "할 일"))
+    result.decisions = _bullets(_find(sections, "결정"))
     result.open_questions = _bullets(_find(sections, "미결"))
     result.excluded = _bullets(_find(sections, "제외", "보류"))
     return result

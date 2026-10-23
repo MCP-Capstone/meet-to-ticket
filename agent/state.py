@@ -75,6 +75,7 @@ class AgentState(TypedDict, total=False):
     repo: str
     members: list[dict[str, Any]]
     background: str
+    decisions: list[dict[str, Any]]  # 결정 사항 (schemas.ExtractedDecision)
     open_questions: list[str]
     excluded: list[str]
     tickets: list[dict[str, Any]]

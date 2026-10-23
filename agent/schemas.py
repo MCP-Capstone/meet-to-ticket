@@ -80,6 +80,33 @@ class RunResult(CamelModel):
     metrics: dict[str, Any] = Field(default_factory=dict, description="실행 지표. 소요 시간, 프롬프트 버전, 모델명, LLM 호출 및 재시도 횟수 포함")
 
 
+# ---------------------------------------------------------------- 회의록 추출 결과 (REQ-008)
+# 표 파서와 LLM 추출 모두 이 형태로 모은다 (extraction.py). 이후 초안 작성·담당자별 저장의 입력이다.
+
+
+class ExtractedTodo(BaseModel):
+    work_key: str = Field(description="원문 추적 키. 액션 아이템 표의 ID, 없으면 '<회의 ID>-auto<n>'")
+    action: str = Field(description="할 일 한 문장")
+    assignees: list[str] = Field(default_factory=list, description="담당자 이름 원문. 여러 명이면 여러 개, 없으면 빈 목록")
+    due: str = Field("", description="기한 원문 표현. 날짜 계산은 코드가 한다(resolve.parse_due). 없으면 빈 문자열")
+    evidence_quotes: list[str] = Field(default_factory=list, description="근거가 되는 회의록 원문 문장 1~3개. 원문에 없는 문장은 코드가 뺀다")
+    expected: str = Field("", description="예상 티켓 처리 원문 (액션 아이템 표에만 있음). 없으면 빈 문자열")
+    warnings: list[str] = Field(default_factory=list, description="코드가 붙인 확인 메모 (원문과 다른 기한·근거 등)")
+
+
+class ExtractedDecision(BaseModel):
+    content: str = Field(description="회의에서 결정된 사항 한 문장")
+    evidence_quotes: list[str] = Field(default_factory=list, description="근거가 되는 회의록 원문 문장 1~3개")
+
+
+class Extraction(BaseModel):
+    source: Literal["table", "llm"] = Field(description="table: 액션 아이템 표에서 읽음, llm: 표가 없어 LLM이 뽑음")
+    todos: list[ExtractedTodo] = Field(default_factory=list, description="할 일")
+    decisions: list[ExtractedDecision] = Field(default_factory=list, description="결정 사항")
+    open_questions: list[str] = Field(default_factory=list, description="미결 질문 원문")
+    excluded: list[str] = Field(default_factory=list, description="이번 범위에서 제외하거나 보류한 항목 원문")
+
+
 # ---------------------------------------------------------------- LLM 구조화 출력
 
 
