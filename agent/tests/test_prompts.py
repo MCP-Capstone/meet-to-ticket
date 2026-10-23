@@ -16,11 +16,11 @@ def test_user_templates_have_placeholders():
     def fields(template):
         return set(re.findall(r"\{(\w+)\}", template))
 
-    assert fields(prompts.DRAFT_USER) == {"summary", "decisions", "open_questions", "labels", "items"}
+    assert fields(prompts.DRAFT_USER) == {"summary", "decisions", "open_questions", "planning", "labels", "items"}
     assert fields(prompts.REVIEW_USER) == {"summary", "source_note", "excluded", "drafts"}
     assert fields(prompts.DEDUPE_USER) == {"title", "action", "evidence", "keys", "expected"}
     # llm.py가 넘기는 값으로 format이 된다 (빠진 키나 짝이 맞지 않는 중괄호가 없음)
-    prompts.DRAFT_USER.format(summary="s", decisions="- 없음", open_questions="- 없음", labels="- 없음", items="[]")
+    prompts.DRAFT_USER.format(summary="s", decisions="- 없음", open_questions="- 없음", planning="- 없음", labels="- 없음", items="[]")
     prompts.REVIEW_USER.format(summary="s", source_note="n", excluded="- 없음", drafts="[]")
 
 

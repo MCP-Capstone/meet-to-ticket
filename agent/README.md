@@ -416,6 +416,23 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 결과의 `content_json.issue_body`에는 발행할 때와 같은 방법으로 조립한 이슈 본문이 들어간다. 발행 전에 초안을 저장하거나 미리보기를 보여줄 때 쓴다. 본문에는 회의록 원문(근거, 배경)과 `<details>` HTML이 들어 있으므로, 미리보기에서 HTML로 그릴 때는 반드시 sanitize한다 (스크립트, 이벤트 속성 제거).
 
+### 프로젝트 맥락 (TASK-019)
+
+그래프를 시작하기 전에 프로젝트 맥락을 한 번 불러온다 (`runner.load_context`, `CONTEXT_TIMEOUT_SECONDS` 안에서). 실패하거나 시간을 넘기면 그때까지 얻은 값만 쓰고 처리는 그대로 한다.
+
+| 맥락 | 불러오는 곳 | 쓰는 곳 |
+|---|---|---|
+| 프로젝트 멤버 | 요청의 `projectMembers` | 담당자 연결 (REQ-010), 진행 화면 `context.members` |
+| 기존 이슈 수 | rag-mcp `index_status` | 진행 화면 `context.issues` |
+| Notion 기획 문서 | business-mcp `list_pages`, `read_page` (요청의 `project.notionPageUrl`) | 초안 작성의 배경, 진행 화면 `context.notionDocs`(기획 페이지 아래 문서 수) |
+
+Notion 기획 문서는 회의록과 관련 있는 문서만 읽는다 (AI-MCP 합의, `context.py`).
+
+- 제목의 단어가 회의록에 나오는 문서를 많이 겹치는 순서로 읽는다. LLM을 부르지 않는다
+- 문서당 4,000자, 전체 12,000자에서 멈춘다. "회의 후속 티켓" 폴더는 MCP가 목록에서 뺀다
+- 읽은 문서는 **초안 작성에만** 배경으로 넣는다 (`[프로젝트 기획 문서]`). 할 일 추출에는 넣지 않는다 (회의에서 정하지 않은 할 일을 기획 문서에서 지어내지 않게)
+- 근거 인용은 여전히 회의록 원문만 남는다 (원문 대조). 검수 4번(원문에 없는 내용)은 기획 문서에 있는 문구를 지적하면 인정하지 않는다
+
 ### 발행 대상 분류와 Slack·Notion 출력문 (TASK-020, TASK-021)
 
 초안 작성 LLM이 할 일마다 발행 대상과 한 줄 사유를 함께 낸다 (LLM 호출 추가 없음, 기획 1.7.1).
@@ -514,7 +531,7 @@ curl -X POST "http://127.0.0.1:8001/runs?wait=true" -H "Content-Type: applicatio
 python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이 같은 입력으로 실행
 ```
 
-요청 주요 필드: `taskId`, `meeting.{meetingId, title, meetingDate, timezone, participantIds, originalFilename, originalContent}`, `project.{githubOwner, githubRepo}`, `projectMembers[].{projectMemberId, userId, name, githubName}`
+요청 주요 필드: `taskId`, `meeting.{meetingId, title, meetingDate, timezone, participantIds, originalFilename, originalContent}`, `project.{githubOwner, githubRepo, notionPageUrl}`, `projectMembers[].{projectMemberId, userId, name, githubName}`
 
 결과(응답·백엔드 보고)도 camelCase: `taskId`, `status`, `stage`, `errorCode`, `errorMessage`, `summary`, `items[].{taskItemId, workKey, title, contentJson, action, reason, reviewStatus, publishStatus, githubIssueNumber, githubIssueUrl, errorMessage}`, `traceId`, `metrics`
 
@@ -540,7 +557,7 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 
 | `step` | 화면 단계 | 함께 오는 값 |
 |---|---|---|
-| `CONTEXT` | 맥락 파악 | `context.members`. `issues`, `notionDocs`는 맥락 파악(TASK-019)이 생기기 전까지 `null` |
+| `CONTEXT` | 맥락 파악 | `context.{members, issues, notionDocs}`. 기존 이슈 색인이나 Notion을 쓰지 못하면 그 값은 `null` (아래 "프로젝트 맥락") |
 | `EXTRACTING` | 티켓 추출 (초안 작성·검수 포함) | `extraction.{todos, decisions, openQuestions}` |
 | `DEDUPING` | 중복 검수 | `dedupe.{done, total, linked}`. 티켓 하나를 판단할 때마다 보고한다. 중복 판단이 꺼져 있으면 이 단계는 오지 않는다 (기획 3.1) |
 | `DISPATCHING` | 담당자에게 전송 | 결과를 보내기 직전에 보고한다 (초안 저장 모드만) |

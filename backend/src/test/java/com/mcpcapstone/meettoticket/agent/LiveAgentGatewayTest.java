@@ -38,7 +38,7 @@ class LiveAgentGatewayTest {
 		var request = new AgentContracts.StartRequest(
 				id,
 				new AgentContracts.MeetingData(1L, "회의", LocalDate.of(2026, 10, 22), "Asia/Seoul", List.of(), "a.txt", "본문"),
-				new AgentContracts.ProjectData(1L, "시연", "owner", "repo"),
+				new AgentContracts.ProjectData(1L, "시연", "owner", "repo", null),
 				List.of());
 
 		assertThat(gateway.submit(request).status()).isEqualTo(TaskStatus.QUEUED);
@@ -55,7 +55,7 @@ class LiveAgentGatewayTest {
 		var request = new AgentContracts.StartRequest(
 				id,
 				new AgentContracts.MeetingData(1L, "회의", LocalDate.of(2026, 10, 22), "Asia/Seoul", List.of(), "a.txt", "본문"),
-				new AgentContracts.ProjectData(1L, "시연", "owner", "repo"),
+				new AgentContracts.ProjectData(1L, "시연", "owner", "repo", null),
 				List.of());
 
 		assertThat(new LiveAgentGateway(builder.build()).submit(request).taskId()).isEqualTo(id);

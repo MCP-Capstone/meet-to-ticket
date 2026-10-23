@@ -29,6 +29,7 @@ class Project(CamelModel):
     name: str = Field("", description="프로젝트 또는 팀원 이름")
     github_owner: str = Field(description="GitHub 소유자 또는 조직")
     github_repo: str = Field(description="GitHub 저장소명")
+    notion_page_url: str | None = Field(None, description="맥락으로 읽을 Notion 기획 페이지 URL. 없으면 Notion 맥락 없이 진행")
 
 
 class Meeting(CamelModel):
