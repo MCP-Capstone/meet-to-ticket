@@ -66,12 +66,30 @@ class Settings:
     # 기본은 초안 저장에서 멈추고, 담당자가 확인한 티켓만 일괄 발행한다 (기획_v16, TASK-012)
     publish_on_run: bool = False
     fallback_publish: bool = True       # 보완 한도 초과 시 기본 초안으로 발행할지 (False면 NEEDS_CHECK)
+    # 운영 환경에서 publish_on_run을 켜려면 명시적 승인(allow_auto_publish)이 함께 있어야 한다 (validate_settings)
+    app_env: str = ""
+    allow_auto_publish: bool = False
 
 
 def _str(name: str, default: str) -> str:
     """비어 있는 값(예: OPENAI_REVIEW_MODEL=)은 설정하지 않은 것으로 본다."""
     raw = os.environ.get(name, "").strip()
     return raw or default
+
+
+PRODUCTION_ENVS = {"prod", "production"}
+
+
+class SettingsError(RuntimeError):
+    """기동을 막아야 하는 안전하지 않은 설정."""
+
+
+def validate_settings(settings: Settings) -> None:
+    """운영 환경에서 사람 확인 없는 자동 발행(PUBLISH_ON_RUN)은 ALLOW_AUTO_PUBLISH 승인 없이 기동하지 않는다."""
+    if settings.publish_on_run and settings.app_env.strip().lower() in PRODUCTION_ENVS and not settings.allow_auto_publish:
+        raise SettingsError(
+            "운영 환경(APP_ENV=%s)에서 PUBLISH_ON_RUN=true는 ALLOW_AUTO_PUBLISH=true 승인 없이 기동할 수 없습니다" % settings.app_env
+        )
 
 
 def load_settings() -> Settings:
@@ -106,4 +124,6 @@ def load_settings() -> Settings:
         dry_run=_bool("DRY_RUN", False),
         publish_on_run=_bool("PUBLISH_ON_RUN", False),
         fallback_publish=_bool("FALLBACK_PUBLISH", True),
+        app_env=_str("APP_ENV", ""),
+        allow_auto_publish=_bool("ALLOW_AUTO_PUBLISH", False),
     )
