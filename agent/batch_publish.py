@@ -123,8 +123,9 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             mentions = [member for member in source.slack_members if member.get("name") in reviewer_names and member.get("slack_user_id")]
             sent = True
             out = await publisher.post_message(channel_id=channel_id, text=text, mentions=mentions)
+            # business-mcp post_message는 메시지 링크를 permalink로 돌려준다 (url 키 없음)
             return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="POSTED",
-                                     message_url=out.get("url"))
+                                     message_url=out.get("permalink"))
         if source.publish_target == "NOTION":
             # 루트 페이지가 없으면 Notion을 부르지 않는다. GitHub 이슈로 대신 만들지도 않는다.
             root = (source.project.notion_page_url or "").strip()
