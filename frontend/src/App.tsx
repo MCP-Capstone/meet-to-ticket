@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnalysisProgress } from './components/AnalysisProgress'
 import { AuthForm } from './components/AuthForm'
+import { DispatchResult } from './components/DispatchResult'
 import { ResultList } from './components/ResultList'
 import { ProjectEditor } from './components/ProjectEditor'
 import { Spinner } from './components/Spinner'
@@ -370,12 +371,15 @@ function App() {
             <AnalysisProgress taskId={taskId} meetingTitle={meeting.title} onFinish={handleFinish} onCancel={reset} />
           )}
 
-          {step === 'result' && meeting && result && (
+          {step === 'result' && meeting && result && taskId !== null && (
             <>
-              <ResultList meeting={meeting} participants={toNames(meeting.participantIds)} result={result} />
-              <button className="link" onClick={reset}>
-                새 회의록 업로드
-              </button>
+              {/* 기획_v16: 티켓을 담당자별로 보낸 결과 (TASK-023·024·025) */}
+              <DispatchResult taskId={taskId} meeting={meeting} onUploadAnother={reset} />
+              {/* Agent 처리 상세 (Phase 1 결과 형식). 검수 지적·경고를 항목별로 볼 때 연다 */}
+              <details className="result-detail">
+                <summary>Agent 처리 상세</summary>
+                <ResultList meeting={meeting} participants={toNames(meeting.participantIds)} result={result} />
+              </details>
             </>
           )}
         </>

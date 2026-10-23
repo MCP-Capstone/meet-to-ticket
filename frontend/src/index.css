@@ -816,3 +816,128 @@ button.secondary {
   min-width: 86px;
 }
 .project-member-role button { white-space: nowrap; }
+
+/* 전송 결과 (TASK-023·024·025) */
+.dispatch {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dispatch .summary h2 {
+  margin: 4px 0;
+}
+
+.dispatch-body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .dispatch-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.dispatch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.dispatch-table th,
+.dispatch-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.dispatch-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.dispatch-table tr.selectable {
+  cursor: pointer;
+}
+
+.dispatch-table tr[aria-selected='true'] {
+  background: var(--accent-soft);
+}
+
+.dispatch-table .tool {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge.ticket-assignee_required {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.assign-notice {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.assign-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+
+.assign-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.issue-preview h3 {
+  margin: 4px 0 8px;
+}
+
+.issue-markdown {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.issue-markdown h4 {
+  margin: 14px 0 6px;
+}
+
+.issue-markdown ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.issue-markdown ul.tasks {
+  list-style: none;
+  padding-left: 0;
+}
+
+.issue-markdown blockquote {
+  margin: 6px 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+.dedupe-note {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.result-detail summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin: 8px 0;
+}
+

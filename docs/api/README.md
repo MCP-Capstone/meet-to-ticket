@@ -29,6 +29,8 @@
 | GET | /api/users?keyword= | 200 | 멤버로 고를 가입 사용자 검색 |
 | GET | /api/projects/{projectId}/members | 200 | 팀원·GitHub 계정 |
 | GET | /api/tickets/me | 200 | 내 티켓 (담당자별, `projectId` 필터, 상태별 건수) |
+| GET | /api/analysis-tasks/{taskId}/tickets | 200 | 전송 결과: 티켓별 발행 대상·받은 사람·상태, 건수 요약, GitHub 이슈 미리보기 (같은 프로젝트 멤버) |
+| PUT | /api/tickets/{ticketId}/assignee | 200 | 대표 담당 지정: 담당 지정 필요 티켓을 팀원에게 보냄 (회의록을 올린 사람만) |
 | PATCH | /api/tickets/{ticketId} | 200 | 티켓 카드 수정: 본문, 담당 멤버, 기한 (담당자만, 검토 대기에서만) |
 | PATCH | /api/tickets/{ticketId}/publication | 200 | 발행 대상과 처리 유형 변경 (담당자만, 검토 대기에서만) |
 | POST | /api/tickets/{ticketId}/confirm | 200 | 확인: 검토 대기 -> 확인 |
@@ -76,6 +78,17 @@ Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤
 `POST /api/tickets/publish`는 로그인 사용자가 담당인 확인(`CONFIRMED`) 티켓만 한 묶음으로 담는다. 검토 대기와 거절 티켓은 담기지 않는다. 발행 대상이 GitHub가 아닌(Slack, Notion) 확인 티켓도 담기지 않고 확인 상태로 남는다(Agent 일괄 발행은 GitHub만 처리). 담긴 티켓은 `PUBLISHING`(발행 중)이 되어 다시 담을 수 없고(중복 클릭 방지, 없으면 409 `NO_CONFIRMED_TICKETS`), Agent `POST /publish`가 202로 접수한다. 202는 접수이지 발행 성공이 아니다. Agent가 접수하지 않은 것이 확실하면 티켓은 확인 상태로 돌아가고 502 `AGENT_ACCEPTANCE_FAILED`이다.
 Agent는 결과를 `POST /internal/publish-batches/{batchId}/result`(내부 토큰)로 보고하고, 백엔드는 티켓 상태를 `PUBLISHED`/`LINKED`/`UPDATED`/`FAILED`로 바꿔 이슈 번호/URL/실패 사유를 저장한다. 발행 직전 재대조로 처리 유형이 바뀌면 실제 실행한 유형을 저장한다. 요청은 갔지만 결과를 모르는 경우(`UNKNOWN`)와 보고에서 빠진 티켓은 `FAILED`이면서 `outcomeUnknown=true`이다. 다시 시도하면 이슈가 두 번 생길 수 있어 구분한다. 같은 묶음의 보고가 다시 와도 한 번만 반영한다.
 `GET /api/publish-batches/{batchId}`는 `RUNNING`(결과 대기)이면 계속 조회한다. `GET /api/tickets/me`의 `counts.failed`는 실패 배너용이다. MOCK 모드는 GitHub 발행 없이 즉시 `PUBLISHED`로 저장하며 이슈 링크가 없다.
+
+### 전송 결과와 대표 담당 지정 (#213)
+
+회의록 처리가 끝나면 업로더는 전송 결과를 본다 (REQ-012, UI 플로우 6쪽).
+
+- `GET /api/analysis-tasks/{taskId}/tickets`: 같은 프로젝트 멤버면 볼 수 있다 (아니면 403). 처리 중이면 409 `TASK_NOT_FINISHED`
+  - `counts`: `total`, `pendingReview`(기존 이슈 연결 제외), `linked`(처리 유형 LINK), `assigneeRequired`
+  - `tickets[]`: `ticket`(내 티켓 조회와 같은 형식, `assignee`가 받은 사람), `mine`(받은 사람이 나면 true, 화면에 "나"), `preview`(GitHub 티켓만: 이슈 본문 Markdown, 라벨, 근거)
+  - `canAssign`과 `members`: 회의록을 올린 사람이면 대표 담당 후보를 함께 준다
+  - 미리보기 본문에는 회의록 원문이 섞여 있다. HTML로 그릴 때는 sanitize한다 (프론트 `IssueMarkdown`은 HTML을 넣지 않고 React 요소로만 그린다)
+- `PUT /api/tickets/{ticketId}/assignee` `{"memberId": 11}`: 담당 지정 필요(`ASSIGNEE_REQUIRED`) 티켓에 같은 프로젝트 팀원을 대표 담당으로 지정하면 검토 대기가 되어 그 팀원의 내 티켓으로 간다 (REQ-011). 회의록을 올린 사람만 할 수 있다 (아니면 403 `TICKET_UPLOADER_REQUIRED`). 담당 지정 필요가 아니면 409 `TICKET_STATUS_CONFLICT`, 같은 프로젝트 팀원이 아니면 404 `PROJECT_MEMBER_NOT_FOUND`
 
 ### 회의록 처리 요청 (#153)
 
