@@ -206,7 +206,9 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
           )}
           {canEdit && <>
             <label>가입 사용자 검색
-              <input value={keyword} placeholder="이름 또는 GitHub 계정" onChange={(e) => { setKeyword(e.target.value); setSearching(true); setSearchError(null); setUsers([]) }} />
+              <input value={keyword} placeholder="이름 또는 GitHub 계정"
+                onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault() }}
+                onChange={(e) => { setKeyword(e.target.value); setSearching(true); setSearchError(null); setUsers([]) }} />
             </label>
             {searching ? <p className="inline-status" role="status"><Spinner size="sm" label="사용자 검색 중" /> 사용자를 검색하고 있습니다.</p>
               : searchError ? <div><p className="error" role="alert">{searchError}</p><button type="button" className="link" onClick={() => setSearchAttempt((value) => value + 1)}>검색 다시 시도</button></div>

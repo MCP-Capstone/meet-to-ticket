@@ -1,7 +1,7 @@
 import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
 import type { AnalysisTask, DirectoryUser, ExecutionMode, Meeting, TaskStage, User } from '../api/types'
-import { mockItems, mockMembers } from './data'
+import { mockItems } from './data'
 import { getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
 
 // 백엔드 없이 화면을 개발하기 위한 가짜 API. realApi와 같은 형태를 유지한다.
@@ -158,12 +158,15 @@ export const mockApi: typeof realApi = {
 
   async uploadMeeting(projectId, file) {
     await delay(500)
-    requireLogin()
+    const members = listMockMembers(projectId, requireLogin())
     const { title, meetingDate, names } = parseMeeting(await file.text())
     if (!title || !meetingDate) {
       throw fail(400, 'INVALID_MEETING_FILE', 'UTF-8 .txt 파일의 제목 / 날짜 / 참여자를 확인해 주세요.')
     }
-    const ids = names.map((n) => mockMembers.find((m) => m.name === n)?.projectMemberId)
+    const ids = names.map((name) => {
+      const matches = members.filter((member) => member.name === name)
+      return matches.length === 1 ? matches[0].projectMemberId : undefined
+    })
     if (ids.some((id) => id === undefined)) {
       throw fail(400, 'PARTICIPANT_MAPPING_FAILED', '미등록 또는 동명이인 참여자가 있어 연결할 수 없습니다.')
     }
