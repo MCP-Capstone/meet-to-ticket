@@ -14,10 +14,14 @@ from typing import Any
 
 import prompts
 from config import Settings
-from schemas import ActionRowOut, ActionRowsOut, DraftBatch, DraftTicket, ReviewBatch, TicketReview
+from schemas import ActionRowsOut, DraftBatch, DraftTicket, ReviewBatch, TicketReview
 from state import LLM_ERROR, AgentFatal
 
 log = logging.getLogger("agent.llm")
+
+
+def _bullet_list(items: list[str]) -> str:
+    return "\n".join(f"- {x}" for x in items) or "- 없음"
 
 
 def _status_code(exc: Exception) -> int | None:
@@ -63,8 +67,8 @@ def _chat_model(**kwargs: Any) -> Any:
 
 
 # 추출·초안은 writer, 검수는 reviewer 역할의 모델을 쓴다. fallback은 재시도 후에도 실패할 때 쓰는 대체 모델
-ROLE_OF = {"rows": "writer", "draft": "writer", "review": "reviewer"}
-SCHEMA_OF = {"rows": ActionRowsOut, "draft": DraftBatch, "review": ReviewBatch}
+ROLE_OF = {"extract": "writer", "draft": "writer", "review": "reviewer"}
+SCHEMA_OF = {"extract": ActionRowsOut, "draft": DraftBatch, "review": ReviewBatch}
 
 
 class OpenAILLM:
@@ -161,16 +165,21 @@ class OpenAILLM:
                 raise AgentFatal(LLM_ERROR, f"LLM {what} 호출 실패 (대체 모델 {fallback['model']} 포함): {exc}") from exc
         raise AgentFatal(LLM_ERROR, f"LLM {what} 호출 실패: {last}")
 
-    async def extract_rows(self, summary: str) -> list[ActionRowOut]:
-        out = await self._call(
-            "rows", [("system", prompts.ROWS_SYSTEM), ("user", summary)], "액션 아이템 추출"
+    async def extract(self, summary: str) -> ActionRowsOut:
+        """표가 없는 회의록에서 할 일·결정·미결 질문·제외 항목을 뽑는다."""
+        return await self._call(
+            "extract", [("system", prompts.EXTRACT_SYSTEM), ("user", summary)], "회의록 추출"
         )
-        return out.rows
 
-    async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None) -> list[DraftTicket]:
+    async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None,
+                    context: dict[str, Any] | None = None) -> list[DraftTicket]:
+        """context: 추출 결과의 회의 단위 값 (decisions: 결정 문장, open_questions: 미결 질문)."""
+        context = context or {}
         user = prompts.DRAFT_USER.format(
             summary=summary,
-            labels="\n".join(f"- {x}" for x in labels or []) or "- 없음",
+            decisions=_bullet_list(context.get("decisions", [])),
+            open_questions=_bullet_list(context.get("open_questions", [])),
+            labels=_bullet_list(labels or []),
             items=json.dumps(items, ensure_ascii=False, indent=2),
         )
         out = await self._call("draft", [("system", prompts.DRAFT_SYSTEM), ("user", user)], "초안 작성")
@@ -181,7 +190,7 @@ class OpenAILLM:
         user = prompts.REVIEW_USER.format(
             summary=summary,
             source_note=context.get("source_note", ""),
-            excluded="\n".join(f"- {x}" for x in context.get("excluded_or_held", [])) or "- 없음",
+            excluded=_bullet_list(context.get("excluded_or_held", [])),
             drafts=json.dumps(drafts, ensure_ascii=False, indent=2),
         )
         out = await self._call("review", [("system", prompts.REVIEW_SYSTEM), ("user", user)], "검수")

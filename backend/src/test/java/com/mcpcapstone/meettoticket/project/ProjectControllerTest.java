@@ -130,6 +130,22 @@ class ProjectControllerTest {
 	}
 
 	@Test
+	void 멤버의_Slack_이메일을_저장하고_입력없는_연결은_미연결로_돌려준다() throws Exception {
+		long id = create("repo-" + suffix, memberId);
+		String request = """
+				{"name":"Slack 연결","description":null,"githubOwner":"MCP-Capstone","githubRepo":"repo-%s",
+				 "notionPageUrl":null,"slackChannelId":"C0123456789","memberUserIds":[%d],
+				 "memberSlackEmails":{"%d":"member@example.com"}}""".formatted(suffix, memberId, memberId);
+
+		mvc.perform(put("/api/projects/{id}", id).session(admin).contentType("application/json").content(request))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.connections.notion").value("NOT_CONNECTED"))
+				.andExpect(jsonPath("$.connections.slack").value(nullValue()))
+				.andExpect(jsonPath("$.members[1].slackEmail").value("member@example.com"))
+				.andExpect(jsonPath("$.members[1].slackUserId").value(nullValue()));
+	}
+
+	@Test
 	void 이미_등록된_저장소는_대소문자가_달라도_409다() throws Exception {
 		create("repo-" + suffix);
 
@@ -157,6 +173,66 @@ class ProjectControllerTest {
 						.content(body("CSV 내보내기", "repo-" + suffix, "http://notion.so")))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.message").value("Notion 페이지 URL은 https://로 시작해야 합니다."));
+	}
+
+	private org.springframework.test.web.servlet.ResultActions role(MockHttpSession session, long projectId, long target, String role) throws Exception {
+		return mvc.perform(put("/api/projects/{id}/members/{userId}/role", projectId, target).session(session)
+				.contentType("application/json").content("{\"role\":\"%s\"}".formatted(role)));
+	}
+
+	@Test
+	void 관리자는_멤버를_관리자로_지정하고_해제한다() throws Exception {
+		long id = create("repo-" + suffix, memberId);
+
+		role(admin, id, memberId, "ADMIN")
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.members[1].userId").value(memberId))
+				.andExpect(jsonPath("$.members[1].admin").value(true));
+		mvc.perform(get("/api/projects/{id}", id).session(member))
+				.andExpect(jsonPath("$.canEdit").value(true));
+
+		role(member, id, adminId, "MEMBER")
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.members[0].admin").value(false));
+		mvc.perform(put("/api/projects/{id}", id).session(admin).contentType("application/json")
+						.content(body("바꾼 이름", "repo-" + suffix, null, adminId, memberId)))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.code").value("PROJECT_ADMIN_REQUIRED"));
+	}
+
+	@Test
+	void 마지막_관리자는_해제할_수_없다() throws Exception {
+		long id = create("repo-" + suffix, memberId);
+
+		role(admin, id, adminId, "MEMBER")
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("LAST_PROJECT_ADMIN"));
+		role(admin, id, memberId, "MEMBER")
+				.andExpect(status().isOk());
+		role(admin, id, memberId, "ADMIN")
+				.andExpect(status().isOk());
+		role(admin, id, adminId, "MEMBER")
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.canEdit").value(false));
+	}
+
+	@Test
+	void 관리자가_아니거나_멤버가_아닌_대상은_거절한다() throws Exception {
+		long id = create("repo-" + suffix, memberId);
+		long outsiderId = me(outsider);
+
+		role(member, id, memberId, "ADMIN")
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.code").value("PROJECT_ADMIN_REQUIRED"));
+		role(outsider, id, outsiderId, "ADMIN")
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.code").value("PROJECT_ACCESS_DENIED"));
+		role(admin, id, outsiderId, "ADMIN")
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("PROJECT_MEMBER_NOT_FOUND"));
+		role(admin, id, memberId, "OWNER")
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 	}
 
 	@Test

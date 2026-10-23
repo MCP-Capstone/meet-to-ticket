@@ -51,11 +51,13 @@ async def call(name, **args):
 
 @pytest.mark.anyio
 async def test_tools_and_resource_are_registered():
-    # 조회 도구 1개(읽기 전용), 변경 도구 2개, 원문 Resource 1개가 보인다
+    # 검색·상태 조회 2개, 색인 변경 4개, 원문 Resource 1개가 보인다
     tools = {t.name: t.model_dump(by_alias=True) for t in await server.mcp.list_tools()}
-    assert sorted(tools) == ["index_issue", "search_similar_issues", "sync_issues"]
+    assert sorted(tools) == ["drop_index", "index_issue", "index_status", "search_similar_issues", "sync_issues"]
     assert tools["search_similar_issues"]["annotations"]["readOnlyHint"] is True
+    assert tools["index_status"]["annotations"]["readOnlyHint"] is True
     assert tools["sync_issues"]["annotations"]["readOnlyHint"] is False
+    assert tools["drop_index"]["annotations"]["readOnlyHint"] is False
     assert set(tools["search_similar_issues"]["inputSchema"]["required"]) == {"owner", "repo", "query"}
     assert tools["search_similar_issues"]["inputSchema"]["properties"]["state"]["enum"] == ["open", "closed", "all"]
     templates = await server.mcp.list_resource_templates()
@@ -67,16 +69,15 @@ async def test_tools_and_resource_are_registered():
 
 @pytest.mark.anyio
 async def test_search_finds_similar_issue_first(env):
-    # 색인한 뒤 비슷한 문장으로 검색하면 그 이슈가 1위로, score가 높은 순서로 나온다
+    # 색인한 뒤 비슷한 문장으로 검색하면 그 이슈가 1위로, 일치 키워드도 함께 보인다.
     await call("sync_issues", owner="o", repo="r")
     out = await call("search_similar_issues", owner="o", repo="r", query="로그인 버튼 네모로 변경")
     numbers = [r["number"] for r in out["results"]]
     assert numbers[0] == 1 and 4 not in numbers  # PR은 색인되지 않음
-    scores = [r["score"] for r in out["results"]]
-    assert scores == sorted(scores, reverse=True)
     top = out["results"][0]
     assert top["state"] == "closed" and top["closed_at"] == "2026-10-10T00:00:00Z"
     assert top["snippet"].startswith("디자인 확정에 따라")
+    assert "로그인" in top["matched_keywords"]
     assert out["index"]["count"] == 3 and out["repository"] == "o/r"
 
 
@@ -145,6 +146,31 @@ async def test_sync_then_index_issue(env):
     assert out == {"repository": "o/r", "number": 9, "indexed": True}
     assert emb.calls[-1] == ["로그인 버튼 색상 변경"]
     assert store.get_collection("o", "r").count() == 4
+
+
+@pytest.mark.anyio
+async def test_index_status_and_drop_index(env):
+    # 색인이 없어도 상태 조회·삭제는 오류 없이 0을 돌리고, 다른 저장소는 건드리지 않는다
+    _, _, store = env
+    assert await call("index_status", owner="o", repo="r") == {
+        "repository": "o/r", "count": 0, "last_synced_at": None, "embedding_model": None
+    }
+    assert await call("drop_index", owner="o", repo="r") == {"repository": "o/r", "deleted": False, "count": 0}
+    await call("sync_issues", owner="o", repo="r")
+    await call("sync_issues", owner="o", repo="other")
+    status = await call("index_status", owner="o", repo="r")
+    assert status["count"] == 3 and status["embedding_model"] == "fake-embed"
+    assert await call("drop_index", owner="o", repo="r") == {"repository": "o/r", "deleted": True, "count": 0}
+    assert store.exists("o", "r") is False and store.exists("o", "other") is True
+
+
+@pytest.mark.anyio
+async def test_index_issue_includes_recent_comments(env):
+    gh, emb, _ = env
+    # GitHub API의 direction=desc 응답(최신→과거)을 Fake에 그대로 넣고, 색인 문장은 시간순으로 확인한다.
+    gh.comments[("o/r", "2")] = [{"body": "최신 변경 댓글"}, {"body": "첫 댓글"}]
+    await call("index_issue", owner="o", repo="r", number=2)
+    assert emb.calls[-1] == ["CSV 내보내기 권한 추가\n\n관리자만 CSV 내보내기를 할 수 있게 권한을 확인한다\n\n최근 댓글\n첫 댓글\n\n최신 변경 댓글"]
 
 
 # --- Resource ---

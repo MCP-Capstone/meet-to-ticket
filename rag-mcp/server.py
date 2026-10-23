@@ -7,6 +7,8 @@ business-mcp(이슈 생성·조회)와 역할을 나눠, 이 서버는 색인과
 - search_similar_issues (조회): 의미가 비슷한 기존 이슈 찾기
 - sync_issues (변경): 저장소 이슈를 색인에 반영 (바뀐 이슈만, full=true면 전체)
 - index_issue (변경): 이슈 한 건을 바로 색인
+- index_status (조회): 프로젝트별 색인 수·마지막 동기화 시각 확인
+- drop_index (변경): 프로젝트별 색인 삭제
 Resource
 - issue://{owner}/{repo}/{number}: 이슈 원문 (GitHub에서 바로 읽음)
 
@@ -116,6 +118,22 @@ def index_issue(owner: str, repo: str, number: int) -> dict[str, Any]:
     """색인 결과 {repository, number, indexed}."""
     with github.make_client() as client:
         return indexer.index_issue(owner, repo, number, client=client, embedder=get_embedder(), store=get_store())
+
+
+@mcp.tool(
+    description="프로젝트 화면에 표시할 저장소 색인 개수, 마지막 동기화 시각, 임베딩 모델을 조회한다. 색인이 없으면 count=0을 돌려준다.",
+    annotations=READ.model_copy(update={"title": "이슈 색인 상태 조회"}),
+)
+def index_status(owner: str, repo: str) -> dict[str, Any]:
+    return indexer.index_status(owner, repo, store=get_store())
+
+
+@mcp.tool(
+    description="해당 저장소의 이슈 색인만 삭제한다. 프로젝트 삭제 시 쓰며, 이미 없어도 count=0으로 성공한다.",
+    annotations=INDEX_WRITE.model_copy(update={"title": "이슈 색인 삭제"}),
+)
+def drop_index(owner: str, repo: str) -> dict[str, Any]:
+    return indexer.drop_index(owner, repo, store=get_store())
 
 
 # ---------------------------------------------------------------- Resource

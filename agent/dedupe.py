@@ -23,6 +23,7 @@ from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field, ValidationError
 
 import prompts
+from handling import decide
 
 log = logging.getLogger("agent.dedupe")
 
@@ -35,6 +36,8 @@ class Decision(BaseModel):
         description="SAME: 같은 대상에 같은 변경 / CHANGE: 같은 대상, 다른 방향·값 / RELATED: 같은 영역의 다른 작업 / UNRELATED: 관계 없음")
     issue_number: int | None = Field(None, description="관계가 있는 기존 이슈 번호. 도구 결과에서 본 번호만. UNRELATED면 비움")
     reason: str = Field(description="어떤 이슈의 어떤 점이 같고 다른지 한두 문장")
+    before: str | None = Field(None, description="CHANGE일 때만: 기존 이슈의 값이나 방향 (예: 버튼 모양 네모)")
+    after: str | None = Field(None, description="CHANGE일 때만: 새 작업의 값이나 방향 (예: 버튼 모양 세모)")
 
 
 class JudgeState(TypedDict):
@@ -132,16 +135,25 @@ def _tool_calls(messages: list[Any]) -> list[dict[str, Any]]:
 
 def _result(decision: dict | None = None, *, calls: list | None = None, skipped: str | None = None,
             issue: dict | None = None) -> dict[str, Any]:
-    """티켓의 판단 결과 (결과 contentJson.dedupe). relation이 없으면 판단 없이 새로 발행한다."""
-    return {
+    """티켓의 판단 결과 (결과 contentJson.dedupe). relation이 없으면 판단 없이 새로 발행한다.
+
+    handling은 판정으로 정한 처리 유형이다 (handling.py, 기획_v16 1.7.2 처리 유형 표).
+    """
+    change = decision is not None and decision["relation"] == "CHANGE"
+    result = {
         "relation": decision["relation"] if decision else None,
         "issue_number": decision.get("issue_number") if decision else None,
         "issue_state": (issue or {}).get("state"),
         "issue_title": (issue or {}).get("title"),
         "reason": decision["reason"] if decision else None,
+        # 카드의 변경 전후 표시와 갱신 섹션에 쓴다 (REQ-026)
+        "before": decision.get("before") if change else None,
+        "after": decision.get("after") if change else None,
         "tool_calls": calls or [],
         "skipped": skipped,
     }
+    result["handling"] = decide(result)
+    return result
 
 
 async def judge_ticket(graph: Any, ticket: dict[str, Any], settings: Any) -> dict[str, Any]:

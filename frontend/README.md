@@ -129,7 +129,7 @@ TASK-001 전달 사항:
 
 ### TASK-005·006 연동 계약
 
-프로젝트 조회·저장·가입 사용자 검색 API는 #159 / PR #161에서 반영됐다. 아래 계약으로 호출하며, 실제 외부 도구 연결·멤버 권한 확인은 별도 담당 기능의 응답을 따른다.
+프로젝트 조회·저장·가입 사용자 검색 API는 #159 / PR #161에 반영됐다. 관리자 역할 변경 API는 #165 / PR #169에 반영됐다. 실제 외부 도구 연결·멤버 권한 확인은 별도 담당 기능의 응답을 따른다.
 
 | 메서드 | 경로 | 응답 |
 |---|---|---|
@@ -137,6 +137,7 @@ TASK-001 전달 사항:
 | GET | `/api/projects/{projectId}` | 200, `ProjectDetail` |
 | PUT | `/api/projects/{projectId}` | 200, `ProjectDetail` |
 | GET | `/api/users?keyword={검색어}` | 200, `{ users: [{ userId, name, githubName }] }` |
+| PUT | `/api/projects/{projectId}/members/{memberUserId}/role` | 200, `ProjectDetail` |
 
 등록·수정 요청 (`memberUserIds`는 변경 후 전체 멤버 목록):
 
@@ -163,14 +164,14 @@ TASK-001 전달 사항:
   "githubRepo": "mcp-capstone",
   "notionPageUrl": null,
   "slackChannelId": null,
-  "members": [{ "userId": 1, "name": "함주헌", "githubName": "juhun-ham", "repositoryPermission": null }],
+  "members": [{ "userId": 1, "name": "함주헌", "githubName": "juhun-ham", "admin": true, "repositoryPermission": null }],
   "connections": { "github": null, "notion": "NOT_CONNECTED", "slack": "NOT_CONNECTED" },
   "canEdit": true
 }
 ```
 
 - 권한 값: `GRANTED` / `DENIED` / `NO_ACCOUNT` / `null`. GitHub 계정이 없는 멤버만 `NO_ACCOUNT`이며, 미확인 또는 확인 실패는 `null`이다.
-- 연결 값: `CONNECTED` / `NOT_CONNECTED` / `ERROR`. `connections.github`은 미확인 또는 확인 실패 시 `null`도 허용한다.
+- 연결 값: `CONNECTED` / `NOT_CONNECTED` / `ERROR`. 모든 연결 값은 확인 전 또는 확인 실패 시 `null`도 허용한다.
 - `repositoryPermission`과 `connections.github`의 `null`은 화면에 ‘확인되지 않음’으로 표시한다. TASK-006 / #139의 확인 실패도 같은 값이므로 미확인과 실패를 구분하지 않고, ‘권한 없음’이나 ‘미연결’로 해석하지 않는다.
 - 저장 전 저장소 변경이나 멤버 추가는 ‘저장 후 확인’으로 표시하며, 저장 응답이 `null`이면 ‘확인되지 않음’으로 표시한다. 그 외 API 오류는 `{ code, message }` 오류 안내를 유지한다.
 - 검색어가 빈 문자열이면 선택 가능한 가입 사용자 목록을 반환한다. 멤버 GitHub 계정은 사용자 정보에서 가져오며 저장 요청에는 포함하지 않는다.
@@ -213,6 +214,24 @@ form.append('content', text) // 파일 방식이면 대신 form.append('file', f
 - 담당자 검토·전송 결과 화면과 진행 단계 개편은 별도 Task다. 현재 분석 파이프라인의 발행 정책은 변경하지 않는다. 실제 실행에서는 기존 `DRY_RUN` 설정을 확인한다.
 - mock에서도 새 처리 API·회의 메타데이터 조회를 지원한다. 회의 날짜·제목·파일명은 입력값을 따르며 실제 Agent·GitHub는 호출하지 않는다. mock 작업은 메모리에 있어 새로고침 후 작업 복원은 이번 범위 밖이다.
 
+## 프로젝트 관리자 지정·해제 (#172 / TASK-056 화면 연동)
+
+- 프로젝트 멤버 표에서 `members[].admin`으로 **관리자 / 일반 멤버**를 표시한다. GitHub 저장소 권한과 별개의 역할이다.
+- `canEdit=true`인 기존 프로젝트 관리자에게만 **관리자 지정 / 관리자 해제** 버튼이 보인다. 새 프로젝트·새로 추가한 멤버는 먼저 저장해야 역할을 변경할 수 있다.
+- 버튼 클릭 시 아래 API를 호출한다. 프로젝트 정보 저장과 별도로 즉시 적용되며, 요청 중 역할 변경·저장·화면 전환을 막는다.
+
+```typescript
+// PUT /api/projects/{projectId}/members/{memberUserId}/role
+{ role: 'ADMIN' } // 해제: { role: 'MEMBER' }
+// 200: ProjectDetail (members[].admin, canEdit 포함)
+```
+
+- 성공 응답으로 역할·편집 권한을 갱신하며, 편집 중인 이름·설명·도구 입력과 멤버 추가·제거는 덮어쓰지 않는다. 서버 응답에 관리자가 포함되면 제거 대기 중인 멤버라도 유지한다.
+- 관리자는 먼저 역할을 해제해야 멤버에서 제거할 수 있다. 마지막 관리자의 역할 해제는 서버가 `409 LAST_PROJECT_ADMIN`으로 거절하며, 메시지를 표시하고 기존 역할을 유지한다.
+- 자신의 관리자 권한을 해제해 `canEdit=false`가 되면 읽기 전용으로 전환한다. 편집 중 입력은 남지만 저장할 수 없으므로 자기 권한 해제 전 저장하도록 안내한다.
+- 오류 응답은 `{code, message}`의 메시지를 표시한다. 403이면 편집을 막으며 401은 기존 세션 만료 처리를 따른다. 실패한 역할 변경은 성공으로 표시하거나 자동 재시도하지 않는다.
+- mock도 동일한 역할·권한·마지막 관리자 조건을 적용한다. `demo1`이 `member2`를 관리자로 지정한 뒤 로그아웃해 `member2 / password1`로 로그인하면 편집할 수 있다. 역할은 기존 프로젝트와 함께 sessionStorage에 저장된다. 실제 DB 동시 요청·비관적 잠금은 mock의 검증 범위가 아니다.
+
 ## 분석 상태 조회 (polling)
 
 - `useAnalysisPolling`이 2초마다 `GET /api/analysis-tasks/{taskId}`를 호출한다. SSE는 쓰지 않는다.
@@ -231,3 +250,11 @@ const res = await fetch('/api/meetings')
 로그인은 세션 쿠키(`JSESSIONID`)로 유지된다. 같은 출처 요청이라 쿠키가 자동으로 전송되므로 토큰을 따로 저장하지 않는다.
 
 포트와 CORS 규칙은 `docs/dev-env.md` 참고.
+
+## 인증 오류 처리 (#197)
+
+- 첫 로그인 상태 확인(`GET /api/auth/me`)에서 401이면 로그인 화면을 표시한다. 서버·네트워크 오류이면 로그인 여부를 단정하지 않고 오류 안내와 **다시 시도** 버튼을 표시한다.
+- **다시 시도**는 로그인 상태 조회만 다시 호출한다. 성공하면 서비스 화면, 401이면 로그인 화면으로 이동한다.
+- 로그아웃은 성공 응답을 받은 뒤 화면을 초기화한다. 서버·네트워크 오류이면 현재 화면과 입력을 유지하며 **로그아웃 다시 시도**를 제공한다. 처리 중에는 로그아웃 중복 요청을 막는다.
+- 세션 만료(`UNAUTHORIZED`)에 대한 기존 로그인 화면 전환과 만료 안내는 유지한다.
+- 확인 시나리오: 세션 조회 500·네트워크 오류 후 재시도 성공/401/반복 실패, 로그인 실패 후 성공, 로그아웃 실패 시 미저장 입력 유지와 재시도, 처리 중 중복 요청 방지, 세션 만료 안내.

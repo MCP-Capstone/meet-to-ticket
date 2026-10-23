@@ -183,6 +183,90 @@ def test_create_issue_retries_without_assignees_on_422():
     assert out["dropped_assignees"] == ["nobody"]
 
 
+# --- 기존 이슈 댓글·갱신 ---
+
+
+def test_add_comment_posts_to_target_issue():
+    # SAME 처리의 댓글은 해당 이슈에만 쓰고, 생성된 댓글의 ID·URL을 돌려준다.
+    seen = {}
+
+    def handler(request):
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json={"id": 33, "html_url": "https://github.com/o/r/issues/7#issuecomment-33"})
+
+    with client_with(handler) as c:
+        out = github.add_comment(c, "o", "r", 7, " 연결 근거 ")
+    assert seen == {"path": "/repos/o/r/issues/7/comments", "body": {"body": "연결 근거"}}
+    assert out == {"status": "commented", "comment_id": 33, "url": "https://github.com/o/r/issues/7#issuecomment-33"}
+
+
+@pytest.mark.parametrize("number,body", [(0, "x"), (-1, "x"), (True, "x"), (1, "  ")])
+def test_add_comment_rejects_invalid_input(number, body):
+    with client_with(lambda r: httpx.Response(201, json={})) as c:
+        with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
+            github.add_comment(c, "o", "r", number, body)
+
+
+def test_update_issue_appends_section_and_only_adds_valid_labels():
+    # PATCH body는 교체형이므로 현재 본문을 먼저 읽어 보존하고, 기존 라벨에 유효한 라벨만 더한다.
+    calls = []
+
+    def handler(request):
+        calls.append((request.method, request.url.path, json.loads(request.content) if request.content else None))
+        if request.method == "GET" and request.url.path == "/repos/o/r/issues/7":
+            return httpx.Response(200, json={"number": 7, "body": "기존 본문", "labels": [{"name": "bug"}]})
+        if request.method == "GET" and request.url.path == "/repos/o/r/labels":
+            return httpx.Response(200, json=labels_json("bug", "enhancement"))
+        if request.method == "PATCH":
+            return httpx.Response(200, json={"number": 7, "html_url": "https://github.com/o/r/issues/7"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+    with client_with(handler) as c:
+        out = github.update_issue(c, "o", "r", 7, "## 회의 변경 사항\n- 범위 확대", ["ENHANCEMENT", "unknown"])
+    assert calls == [
+        ("GET", "/repos/o/r/issues/7", None),
+        ("GET", "/repos/o/r/labels", None),
+        ("PATCH", "/repos/o/r/issues/7", {"body": "기존 본문\n\n## 회의 변경 사항\n- 범위 확대", "labels": ["bug", "enhancement"]}),
+    ]
+    assert out == {
+        "status": "updated", "number": 7, "url": "https://github.com/o/r/issues/7", "dropped_labels": ["unknown"],
+        "comment_id": None, "comment_url": None, "comment_error": None,
+    }
+
+
+def test_update_issue_adds_note_after_patch_and_keeps_update_if_comment_fails():
+    # 갱신 댓글은 PATCH가 끝난 다음 쓴다. 댓글만 실패해도 본문 갱신 성공 결과를 돌려준다.
+    calls = []
+
+    def handler(request):
+        calls.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(200, json={"number": 7, "body": None, "labels": []})
+        if request.method == "PATCH":
+            return httpx.Response(200, json={"number": 7, "html_url": "u"})
+        if request.method == "POST":
+            return httpx.Response(403, json={"message": "no permission"})
+        raise AssertionError("unexpected request")
+
+    with client_with(handler) as c:
+        out = github.update_issue(c, "o", "r", 7, "## 회의 변경 사항", note="갱신했습니다")
+    assert calls == ["GET", "PATCH", "POST"]
+    assert out["status"] == "updated"
+    assert out["comment_id"] is None
+    assert out["comment_error"].startswith("[GITHUB_AUTH]")
+
+
+def test_update_issue_rejects_pr_and_oversized_combined_body():
+    with client_with(lambda r: httpx.Response(200, json={"pull_request": {}})) as c:
+        with pytest.raises(ToolError, match="PR"):
+            github.update_issue(c, "o", "r", 7, "## 변경")
+
+    with client_with(lambda r: httpx.Response(200, json={"body": "a" * github.BODY_MAX})) as c:
+        with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
+            github.update_issue(c, "o", "r", 7, "## 변경")
+
+
 # --- 오류 태그 ---
 
 
@@ -357,3 +441,61 @@ def test_search_issues_limit_and_errors():
     with client_with(limited) as c:
         with pytest.raises(ToolError, match=r"^\[GITHUB_RATE_LIMIT\]"):
             github.search_issues(c, "o", "r", "a")
+
+
+# --- 멤버 저장소 권한 확인 ---
+
+
+def test_check_member_permissions():
+    # 저장소를 먼저 확인하고, 멤버마다 assignees API로 지정 가능 여부를 본다 (204 가능, 404 불가, 그 밖 확인 실패)
+    paths = []
+
+    def handler(request):
+        paths.append(request.url.path)
+        if request.url.path == "/repos/o/r":
+            return httpx.Response(200, json={"full_name": "o/r"})
+        user = request.url.path.rsplit("/", 1)[-1]
+        status = {"alice": 204, "bob": 404}.get(user, 500)
+        return httpx.Response(status)
+
+    with client_with(handler) as c:
+        out = github.check_member_permissions(c, "o", "r", [" alice ", "bob", "carol", "ALICE", ""])
+    assert out == [
+        {"github_name": "alice", "permission": "GRANTED"},
+        {"github_name": "bob", "permission": "DENIED"},
+        {"github_name": "carol", "permission": "ERROR"},
+    ]
+    # 같은 계정(대소문자 무시)과 빈 값은 한 번만, 저장소 확인은 먼저 한 번
+    assert paths == ["/repos/o/r", "/repos/o/r/assignees/alice", "/repos/o/r/assignees/bob", "/repos/o/r/assignees/carol"]
+
+
+def test_check_member_permissions_repo_not_visible():
+    # 저장소를 볼 수 없으면 모든 멤버가 "권한 없음"으로 보이므로, 멤버별 결과 없이 오류로 돌려준다
+    with client_with(lambda r: httpx.Response(404, json={"message": "Not Found"})) as c:
+        with pytest.raises(ToolError, match=r"^\[GITHUB_NOT_FOUND\]"):
+            github.check_member_permissions(c, "o", "r", ["alice"])
+
+
+def test_check_member_permissions_connection_error_is_member_error():
+    # 멤버 한 명의 확인 중 연결이 끊기면 그 멤버만 ERROR (권한 없음으로 보지 않는다)
+    def handler(request):
+        if request.url.path == "/repos/o/r":
+            return httpx.Response(200, json={})
+        if request.url.path.endswith("/flaky"):
+            raise httpx.ReadTimeout("timeout", request=request)
+        return httpx.Response(204)
+
+    with client_with(handler) as c:
+        out = github.check_member_permissions(c, "o", "r", ["alice", "flaky"])
+    assert out == [
+        {"github_name": "alice", "permission": "GRANTED"},
+        {"github_name": "flaky", "permission": "ERROR"},
+    ]
+
+
+def test_check_member_permissions_empty_and_limit():
+    # 확인할 계정이 없으면 GitHub를 부르지 않고, 너무 많으면 거부한다
+    with client_with(lambda r: httpx.Response(500)) as c:
+        assert github.check_member_permissions(c, "o", "r", ["", "  "]) == []
+        with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
+            github.check_member_permissions(c, "o", "r", [f"u{i}" for i in range(101)])

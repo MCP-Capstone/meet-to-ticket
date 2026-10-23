@@ -36,6 +36,10 @@ public class AnalysisTask {
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
+    // 진행 화면용 세부 정보 JSON (단계, 단계별 건수). Agent가 보고한 마지막 값
+    @Column(name = "progress_json", columnDefinition = "text")
+    private String progressJson;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -56,5 +60,9 @@ public class AnalysisTask {
         this.stage = stage;
         this.finishedAt = finishedAt;
         this.errorMessage = error;
+    }
+
+    public void updateProgress(String progressJson) {
+        this.progressJson = progressJson;
     }
 }

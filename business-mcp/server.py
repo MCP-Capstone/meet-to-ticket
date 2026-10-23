@@ -1,4 +1,4 @@
-"""meet-to-ticket business MCP 서버 (GitHub 도구: 이슈 생성, 라벨 목록 조회, 이슈 목록 조회, 이슈 키워드 검색).
+"""meet-to-ticket business MCP 서버 (GitHub·Notion·Slack 도구).
 
 실행: python server.py  →  http://127.0.0.1:8000/mcp (Streamable HTTP)
 환경 변수: business-mcp/.env.example 참고
@@ -18,10 +18,14 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 from common import env  # noqa: E402 - .env를 읽은 뒤에 설정을 쓴다
 from integrations.github import tools as github_tools  # noqa: E402
+from integrations.notion import tools as notion_tools  # noqa: E402
+from integrations.slack import tools as slack_tools  # noqa: E402
 
 # 에이전트가 http://<MCP_HOST>:<MCP_PORT>/mcp 로 연결해 아래 도구를 부른다
 mcp = MCPServer("meet-to-ticket")
 github_tools.register(mcp)
+notion_tools.register(mcp)
+slack_tools.register(mcp)
 
 
 if __name__ == "__main__":

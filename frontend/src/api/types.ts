@@ -4,6 +4,9 @@ export interface User {
   userId: number
   loginId: string
   name: string
+  githubName: string | null
+  slackEmail: string | null
+  slackUserId: string | null
 }
 
 export interface SignupRequest {
@@ -12,6 +15,7 @@ export interface SignupRequest {
   name: string
   // 선택 입력. 앞뒤 공백 제거 후 빈 값은 null로 전송한다.
   githubName: string | null
+  slackEmail: string | null
 }
 
 export interface LoginRequest {
@@ -35,9 +39,14 @@ export interface DirectoryUser {
   userId: number
   name: string
   githubName: string | null
+  slackEmail: string | null
+  slackUserId: string | null
 }
 
+export type ProjectRole = 'ADMIN' | 'MEMBER'
+
 export interface ProjectEditorMember extends DirectoryUser {
+  admin: boolean
   repositoryPermission: RepositoryPermission
 }
 
@@ -49,6 +58,8 @@ export interface ProjectSaveRequest {
   notionPageUrl: string | null
   slackChannelId: string | null
   memberUserIds: number[]
+  // 키는 사용자 ID. 빈 이메일은 null로 전송해 기존 값을 지운다.
+  memberSlackEmails: Record<number, string | null>
 }
 
 export interface ProjectDetail extends Project {
@@ -105,6 +116,19 @@ export type TaskStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'PARTIALLY_FAILED'
 // RUNNING일 때 Agent가 하고 있는 일
 export type TaskStage = 'EXTRACTING' | 'NORMALIZING' | 'REVIEWING' | 'PUBLISHING' | 'VERIFYING'
 
+// 진행 화면 단계 (기획_v16 REQ-007). stage(TaskStage)와 별개다
+export type ProgressStep = 'CONTEXT' | 'EXTRACTING' | 'DEDUPING' | 'DISPATCHING'
+
+// 진행 화면용 세부 정보. 앞 단계 값은 다음 단계에도 남고, 아직 지나지 않은 단계의 값은 없다
+export interface AnalysisProgress {
+  step: ProgressStep
+  // issues, notionDocs는 맥락 파악(TASK-019) 전까지 null
+  context?: { members: number; issues: number | null; notionDocs: number | null }
+  extraction?: { todos: number; decisions: number; openQuestions: number }
+  // 중복 판단이 꺼져 있으면 오지 않는다
+  dedupe?: { done: number; total: number; linked: number }
+}
+
 export interface AnalysisTask {
   taskId: string
   meetingId: number
@@ -115,6 +139,8 @@ export interface AnalysisTask {
   finishedAt: string | null
   // FAILED일 때 사유
   errorMessage: string | null
+  // 진행 세부 정보. 아직 없으면 null
+  progress: AnalysisProgress | null
 }
 
 export interface StartAnalysisResponse {
@@ -124,11 +150,13 @@ export interface StartAnalysisResponse {
   executionMode: ExecutionMode
 }
 
-export type ReviewStatus = 'APPROVED' | 'REJECTED'
+// PENDING: 발행 전 초안 (담당자 확인 대기)
+export type ReviewStatus = 'APPROVED' | 'REJECTED' | 'PENDING'
 
 // SUCCEEDED: 이슈 생성 / FAILED: 생성 실패 / UNKNOWN: 생성 여부 확인 필요
 // SKIPPED: 모의 실행이라 발행 생략 / BLOCKED: 검수 반려로 발행 제외
-export type PublishStatus = 'SUCCEEDED' | 'FAILED' | 'UNKNOWN' | 'SKIPPED' | 'BLOCKED'
+// DRAFT: 발행 전 초안. 담당자가 확인한 뒤 일괄 발행한다
+export type PublishStatus = 'SUCCEEDED' | 'FAILED' | 'UNKNOWN' | 'SKIPPED' | 'BLOCKED' | 'DRAFT'
 
 // Agent가 정리한 업무 내용. 화면에서 쓰는 필드만 적는다.
 // 백엔드 모의 실행과 실제 Agent(#52)가 쓰는 키가 달라 둘 다 받는다. (읽는 쪽: ResultList)
@@ -144,8 +172,10 @@ export interface TaskItemContent {
     | { names?: string[]; github?: string[]; unresolved?: string[] }
   // 모의 실행: originalText / 실제 Agent: text
   due?: { date?: string | null; time?: string | null; qualifier?: string | null; originalText?: string | null; text?: string | null }
-  // 모의 실행: correctionCount, reason / 실제 Agent: revisions
-  review?: { correctionCount?: number; revisions?: number; reason?: string }
+  // 모의 실행: correctionCount, reason / 실제 Agent: revisions, notes(남은 검수 지적), fallback(기본 초안으로 대체됨)
+  review?: { correctionCount?: number; revisions?: number; reason?: string; notes?: string[]; fallback?: boolean }
+  // 코드가 붙인 확인 메모 (발행 보류·조건부 표기, 남은 검수 지적 수, 원문과 다른 기한 등)
+  warnings?: string[]
   // 중복 판정. linked_existing이 true면 새 이슈가 아니라 기존 GitHub 이슈에 연결한 항목
   dedupe?: {
     relation?: 'SAME' | 'CHANGE' | 'RELATED' | 'UNRELATED' | null
@@ -180,6 +210,8 @@ export interface TaskSummary {
   failed: number
   unknown: number
   skipped: number
+  // 발행 전 초안 수
+  drafts: number
 }
 
 export interface TaskItemList {

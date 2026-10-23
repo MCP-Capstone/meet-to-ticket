@@ -99,7 +99,7 @@ curl -b cookie.txt localhost:8080/api/auth/me
 
 모든 공개 업무 API는 세션과 프로젝트 소속을 확인한다. 같은 회의에 분석을 다시 요청하면 409다. 같은 파일명으로 별개 회의를 업로드하는 것은 가능하다. 사용자의 본문 수정·승인·티켓 수정 API는 없다.
 
-DB는 `users / projects / project_members / meetings / analysis_tasks / task_items / analysis_dispatches` 7개다(`analysis_dispatches`는 RabbitMQ 발행 outbox). `participants_json / input_json / content_json`은 이번 구현에서 TEXT JSON으로 저장하고 Jackson으로 DTO에 변환한다. 파일 본문은 MEETINGS에 유지한다. 본문 파서는 회의 제목(또는 첫 Markdown 제목), ISO 날짜, 쉼표로 구분한 참여자 이름을 읽는다. `회의 날짜/일시`, `회의 참여자/참석자` 헤더와 Markdown의 `- ` 접두사를 지원한다. UTF-8 BOM은 디코딩 단계에서 한 번 제거하고 나머지 줄바꿈/본문은 보존한다. 참여자 이름 앞뒤 공백은 제거하지만 내부 공백과 영문 대소문자는 보존하며, 등록 이름과 정확히 일치해야 한다. 담당자를 잘못 연결하지 않도록 유사 이름을 자동 매칭하지 않는다. 날짜가 없거나 참여자가 미등록/동명이인이면 400으로 차단한다. 파일 크기 상한은 운영용 설정 `MAX_UPLOAD_SIZE`로 바꿀 수 있으며 기본 10MB다. 확정 제품 제한을 의미하지 않는다.
+DB는 `users / projects / project_members / meetings / analysis_tasks / task_items / analysis_dispatches` 7개다(`analysis_dispatches`는 RabbitMQ 발행 outbox). `users`에는 선택형 Slack 이메일·사용자 ID를, `projects`에는 선택형 Notion 기획 페이지 URL·Slack 채널 ID와 각 연결 확인 상태를 둔다. `participants_json / input_json / content_json`은 이번 구현에서 TEXT JSON으로 저장하고 Jackson으로 DTO에 변환한다. 파일 본문은 MEETINGS에 유지한다. 본문 파서는 회의 제목(또는 첫 Markdown 제목), ISO 날짜, 쉼표로 구분한 참여자 이름을 읽는다. `회의 날짜/일시`, `회의 참여자/참석자` 헤더와 Markdown의 `- ` 접두사를 지원한다. UTF-8 BOM은 디코딩 단계에서 한 번 제거하고 나머지 줄바꿈/본문은 보존한다. 참여자 이름 앞뒤 공백은 제거하지만 내부 공백과 영문 대소문자는 보존하며, 등록 이름과 정확히 일치해야 한다. 담당자를 잘못 연결하지 않도록 유사 이름을 자동 매칭하지 않는다. 날짜가 없거나 참여자가 미등록/동명이인이면 400으로 차단한다. 파일 크기 상한은 운영용 설정 `MAX_UPLOAD_SIZE`로 바꿀 수 있으며 기본 10MB다. 확정 제품 제한을 의미하지 않는다.
 
 ### Agent 없이 실행 — demo 프로필
 
@@ -116,7 +116,7 @@ DB는 `users / projects / project_members / meetings / analysis_tasks / task_ite
 - MOCK 실행 상태는 메모리에만 보관하므로 서버 재시작 후 진행 중 작업은 `AGENT_TASK_UNAVAILABLE`로 FAILED 처리된다. 이미 DB에 저장된 종료 결과는 유지된다.
 - Agent를 호출하지 않고 **고정 모의 응답**을 반환한다. 실제 LLM 추출·검수·GitHub 발행이 아니다.
 - `executionMode=MOCK`이며 모의 승인 항목은 `SKIPPED`, 이슈 번호·URL은 NULL이다. 가짜 GitHub 성공/링크를 만들지 않는다. 화면은 이를 모의 실행으로 표시해야 한다.
-- `AGENT_MOCK_SCENARIO=approved`(기본), `empty`, `rejected`, `failed`, `partial`로 저장·상태 시나리오를 확인한다. `approved`는 모의 승인 뒤 실제 발행 생략이며 SUCCEEDED가 아니다.
+- `AGENT_MOCK_SCENARIO=draft`(기본), `approved`, `empty`, `rejected`, `failed`, `partial`로 저장·상태 시나리오를 확인한다. `draft`는 발행 전 초안(`reviewStatus: PENDING`, `publishStatus: DRAFT`)으로 끝나는 기획_v16 흐름이고, 진행 중 상태 조회에 `progress` 예시가 들어간다. `approved`는 Phase 1 흐름(모의 승인 뒤 실제 발행 생략)이며 SUCCEEDED가 아니다.
 - 보완·반려 횟수는 Agent 결과로 받는다. Spring이 LLM 검수 루프를 구현하지 않는다.
 
 서버 실행 후 다른 터미널의 `backend/`에서:

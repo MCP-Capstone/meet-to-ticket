@@ -120,3 +120,14 @@ def get_issue(client: httpx.Client, owner: str, repo: str, number: int) -> dict[
     if "pull_request" in item:
         raise tool_error(GITHUB_NOT_FOUND, f"#{number}은 이슈가 아니라 PR입니다")
     return to_issue(item)
+
+
+def recent_comments(client: httpx.Client, owner: str, repo: str, number: int, limit: int = 10) -> list[str]:
+    """이슈의 최근 댓글 본문을 오래된 순서로 돌려준다 (색인에 최신 변경 맥락을 넣기 위함)."""
+    resp = client.get(
+        f"/repos/{owner}/{repo}/issues/{number}/comments",
+        params={"per_page": max(1, min(int(limit), 100)), "sort": "created", "direction": "desc"},
+    )
+    raise_for_status(resp)
+    # API는 최신순으로 주므로, 색인 문장은 시간 순서로 자연스럽게 읽히게 뒤집는다.
+    return [(comment.get("body") or "").strip() for comment in reversed(resp.json()) if (comment.get("body") or "").strip()]

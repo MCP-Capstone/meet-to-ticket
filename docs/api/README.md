@@ -24,8 +24,17 @@
 | POST | /api/projects | 201 | 프로젝트 등록 (등록자는 관리자) |
 | GET | /api/projects/{projectId} | 200 | 프로젝트 상세, 멤버, 편집 가능 여부 |
 | PUT | /api/projects/{projectId} | 200 | 프로젝트 편집 (관리자만) |
+| DELETE | /api/projects/{projectId} | 204 | 프로젝트 삭제 (관리자만, 이름 입력 확인) |
+| PUT | /api/projects/{projectId}/members/{memberUserId}/role | 200 | 관리자 지정/해제 (관리자만) |
 | GET | /api/users?keyword= | 200 | 멤버로 고를 가입 사용자 검색 |
 | GET | /api/projects/{projectId}/members | 200 | 팀원·GitHub 계정 |
+| GET | /api/tickets/me | 200 | 내 티켓 (담당자별, `projectId` 필터, 상태별 건수) |
+| PATCH | /api/tickets/{ticketId} | 200 | 티켓 카드 수정: 본문, 담당 멤버, 기한 (담당자만, 검토 대기에서만) |
+| PATCH | /api/tickets/{ticketId}/publication | 200 | 발행 대상과 처리 유형 변경 (담당자만, 검토 대기에서만) |
+| POST | /api/tickets/{ticketId}/confirm | 200 | 확인: 검토 대기 -> 확인 |
+| POST | /api/tickets/{ticketId}/reject | 200 | 거절: 검토 대기 -> 거절 |
+| POST | /api/tickets/{ticketId}/reopen | 200 | 다시 열기: 확인 -> 검토 대기 |
+| POST | /api/tickets/{ticketId}/restore | 200 | 되돌리기: 거절 -> 검토 대기 |
 | POST | /api/projects/{projectId}/analysis-tasks | 202 | 회의록 처리 요청 (회의 저장 + 분석 접수, 기획_v16) |
 | POST | /api/projects/{projectId}/meetings | 201 | multipart file 업로드·회의 저장 |
 | GET | /api/meetings/{meetingId} | 200 | 본문을 제외한 회의 메타데이터 |
@@ -38,7 +47,9 @@
 호출 한도(토큰 없이 IP당 시간당 60회)나 장애로 확인하지 못하면 입력값 그대로 저장하고 가입한다.
 
 프로젝트를 등록한 사용자는 관리자(ADMIN)이자 멤버가 되고, 편집(PUT)은 관리자만 한다(아니면 403 `PROJECT_ADMIN_REQUIRED`).
-`memberUserIds`는 변경 후 전체 멤버 목록이며, 관리자는 목록에 없어도 남는다. 같은 GitHub 저장소는 대소문자가 달라도 409 `DUPLICATE_PROJECT_REPOSITORY`이다.
+`memberUserIds`는 변경 후 전체 멤버 목록이며, 관리자는 목록에 없어도 남는다. 관리자 지정/해제는 role API(`{"role": "ADMIN" | "MEMBER"}`)로 하고, 마지막 관리자를 해제하면 409 `LAST_PROJECT_ADMIN`이다. 같은 GitHub 저장소는 대소문자가 달라도 409 `DUPLICATE_PROJECT_REPOSITORY`이다.
+프로젝트 삭제는 본문 `{"confirmName": "프로젝트 이름"}`이 저장된 이름과 같아야 한다(아니면 400 `PROJECT_NAME_MISMATCH`). 멤버, 회의 기록, 분석 작업과 티켓을 지우고 이미 발행한 GitHub 이슈, Slack 메시지, Notion 페이지는 그대로 둔다. 처리 중인 회의록이 있으면 409 `PROJECT_ANALYSIS_IN_PROGRESS`이다.
+저장(POST/PUT)할 때마다 GitHub 계정이 있는 멤버의 저장소 권한을 Agent `POST /projects/check-members`로 확인한다(이전 결과는 먼저 초기화). 멤버별 `repositoryPermission`은 GRANTED/DENIED, 계정이 없으면 NO_ACCOUNT(호출 제외)이다. 멤버 ERROR나 Agent/MCP 전체 실패는 저장을 막지 않고 해당 멤버 `repositoryPermission=null`, `connections.github=ERROR`로 응답한다(전부 성공이면 CONNECTED, 확인할 멤버가 없으면 null). `GET /api/projects/{projectId}`는 외부 호출 없이 저장된 값을 반환한다.
 멤버 저장소 권한과 도구 연결은 TASK-006 전까지 확인하지 않는다. GitHub 계정이 없는 멤버만 `NO_ACCOUNT`이고, 확인 전 값은 `null`이다.
 
 로그인·가입·로그아웃·health 외에는 JSESSIONID 세션이 필요하다. Swagger에서 먼저 로그인하면 같은 출처 요청에 쿠키가 적용된다.
@@ -46,6 +57,17 @@ Authorize에 쿠키를 직접 넣기보다 login API를 실행한다. 세션 사
 업무 오류는 `{code, message}`. 400(파일/형식/참여자), 401(미로그인), 403(프로젝트 권한),
 404(회의/작업 없음), 409(중복 요청/미종료)를 각 API에서 확인한다.
 #75부터 분석은 RabbitMQ 큐에 접수하며 Agent 중지 시에도 202를 반환한다. 재시도 후 최종 실패는 상태 조회의 FAILED로 확인한다.
+
+### 담당자별 티켓과 내 티켓 (#166)
+
+Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤버와 연결한다(REQ-010). 단, 발행 대상(`contentJson.publish_target`)이 `SLACK`(회의 결과 공지)이나 `NOTION`인 티켓은 업로더에게 보낸다(업로더가 프로젝트 멤버가 아니면 담당 지정 필요). 멤버 정확히 1명과 연결되면 `PENDING_REVIEW`(검토 대기), 담당자가 없거나 여러 명이거나 멤버와 연결되지 않으면 `ASSIGNEE_REQUIRED`(담당 지정 필요)이다. GitHub 계정이 없는 멤버도 담당자로 연결하며, 이름만 보고 GitHub 로그인명을 추정하지 않는다. 처리 유형은 상태와 별도로 `CREATE`/`LINK`/`UPDATE`이다.
+`GET /api/tickets/me`는 로그인 사용자가 담당인 티켓만 반환한다. `projectId`로 거르면 `counts`(`pendingReview`, `confirmed`, `rejected`)도 같은 범위로 센다. 기존 결과 조회 API(`/api/analysis-tasks/{id}/items`)는 바뀌지 않는다.
+
+티켓에는 발행 대상 `publishTarget`(GITHUB, SLACK, NOTION, 기본 GITHUB)과 처리 유형 `processingType`(CREATE, LINK, UPDATE)이 있다. 처리 유형의 첫 값은 Agent 중복 판단의 제안(`contentJson.dedupe.handling.type`)이다.
+`PATCH /api/tickets/{ticketId}/publication`으로 담당자가 바꾼다. GitHub 이외 대상은 항상 CREATE이고(연결/갱신을 같이 보내면 400 `PROCESSING_TYPE_TARGET_MISMATCH`), LINK와 UPDATE는 중복 판단이 찾은 열린 기존 이슈가 있을 때만 된다(아니면 400 `EXISTING_ISSUE_REQUIRED`).
+티켓 응답의 `dedupe`는 카드 표시용 읽기 전용 값이다: `judged`(false면 "중복 판단 안 됨"), `relation`, `issue`(번호, 제목, 상태, 링크), `overlap`(신규 발행인데 같은 작업이나 관련 이슈가 있으면 "겹칠 수 있음"), `reason`, `before`/`after`(갱신의 변경 전후), `changedByRecheck`.
+
+담당자는 카드에서 본문, 담당 멤버(같은 프로젝트 멤버), 기한을 고치고 확인/거절한다(REQ-014, #167). 수정은 검토 대기 상태에서만 되고 보낸 항목만 바뀐다. 담당 멤버를 바꾸면 그 멤버의 내 티켓으로 옮겨 간다. 기획 4.2 표 밖의 전이와 발행 이후 상태의 수정은 409 `TICKET_STATUS_CONFLICT`, 담당자가 아니면 403 `TICKET_ASSIGNEE_REQUIRED`, 티켓이 없으면 404 `TICKET_NOT_FOUND`이다. 수정한 내용은 `contentJson`의 `description`, `due`, `assignees`에 반영하며, 발행 본문(`issue_body`)은 다시 만들지 않는다.
 
 ### 회의록 처리 요청 (#153)
 
@@ -91,8 +113,10 @@ curl -b cookie.txt -F meetingDate=2026-10-22 -F file=@회의록.md http://localh
 6. 상태 GET을 반복하고 COMPLETED / PARTIALLY_FAILED / FAILED에서 중단.
 7. items GET으로 항목·집계 확인. 처리 중 items GET은 409.
 
-기본 approved 시나리오는 고정 항목 1건의 SKIPPED이며 실제 생성 성공은 0이다.
-서버를 재시작할 때 `AGENT_MOCK_SCENARIO=empty|rejected|failed|partial` 중 하나로 결과 분기를 확인할 수 있다.
+기본 draft 시나리오는 고정 항목 1건의 발행 전 초안(`reviewStatus: PENDING`, `publishStatus: DRAFT`)이며 `summary.drafts`가 1이다.
+서버를 재시작할 때 `AGENT_MOCK_SCENARIO=approved|empty|rejected|failed|partial` 중 하나로 결과 분기를 확인할 수 있다. `approved`는 Phase 1 흐름(고정 항목 1건 SKIPPED)이다.
+
+상태 GET 응답의 `progress`는 진행 화면용 세부 정보다 (아직 없으면 `null`). `step`은 `CONTEXT`(맥락 파악) → `EXTRACTING`(티켓 추출) → `DEDUPING`(중복 검수) → `DISPATCHING`(담당자에게 전송)이고, `context.{members, issues, notionDocs}`, `extraction.{todos, decisions, openQuestions}`, `dedupe.{done, total, linked}`가 단계마다 쌓인다. 아직 모르는 값은 `null`이다. `stage`는 기존 값 그대로다.
 MOCK 메모리 작업은 재시작하면 사라져 진행 중 작업이 실패할 수 있다. DB 종료 결과는 유지된다.
 
 ## Agent 내부 API — 현재 구현
@@ -100,6 +124,7 @@ MOCK 메모리 작업은 재시작하면 사라져 진행 중 작업이 실패�
 | Method | 경로 | 응답 |
 |---|---|---|
 | POST | /runs | 기본 202 `{taskId, status: ACCEPTED}` |
+| POST | /publish | 202 `{batchId, status: ACCEPTED}`. 확인된 티켓 일괄 발행 |
 | POST | /runs?wait=true | 로컬 테스트용 200 최종 결과 |
 | GET | /runs/{task_id} | 200 진행·종료 결과, 알 수 없는 작업은 404 |
 | GET | /runs/{task_id}/history | 200 노드별 실행 기록(checkpoint, 시간 순서), 재시작하면 사라짐, 알 수 없는 작업은 404 |
@@ -108,6 +133,8 @@ MOCK 메모리 작업은 재시작하면 사라져 진행 중 작업이 실패�
 Agent 환경에서 `uvicorn main:app --port 8001`로 실행한다. 설치는 [Agent 안내](../../agent/README.md)를 따른다.
 문서 조회만으로 LLM·MCP를 호출하지 않는다. POST는 실제 업무를 실행하므로 단독 테스트는
 `agent/.env`의 `DRY_RUN=true`, `BACKEND_BASE_URL=` 설정으로 발행·콜백을 끈다. 설정 로더는 .env를 환경변수보다 우선한다.
+
+`POST /publish`는 백엔드가 `batchId`와 `reviewStatus: CONFIRMED` 티켓만 보내는 내부 API다. GitHub 티켓에는 프로젝트 저장소와 확정한 `processingType`(`CREATE`/`LINK`/`UPDATE`), 기존 이슈 번호(연결·갱신 때), 편집된 `contentJson`을 포함한다. Slack 공지 티켓에는 `publishTarget: SLACK`, 프로젝트 `slackChannelId`, 공지의 `contentJson.slack.text`·`reviewers`, 연결된 `slackMembers[{name, slackUserId}]`를 함께 보낸다. Agent는 GitHub 티켓을 저장소별 재대조하고, Slack 공지는 한 번 `post_message`로 게시한다. 최종 결과는 `POST /internal/publish-batches/{batchId}/result`에 GitHub의 `PUBLISHED`/`LINKED`/`UPDATED`, Slack의 `POSTED`, 실패·결과 모름과 이슈·댓글·메시지 링크를 함께 보고한다. 같은 `batchId` 재요청은 중복 발행하지 않는다.
 DRY_RUN도 실제 추출·검수 LLM 호출과 모델 API 키가 필요하다. 키는 Swagger 요청 JSON에 넣지 않는다.
 현재 Agent dry-run은 승인 항목을 SKIPPED(발행 생략)로 반환한다. 이를 실제 GitHub 생성 거절로 해석하지 않는다.
 가짜 LLM·MCP로 확인하려면 Agent의 자동 테스트를 실행한다.

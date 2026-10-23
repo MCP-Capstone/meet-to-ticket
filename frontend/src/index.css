@@ -473,6 +473,10 @@ button.primary {
   color: var(--link);
 }
 
+.count.draft strong {
+  color: var(--accent);
+}
+
 .items {
   list-style: none;
   margin: 0;
@@ -520,6 +524,23 @@ button.primary {
 
 .item.linked .reason {
   color: var(--link);
+}
+
+/* 카드 경고와 남은 검수 지적 (초안 결과) */
+.item .warnings,
+.item .review-notes ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.item .warnings {
+  color: var(--warn);
+}
+
+.item .review-notes {
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .meta a {
@@ -785,3 +806,13 @@ button.secondary {
   .upload-form .tabs button { padding: 10px 6px; font-size: 13px; }
   .upload-project-summary > div { grid-template-columns: 84px minmax(0, 1fr); gap: 8px; }
 }
+
+/* 프로젝트 역할 (TASK-056 화면 / #172) */
+.project-member-role {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 86px;
+}
+.project-member-role button { white-space: nowrap; }

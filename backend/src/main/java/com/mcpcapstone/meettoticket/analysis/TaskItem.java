@@ -1,8 +1,12 @@
 package com.mcpcapstone.meettoticket.analysis;
 
+import com.mcpcapstone.meettoticket.project.ProjectMember;
+
 import jakarta.persistence.*;
 
 import lombok.*;
+
+import org.hibernate.annotations.ColumnDefault;
 
 import java.util.UUID;
 
@@ -51,6 +55,27 @@ public class TaskItem {
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
+    // 담당 멤버. 담당자가 없거나 여러 명이거나 프로젝트 멤버와 연결되지 않으면 null (REQ-010).
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assignee_member_id")
+    private ProjectMember assignee;
+
+    // 기존 행은 컬럼이 추가될 때 담당 지정 필요로 채운다.
+    @Enumerated(EnumType.STRING)
+    @ColumnDefault("'ASSIGNEE_REQUIRED'")
+    @Column(name = "ticket_status", nullable = false, length = 30)
+    private TicketStatus ticketStatus = TicketStatus.ASSIGNEE_REQUIRED;
+
+    @Enumerated(EnumType.STRING)
+    @ColumnDefault("'CREATE'")
+    @Column(name = "processing_type", nullable = false, length = 10)
+    private ProcessingType processingType = ProcessingType.CREATE;
+
+    @Enumerated(EnumType.STRING)
+    @ColumnDefault("'GITHUB'")
+    @Column(name = "publish_target", nullable = false, length = 10)
+    private PublishTarget publishTarget = PublishTarget.GITHUB;
+
     public TaskItem(
             AnalysisTask task,
             com.mcpcapstone.meettoticket.agent.AgentContracts.Item item,
@@ -67,5 +92,32 @@ public class TaskItem {
         this.githubIssueNumber = item.githubIssueNumber();
         this.githubIssueUrl = item.githubIssueUrl();
         this.errorMessage = item.errorMessage();
+        this.publishTarget = PublishTarget.from(item.contentJson());
+        // GitHub 이외의 대상은 항상 신규 발행이다 (REQ-015)
+        this.processingType = publishTarget == PublishTarget.GITHUB
+                ? ProcessingType.from(item.action(), item.contentJson())
+                : ProcessingType.CREATE;
+    }
+
+    // 담당 멤버가 정해지면 검토 대기, 아니면 담당 지정 필요.
+    public void assignTo(ProjectMember member) {
+        this.assignee = member;
+        this.ticketStatus = member == null ? TicketStatus.ASSIGNEE_REQUIRED : TicketStatus.PENDING_REVIEW;
+    }
+
+    // 담당자가 카드에서 고친 내용을 반영한다. 담당 멤버는 바꾸지 않으면 null을 넘긴다.
+    public void edit(ProjectMember newAssignee, String contentJson) {
+        if (newAssignee != null) this.assignee = newAssignee;
+        this.contentJson = contentJson;
+    }
+
+    // 담당자가 카드에서 발행 대상과 처리 유형을 바꾼다 (REQ-015). 규칙 검사는 TicketService가 한다.
+    public void changePublication(PublishTarget target, ProcessingType type) {
+        this.publishTarget = target;
+        this.processingType = type;
+    }
+
+    public void moveTo(TicketStatus status) {
+        this.ticketStatus = status;
     }
 }

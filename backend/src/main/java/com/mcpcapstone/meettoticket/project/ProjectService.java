@@ -1,5 +1,6 @@
 package com.mcpcapstone.meettoticket.project;
 
+import com.mcpcapstone.meettoticket.agent.RepositoryPermissionGateway;
 import com.mcpcapstone.meettoticket.common.error.*;
 import com.mcpcapstone.meettoticket.project.dto.ProjectDetail;
 import com.mcpcapstone.meettoticket.project.dto.ProjectSaveRequest;
@@ -9,14 +10,18 @@ import com.mcpcapstone.meettoticket.user.UserRepository;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -24,6 +29,8 @@ public class ProjectService {
     private final ProjectRepository projects;
     private final ProjectMemberRepository members;
     private final UserRepository users;
+    private final RepositoryPermissionGateway permissions;
+    private final TransactionTemplate tx;
 
     public void requireAccess(Long projectId, Long userId) {
         if (!members.existsByProjectIdAndUserId(projectId, userId))
@@ -55,30 +62,107 @@ public class ProjectService {
     }
 
     // 등록한 사용자는 관리자이자 멤버가 된다 (REQ-029).
-    @Transactional
+    // 저장은 한 트랜잭션으로 끝내고, Agent 호출은 트랜잭션 밖에서 해 DB 연결을 붙잡지 않는다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ProjectDetail create(ProjectSaveRequest request, Long userId) {
-        String owner = request.githubOwner().trim();
-        String repo = request.githubRepo().trim();
-        if (projects.findByGithubOwnerIgnoreCaseAndGithubRepoIgnoreCase(owner, repo).isPresent())
-            throw new BusinessException(ErrorCode.DUPLICATE_PROJECT_REPOSITORY);
-        Project project = projects.save(new Project(request.name().trim(), owner, repo));
-        apply(project, request);
-        User creator = users.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
-        members.save(new ProjectMember(project, creator, creator.getName(), creator.getGithubName(), ProjectRole.ADMIN));
-        saveMembers(project, request.memberUserIds());
-        return detail(project, userId);
+        Long projectId = tx.execute(status -> {
+            String owner = request.githubOwner().trim();
+            String repo = request.githubRepo().trim();
+            if (projects.findByGithubOwnerIgnoreCaseAndGithubRepoIgnoreCase(owner, repo).isPresent())
+                throw new BusinessException(ErrorCode.DUPLICATE_PROJECT_REPOSITORY);
+            Project project = projects.save(new Project(request.name().trim(), owner, repo));
+            apply(project, request);
+            User creator = users.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+            members.save(new ProjectMember(project, creator, creator.getName(), creator.getGithubName(), ProjectRole.ADMIN));
+            saveMembers(project, request.memberUserIds(), request.memberSlackEmails());
+            return project.getId();
+        });
+        return checkAndLoad(projectId, userId);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ProjectDetail update(Long projectId, ProjectSaveRequest request, Long userId) {
-        requireAdmin(projectId, userId);
-        Project project = projects.getReferenceById(projectId);
-        projects.findByGithubOwnerIgnoreCaseAndGithubRepoIgnoreCase(request.githubOwner().trim(), request.githubRepo().trim())
-                .filter(other -> !other.getId().equals(projectId))
-                .ifPresent(other -> { throw new BusinessException(ErrorCode.DUPLICATE_PROJECT_REPOSITORY); });
-        apply(project, request);
-        saveMembers(project, request.memberUserIds());
-        return detail(project, userId);
+        tx.executeWithoutResult(status -> {
+            requireAdmin(projectId, userId);
+            Project project = projects.getReferenceById(projectId);
+            projects.findByGithubOwnerIgnoreCaseAndGithubRepoIgnoreCase(request.githubOwner().trim(), request.githubRepo().trim())
+                    .filter(other -> !other.getId().equals(projectId))
+                    .ifPresent(other -> { throw new BusinessException(ErrorCode.DUPLICATE_PROJECT_REPOSITORY); });
+            apply(project, request);
+            saveMembers(project, request.memberUserIds(), request.memberSlackEmails());
+        });
+        return checkAndLoad(projectId, userId);
+    }
+
+    private record CheckTarget(Long memberId, String githubName) {}
+
+    // 저장소나 멤버 구성이 바뀌었을 수 있으므로 저장할 때마다 기존 결과를 지우고 GitHub 계정이 있는 멤버를 다시 확인한다.
+    // 전체 실패는 저장 자체를 막지 않고 해당 멤버 권한 null, connections.github=ERROR로 남긴다.
+    private ProjectDetail checkAndLoad(Long projectId, Long userId) {
+        record Plan(String owner, String repo, List<CheckTarget> targets) {}
+        Plan plan = tx.execute(status -> {
+            Project project = projects.getReferenceById(projectId);
+            project.recordGithubConnection(null);
+            List<CheckTarget> targets = new ArrayList<>();
+            for (ProjectMember m : members.findByProjectIdOrderById(projectId)) {
+                m.recordPermission(null);
+                if (m.getGithubName() != null) targets.add(new CheckTarget(m.getId(), m.getGithubName()));
+            }
+            return new Plan(project.getGithubOwner(), project.getGithubRepo(), targets);
+        });
+        if (plan.targets().isEmpty()) return loadDetail(projectId, userId);
+
+        List<String> names = plan.targets().stream().map(CheckTarget::githubName).distinct().toList();
+        Map<String, String> results = new HashMap<>();
+        try {
+            for (var r : permissions.check(plan.owner(), plan.repo(), names))
+                if (r.githubName() != null) results.put(r.githubName().toLowerCase(Locale.ROOT), r.permission());
+        } catch (RuntimeException e) {
+            log.warn("프로젝트 {} 멤버 저장소 권한 확인 실패: {}", projectId, e.getMessage());
+            results.clear();
+        }
+
+        tx.executeWithoutResult(status -> {
+            boolean error = results.isEmpty();
+            for (CheckTarget t : plan.targets()) {
+                ProjectMember m = members.findById(t.memberId()).orElse(null);
+                // 확인하는 사이 GitHub 계정이 바뀐 멤버는 결과를 적용하지 않는다.
+                if (m == null || !t.githubName().equals(m.getGithubName())) continue;
+                ProjectDetail.RepositoryPermission permission = toPermission(results.get(t.githubName().toLowerCase(Locale.ROOT)));
+                m.recordPermission(permission);
+                if (permission == null) error = true;
+            }
+            projects.getReferenceById(projectId)
+                    .recordGithubConnection(error ? ProjectDetail.ConnectionStatus.ERROR : ProjectDetail.ConnectionStatus.CONNECTED);
+        });
+        return loadDetail(projectId, userId);
+    }
+
+    // GRANTED/DENIED만 저장한다. ERROR나 알 수 없는 값, 응답에서 빠진 멤버는 null(확인 실패)이다.
+    private static ProjectDetail.RepositoryPermission toPermission(String value) {
+        if ("GRANTED".equals(value)) return ProjectDetail.RepositoryPermission.GRANTED;
+        if ("DENIED".equals(value)) return ProjectDetail.RepositoryPermission.DENIED;
+        return null;
+    }
+
+    private ProjectDetail loadDetail(Long projectId, Long userId) {
+        return tx.execute(status -> detail(projects.getReferenceById(projectId), userId));
+    }
+
+    // 관리자 지정과 해제 (REQ-030). 관리자는 항상 1명 이상 남긴다.
+    @Transactional
+    public ProjectDetail changeRole(Long projectId, Long targetUserId, ProjectRole role, Long userId) {
+        List<ProjectMember> admins = members.lockByProjectIdAndRole(projectId, ProjectRole.ADMIN);
+        // 잠금을 잡은 뒤 확인해야 그 사이에 해제된 관리자를 걸러낸다.
+        if (admins.stream().noneMatch(m -> m.getUser() != null && m.getUser().getId().equals(userId)))
+            requireAdmin(projectId, userId);
+        ProjectMember target =
+                members.findByProjectIdAndUserId(projectId, targetUserId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.PROJECT_MEMBER_NOT_FOUND));
+        if (role == ProjectRole.MEMBER && target.isAdmin() && admins.size() <= 1)
+            throw new BusinessException(ErrorCode.LAST_PROJECT_ADMIN);
+        target.changeRole(role);
+        return detail(projects.getReferenceById(projectId), userId);
     }
 
     private void apply(Project project, ProjectSaveRequest request) {
@@ -93,13 +177,28 @@ public class ProjectService {
 
     // memberUserIds는 변경 후 전체 멤버 목록이다. 관리자는 목록에 없어도 남긴다 (관리자 해제는 TASK-056).
     // 가입하지 않은 멤버(user 없음, 데모 데이터)는 이 목록으로 관리하지 않으므로 그대로 둔다.
-    private void saveMembers(Project project, List<Long> memberUserIds) {
+    // memberSlackEmails는 사용자 계정에 저장한다. 같은 사용자가 여러 프로젝트에 있어도 Slack ID를 하나만 유지한다.
+    private void saveMembers(Project project, List<Long> memberUserIds, Map<Long, String> memberSlackEmails) {
         Set<Long> wanted = new LinkedHashSet<>(memberUserIds);
+        Map<Long, String> emails = memberSlackEmails == null ? Map.of() : memberSlackEmails;
+        Set<Long> userIds = new LinkedHashSet<>(wanted);
+        userIds.addAll(emails.keySet());
         Map<Long, User> found =
-                users.findAllById(wanted).stream().collect(Collectors.toMap(User::getId, Function.identity()));
-        if (found.size() != wanted.size()) throw new BusinessException(ErrorCode.MEMBER_USER_NOT_FOUND);
+                users.findAllById(userIds).stream().collect(Collectors.toMap(User::getId, Function.identity()));
+        if (found.size() != userIds.size()) throw new BusinessException(ErrorCode.MEMBER_USER_NOT_FOUND);
 
         List<ProjectMember> current = members.findByProjectIdOrderById(project.getId());
+        Set<Long> projectUserIds = current.stream()
+                .map(ProjectMember::getUser)
+                .filter(Objects::nonNull)
+                .map(User::getId)
+                .collect(Collectors.toSet());
+        projectUserIds.addAll(wanted);
+        if (!projectUserIds.containsAll(emails.keySet()))
+            throw new BusinessException(ErrorCode.MEMBER_USER_NOT_FOUND);
+        for (Map.Entry<Long, String> entry : emails.entrySet()) {
+            found.get(entry.getKey()).updateSlackEmail(blankToNull(entry.getValue()));
+        }
         for (ProjectMember m : current) {
             if (m.getUser() == null) continue;
             if (wanted.remove(m.getUser().getId()) || m.isAdmin()) m.syncWithUser();
@@ -111,7 +210,8 @@ public class ProjectService {
         }
     }
 
-    // 저장소 권한과 도구 연결은 아직 확인하지 않는다 (TASK-006, #139). 확인 전 값은 null로 둔다.
+    // 외부 호출 없이 저장된 값만 반환한다. 저장소 권한과 GitHub 연결은 프로젝트 저장 때 확인한 결과다 (확인 전이면 null).
+    // Notion/Slack 연결은 Agent의 실제 확인을 다음 단계에서 기록한다. 입력 직후 null은 아직 확인하지 않았다는 뜻이다.
     private ProjectDetail detail(Project project, Long userId) {
         List<ProjectMember> all = members.findByProjectIdOrderById(project.getId());
         List<ProjectDetail.Member> registered = all.stream()
@@ -120,8 +220,12 @@ public class ProjectService {
                         m.getUser().getId(),
                         m.getUser().getName(),
                         m.getUser().getGithubName(),
+                        m.getUser().getSlackEmail(),
+                        m.getUser().getSlackUserId(),
                         m.isAdmin(),
-                        m.getUser().getGithubName() == null ? ProjectDetail.RepositoryPermission.NO_ACCOUNT : null))
+                        m.getUser().getGithubName() == null
+                                ? ProjectDetail.RepositoryPermission.NO_ACCOUNT
+                                : m.getRepositoryPermission()))
                 .toList();
         boolean canEdit = all.stream()
                 .anyMatch(m -> m.getUser() != null && m.getUser().getId().equals(userId) && m.isAdmin());
@@ -134,12 +238,8 @@ public class ProjectService {
                 project.getNotionPageUrl(),
                 project.getSlackChannelId(),
                 registered,
-                new ProjectDetail.Connections(null, unchecked(project.getNotionPageUrl()), unchecked(project.getSlackChannelId())),
+                new ProjectDetail.Connections(project.getGithubConnection(), project.notionConnectionStatus(), project.slackConnectionStatus()),
                 canEdit);
-    }
-
-    private static ProjectDetail.ConnectionStatus unchecked(String value) {
-        return value == null ? ProjectDetail.ConnectionStatus.NOT_CONNECTED : null;
     }
 
     private static String blankToNull(String value) {

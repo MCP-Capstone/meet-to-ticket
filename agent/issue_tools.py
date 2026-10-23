@@ -28,7 +28,7 @@ ResourceReader = Callable[[str], Awaitable[str]]
 
 
 class SimilarArgs(BaseModel):
-    query: str = Field(description="찾을 작업 내용. 새 티켓의 제목이나 한 줄 요약")
+    query: str = Field(description="찾을 작업 내용. 첫 검색은 새 티켓의 할 일(회의록 원문) 문장을 그대로 쓴다")
     k: int = Field(5, ge=1, le=10, description="가져올 후보 수 (1~10)")
     state: State = Field("all", description="이슈 상태 (open, closed, all)")
 

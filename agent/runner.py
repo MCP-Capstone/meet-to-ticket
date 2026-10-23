@@ -15,7 +15,7 @@ from issue_tools import IssueTools
 from nodes import AgentNodes, run_metrics
 from publisher import DryRunPublisher, McpPublisher
 from reporter import BackendReporter
-from schemas import RunRequest, RunResult
+from schemas import PublishBatchRequest, PublishBatchResult, RunRequest, RunResult
 from state import MCP_UNAVAILABLE, STAGE_EXTRACTING, STATUS_FAILED, AgentState
 
 log = logging.getLogger("agent.runner")
@@ -62,7 +62,8 @@ async def history(task_id: str) -> list[dict[str, Any]] | None:
     """노드가 끝날 때마다 저장된 상태를 시간 순서로 요약한다. 기록이 없으면 None."""
     from graph import build_graph
 
-    app = build_graph(AgentNodes(None, None, None, Settings()), checkpointer())  # 상태 조회만 하고 실행하지 않음
+    # 상태 조회만 하고 실행하지 않는다. 발행 노드가 있는 그래프로 읽어야 PUBLISH_ON_RUN 실행 기록도 노드 이름이 맞다
+    app = build_graph(AgentNodes(None, None, None, Settings(publish_on_run=True)), checkpointer())
     snapshots = [s async for s in app.aget_state_history(_thread(task_id))]
     if not snapshots:
         return None
@@ -97,6 +98,7 @@ def initial_state(req: RunRequest, trace_id: str | None = None, deadline_seconds
         "started_at": started_at,
         "deadline_at": started_at + deadline_seconds if deadline_seconds > 0 else None,
         "meeting_id": str(m.meeting_id),
+        "meeting_title": m.title or "",
         "meeting_date": m.meeting_date.isoformat() if m.meeting_date else None,
         "original_content": m.original_content,
         "owner": req.project.github_owner,
@@ -124,7 +126,7 @@ async def github_tools(settings: Settings) -> dict[str, Any]:
 def make_mcp_publisher(tools: dict[str, Any]) -> McpPublisher:
     if "create_issue" not in tools:
         raise RuntimeError(f"create_issue 도구를 찾지 못함: {sorted(tools)}")
-    return McpPublisher(tools["create_issue"])
+    return McpPublisher(tools["create_issue"], tools.get("add_comment"), tools.get("update_issue"), tools.get("post_message"))
 
 
 async def make_issue_tools(
@@ -169,6 +171,58 @@ async def sync_index(tools: IssueTools, settings: Settings) -> dict[str, Any] | 
     except asyncio.TimeoutError:
         log.warning("색인 갱신이 %s초 안에 끝나지 않아 건너뜀", settings.rag_sync_timeout_seconds)
         return None
+
+
+async def run_publish_batch(
+    request: PublishBatchRequest, settings: Settings, *, publisher: Any | None = None, llm: Any | None = None,
+) -> PublishBatchResult:
+    """확인된 여러 프로젝트 티켓을 발행한다.
+
+    프로젝트별로 재대조가 색인을 한 번 증분 동기화한다. 재대조·색인 실패는 기존 처리 유형과 GitHub 발행을 막지 않는다.
+    """
+    from batch_publish import _ticket, publish_batch
+    from recheck import recheck
+
+    github: dict[str, Any] | None = None
+    if publisher is None:
+        if settings.dry_run:
+            publisher = DryRunPublisher()
+        else:
+            github = await github_tools(settings)
+            publisher = make_mcp_publisher(github)
+    if settings.rag_enabled and llm is None:
+        from llm import OpenAILLM
+        llm = OpenAILLM(settings)
+
+    # 재대조는 같은 저장소 묶음마다 sync_issues 한 번을 수행한다.
+    prepared = list(request.tickets)
+    by_repo: dict[tuple[str, str], list[int]] = {}
+    for index, ticket in enumerate(prepared):
+        by_repo.setdefault((ticket.project.github_owner, ticket.project.github_repo), []).append(index)
+    indexed: dict[tuple[str, str], IssueTools] = {}
+    if settings.rag_enabled:
+        for key, positions in by_repo.items():
+            tools, _ = await make_issue_tools(settings, key[0], key[1], github)
+            if tools is None or llm is None:
+                continue
+            checked = await recheck([_ticket(prepared[pos]) for pos in positions], issue_tools=tools, llm=llm, settings=settings)
+            for pos, value in zip(positions, checked["tickets"]):
+                handling = value.get("handling") or {}
+                prepared[pos] = prepared[pos].model_copy(update={
+                    "processing_type": handling.get("type", prepared[pos].processing_type),
+                    "target_issue_number": handling.get("issue_number", prepared[pos].target_issue_number),
+                })
+            indexed[key] = tools
+
+    result = await publish_batch(request.model_copy(update={"tickets": prepared}), publisher)
+    # 발행/댓글/갱신 직후 최신 본문·댓글을 다시 색인한다. 실패는 결과 성공을 바꾸지 않는다.
+    source = {ticket.ticket_id: ticket for ticket in prepared}
+    for item in result.items:
+        ticket = source[item.ticket_id]
+        tools = indexed.get((ticket.project.github_owner, ticket.project.github_repo))
+        if tools and item.github_issue_number and item.status in {"PUBLISHED", "LINKED", "UPDATED"}:
+            await tools.index(item.github_issue_number)
+    return result
 
 
 def _failed(req: RunRequest, code: str, message: str) -> dict[str, Any]:
