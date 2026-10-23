@@ -100,6 +100,20 @@ src/
 | 단계 | `EXTRACTING` 추출 / `NORMALIZING` 담당자 / 기한 정리 / `REVIEWING` 검수 / `PUBLISHING` 발행 / `VERIFYING` 확인 |
 | 발행 상태 | `SUCCEEDED` 발행됨 / `FAILED` 실패 / `UNKNOWN` 확인 필요 / `SKIPPED` 생략(모의 실행) / `BLOCKED` 검수 반려로 제외 |
 
+## 회원가입 GitHub 계정 입력 (TASK-002 / #41)
+
+- 가입 화면에서 GitHub 로그인명을 선택 입력한다. 프로필 표시 이름이나 URL은 입력하지 않는다.
+- `POST /api/auth/signup` 요청은 기존 `loginId`, `password`, `name`에 `githubName`을 추가한다.
+- `githubName`은 앞뒤 공백을 제거한 문자열이며, 미입력 또는 공백만 입력한 경우 `null`이다.
+- 계정 존재 확인은 TASK-001의 백엔드에서 수행한다. HTTP 400과 오류 코드 `INVALID_GITHUB_ACCOUNT`를 반환하면 GitHub 입력란에 오류를 표시하고 수정 후 재요청할 수 있다.
+- 중복 아이디 등 나머지 오류는 기존 공통 안내를 유지한다. 로그인 요청에는 GitHub 계정을 추가하지 않는다.
+- 이 API 계약은 TASK-001 담당자에게 전달할 프론트엔드 기준이다. 실제 계정 검증·저장은 백엔드 반영 후 통합 확인해야 한다. 현재 백엔드에는 해당 필드와 검증이 없다.
+- mock 가입은 입력값을 저장하지만 실제 GitHub 계정 존재 여부를 확인하지 않는다.
+
+TASK-001 전달 사항:
+
+> TASK-002는 `githubName: string | null` 기준으로 구현했습니다. 미입력은 `null`, 입력 시 앞뒤 공백을 제거합니다. 계정 존재 확인은 가입 API에서 처리하고 유효하지 않은 계정은 HTTP 400 / `INVALID_GITHUB_ACCOUNT`로 반환해 주세요. 변경이 필요하면 알려주세요.
+
 ## 분석 상태 조회 (polling)
 
 - `useAnalysisPolling`이 2초마다 `GET /api/analysis-tasks/{taskId}`를 호출한다. SSE는 쓰지 않는다.
