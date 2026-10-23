@@ -27,7 +27,7 @@ public class MyTicketService {
     public MyTickets list(Long userId, Long projectId) {
         List<TaskItem> found = items.findAssignedTo(userId, projectId);
         return new MyTickets(
-                new Counts(count(found, TicketStatus.PENDING_REVIEW), count(found, TicketStatus.CONFIRMED), count(found, TicketStatus.REJECTED)),
+                new Counts(count(found, TicketStatus.PENDING_REVIEW), count(found, TicketStatus.CONFIRMED), count(found, TicketStatus.REJECTED), count(found, TicketStatus.FAILED)),
                 found.stream().map(this::view).toList());
     }
 
@@ -75,7 +75,8 @@ public class MyTicketService {
     public record Counts(
             @Schema(description = "검토 대기", requiredMode = Schema.RequiredMode.REQUIRED, example = "3") int pendingReview,
             @Schema(description = "확인", requiredMode = Schema.RequiredMode.REQUIRED, example = "1") int confirmed,
-            @Schema(description = "거절", requiredMode = Schema.RequiredMode.REQUIRED, example = "0") int rejected) {}
+            @Schema(description = "거절", requiredMode = Schema.RequiredMode.REQUIRED, example = "0") int rejected,
+            @Schema(description = "발행 실패. 0보다 크면 내 티켓 상단에 실패 배너를 보여 준다", requiredMode = Schema.RequiredMode.REQUIRED, example = "0") int failed) {}
 
     public record Ticket(
             @Schema(description = "티켓 ID (결과 항목 itemId와 같음)", requiredMode = Schema.RequiredMode.REQUIRED, example = "3c510e28-c776-43ce-85cc-6c90693d31f5") UUID ticketId,

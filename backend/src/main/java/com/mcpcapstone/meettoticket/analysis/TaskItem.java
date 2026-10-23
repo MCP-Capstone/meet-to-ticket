@@ -71,6 +71,23 @@ public class TaskItem {
     @Column(name = "processing_type", nullable = false, length = 10)
     private ProcessingType processingType = ProcessingType.CREATE;
 
+    // 일괄 발행 결과 (TASK-046). 이슈 번호, URL, 사유는 위의 githubIssueNumber 등을 함께 쓴다.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "publish_batch_id")
+    private PublishBatch publishBatch;
+
+    @Column(name = "publish_error_code", length = 50)
+    private String publishErrorCode;
+
+    @ColumnDefault("false")
+    @Column(name = "publish_retryable", nullable = false)
+    private boolean publishRetryable;
+
+    // 요청은 갔지만 결과를 모르는 경우. 다시 시도하면 이슈가 두 번 생길 수 있어 구분해 둔다.
+    @ColumnDefault("false")
+    @Column(name = "publish_outcome_unknown", nullable = false)
+    private boolean publishOutcomeUnknown;
+
     public TaskItem(
             AnalysisTask task,
             com.mcpcapstone.meettoticket.agent.AgentContracts.Item item,
@@ -104,5 +121,40 @@ public class TaskItem {
 
     public void moveTo(TicketStatus status) {
         this.ticketStatus = status;
+    }
+
+    // 확인한 티켓을 일괄 발행에 담는다. 결과가 올 때까지 다시 담을 수 없다.
+    public void startPublishing(PublishBatch batch) {
+        this.publishBatch = batch;
+        this.ticketStatus = TicketStatus.PUBLISHING;
+        this.publishErrorCode = null;
+        this.publishRetryable = false;
+        this.publishOutcomeUnknown = false;
+        this.errorMessage = null;
+    }
+
+    // Agent가 접수하지 않은 것이 확실하면 확인 상태로 돌려놓는다.
+    public void cancelPublishing() {
+        this.publishBatch = null;
+        this.ticketStatus = TicketStatus.CONFIRMED;
+    }
+
+    public void recordPublishResult(
+            TicketStatus status,
+            ProcessingType executed,
+            Integer issueNumber,
+            String issueUrl,
+            String errorCode,
+            String message,
+            boolean retryable,
+            boolean outcomeUnknown) {
+        this.ticketStatus = status;
+        if (executed != null) this.processingType = executed;
+        this.githubIssueNumber = issueNumber;
+        this.githubIssueUrl = issueUrl;
+        this.publishErrorCode = errorCode;
+        this.errorMessage = message;
+        this.publishRetryable = retryable;
+        this.publishOutcomeUnknown = outcomeUnknown;
     }
 }

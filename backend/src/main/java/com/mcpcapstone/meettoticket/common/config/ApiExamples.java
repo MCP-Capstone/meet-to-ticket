@@ -209,13 +209,40 @@ public final class ApiExamples {
             """;
 
     public static final String MY_TICKETS = """
-            {"counts":{"pendingReview":1,"confirmed":0,"rejected":0},
+            {"counts":{"pendingReview":1,"confirmed":0,"rejected":0,"failed":0},
              "tickets":[{"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정",
                "status":"PENDING_REVIEW","processingType":"CREATE","projectId":1,"projectName":"CSV 내보내기",
                "meetingId":2,"meetingTitle":"CSV 중간 점검","taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81",
                "createdAt":"2026-10-22T10:31:00+09:00",
                "description":"CSV 내보내기에서 결과가 비면 오류가 난다.","due":{"text":"내일 오후 6시","date":"2026-10-23","time":"18:00"},
                "assignee":{"projectMemberId":11,"name":"박종민"}}]}""";
+
+    public static final String PUBLISH_STARTED = """
+            {"batchId":"5f1d6c1e-0f8b-4f6a-8f43-0b0a6d2b9e11","count":3}""";
+
+    public static final String PUBLISH_RESULT = """
+            {"batchId":"5f1d6c1e-0f8b-4f6a-8f43-0b0a6d2b9e11","status":"PARTIAL_FAILED","executionMode":"LIVE",
+             "createdAt":"2026-10-23T10:31:00+09:00","finishedAt":"2026-10-23T10:31:08+09:00",
+             "summary":{"total":3,"published":1,"linked":1,"updated":0,"failed":1,"publishing":0},
+             "tickets":[
+               {"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정","status":"PUBLISHED","processingType":"CREATE",
+                "projectId":1,"projectName":"CSV 내보내기","githubIssueNumber":42,"githubIssueUrl":"https://github.com/MCP-Capstone/mcp-capstone/issues/42",
+                "errorCode":null,"errorMessage":null,"retryable":false,"outcomeUnknown":false},
+               {"ticketId":"7a0b1c52-5d34-4a8e-9b7a-1f2e3d4c5b6a","title":"API 문서 갱신","status":"FAILED","processingType":"CREATE",
+                "projectId":1,"projectName":"CSV 내보내기","githubIssueNumber":null,"githubIssueUrl":null,
+                "errorCode":"GITHUB_FORBIDDEN","errorMessage":"저장소에 이슈를 만들 권한이 없습니다.","retryable":false,"outcomeUnknown":false}]}""";
+
+    public static final String ERROR_NO_CONFIRMED_TICKETS = """
+            {
+              "code": "NO_CONFIRMED_TICKETS",
+              "message": "발행할 확인된 티켓이 없습니다."
+            }""";
+
+    public static final String ERROR_PUBLISH_BATCH_NOT_FOUND = """
+            {
+              "code": "PUBLISH_BATCH_NOT_FOUND",
+              "message": "발행 요청을 찾을 수 없습니다."
+            }""";
 
     public static final String TICKET = """
             {"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정",
