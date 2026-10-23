@@ -62,7 +62,7 @@ docker compose -f compose.full.yml up -d --build
 
 | 파일 | 채울 값 |
 |---|---|
-| `business-mcp/.env` | `GITHUB_TOKEN` (`GITHUB_OWNER=MCP-Capstone`, `GITHUB_REPO=mcp-capstone`) |
+| `business-mcp/.env` | `GITHUB_TOKEN` (로컬 테스트는 `GITHUB_ALLOWED_REPOS=MCP-Capstone/mcp-capstone` 권장) |
 | `agent/.env` | `OPENAI_API_KEY` (`BACKEND_BASE_URL`은 비워 둔다. 기본 `DRY_RUN=true`라 이슈는 만들지 않고, 실제로 발행하려면 `false`로 바꾼다) |
 | 루트 `.env` | 필요 없음 (기본값 사용) |
 

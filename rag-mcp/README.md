@@ -52,8 +52,8 @@ cp .env.example .env
 | 이름 | 설명 |
 |---|---|
 | `GITHUB_TOKEN` | 색인할 저장소의 이슈를 읽을 수 있는 토큰 |
-| `GITHUB_OWNER`, `GITHUB_REPO` | 색인 대상 저장소 (기본 허용 대상) |
-| `GITHUB_ALLOWED_REPOS` | 선택. 여러 저장소를 허용할 때 쉼표 구분 `owner/repo` |
+| `GITHUB_OWNER`, `GITHUB_REPO` | `index.py` 명령의 기본 색인 대상 저장소 |
+| `GITHUB_ALLOWED_REPOS` | 선택. 값이 있으면 이 저장소들만 허용(쉼표 구분 `owner/repo`), 비우면 검사하지 않음 |
 | `OPENAI_API_KEY` | 임베딩 생성용 키 |
 | `EMBEDDING_MODEL` | 기본 `text-embedding-3-small` |
 | `CHROMA_PATH` | Vector DB 저장 폴더. 비우면 `rag-mcp/chroma-data` |
@@ -93,7 +93,7 @@ python index.py --full                # 기존 색인을 지우고 전체 다시
 
 ## 6. 도구와 Resource
 
-Agent는 `http://127.0.0.1:8002/mcp`로 연결해 아래 도구를 부릅니다. 모든 도구는 `owner`, `repo`를 받고, 허용 저장소(`GITHUB_ALLOWED_REPOS` 또는 `GITHUB_OWNER/GITHUB_REPO`)만 다룹니다.
+Agent는 `http://127.0.0.1:8002/mcp`로 연결해 아래 도구를 부릅니다. 모든 도구는 `owner`, `repo`를 받고, `GITHUB_ALLOWED_REPOS`에 값이 있으면 그 저장소만 다룹니다.
 
 | 이름 | 종류 | 입력 | 출력 |
 |---|---|---|---|
@@ -111,7 +111,7 @@ Agent는 `http://127.0.0.1:8002/mcp`로 연결해 아래 도구를 부릅니다.
 |---|---|
 | `INDEX_EMPTY` | 색인이 비었거나, 색인 모델과 현재 모델이 다름 → `sync_issues` (모델이 다르면 `full=true`) |
 | `INVALID_ARGUMENT` | `query`가 비었거나 `state`가 잘못됨 |
-| `REPOSITORY_NOT_ALLOWED` | 허용되지 않은 저장소 |
+| `REPOSITORY_NOT_ALLOWED` | `GITHUB_ALLOWED_REPOS`에 값이 있는데 그 안에 없는 저장소 |
 | `GITHUB_AUTH`, `GITHUB_NOT_FOUND`, `GITHUB_RATE_LIMIT`, `GITHUB_ERROR` | GitHub 호출 실패 (색인·원문 읽기) |
 | `EMBEDDING_ERROR` | OpenAI 임베딩 실패 |
 
