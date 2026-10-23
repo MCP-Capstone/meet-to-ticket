@@ -114,6 +114,75 @@ TASK-001 전달 사항:
 
 > TASK-002는 `githubName: string | null` 기준으로 구현했습니다. 미입력은 `null`, 입력 시 앞뒤 공백을 제거합니다. 계정 존재 확인은 가입 API에서 처리하고 유효하지 않은 계정은 HTTP 400 / `INVALID_GITHUB_ACCOUNT`로 반환해 주세요. 변경이 필요하면 알려주세요.
 
+## 프로젝트 등록·편집 (TASK-007 / #131)
+
+로그인 후 **프로젝트 설정**에서 기존 프로젝트를 선택하거나 **새 프로젝트 등록**을 고른다. 소속 프로젝트가 없는 사용자도 새 프로젝트를 만들 수 있다. 프로젝트 목록·삭제 화면(TASK-008·009)은 이번 범위에 포함하지 않는다.
+
+- 기본 정보: 이름(필수), 설명(선택)
+- 도구 연결 정보: GitHub `소유자/저장소`(필수), Notion 기획 페이지 URL·Slack 채널 ID(선택)
+- 멤버: 가입한 사용자를 이름·GitHub 로그인명으로 검색해 추가·제거한다. 동명이인은 GitHub 로그인명으로 구분한다. GitHub 계정과 저장소 권한은 읽기 전용이다.
+- 권한: 상세 응답의 `canEdit=false`이면 읽기 전용으로 표시한다. 저장 API의 403도 안내한다. 실제 권한 검사는 서버가 담당한다.
+- 저장: 필수값·저장소 형식을 검사하고 저장 중 중복 요청을 막는다. 실패하면 입력을 유지한다. GitHub 저장소를 바꾸거나 멤버를 추가하면 기존 권한을 새 권한처럼 표시하지 않고 저장 후 확인하도록 안내한다.
+- 기존 분석 진행 중에는 프로젝트 설정 이동을 막아 진행 화면의 상태를 유지한다.
+
+### TASK-005·006 연동 계약
+
+아래는 프론트가 기준으로 삼는 계약이며, 현재 백엔드에는 프로젝트 조회·저장·가입 사용자 검색 API가 아직 없다. API 구현·필드 협의 후 실제 저장·권한·연결을 통합 검증해야 한다.
+
+| 메서드 | 경로 | 응답 |
+|---|---|---|
+| POST | `/api/projects` | 201, `ProjectDetail` |
+| GET | `/api/projects/{projectId}` | 200, `ProjectDetail` |
+| PUT | `/api/projects/{projectId}` | 200, `ProjectDetail` |
+| GET | `/api/users?keyword={검색어}` | 200, `{ users: [{ userId, name, githubName }] }` |
+
+등록·수정 요청 (`memberUserIds`는 변경 후 전체 멤버 목록):
+
+```json
+{
+  "name": "CSV 내보내기",
+  "description": "관리자 사용자 목록 내보내기",
+  "githubOwner": "MCP-Capstone",
+  "githubRepo": "mcp-capstone",
+  "notionPageUrl": null,
+  "slackChannelId": null,
+  "memberUserIds": [1, 2]
+}
+```
+
+`ProjectDetail` 응답:
+
+```json
+{
+  "projectId": 1,
+  "name": "CSV 내보내기",
+  "description": "관리자 사용자 목록 내보내기",
+  "githubOwner": "MCP-Capstone",
+  "githubRepo": "mcp-capstone",
+  "notionPageUrl": null,
+  "slackChannelId": null,
+  "members": [{ "userId": 1, "name": "함주헌", "githubName": "juhun-ham", "repositoryPermission": "GRANTED" }],
+  "connections": { "github": "CONNECTED", "notion": "NOT_CONNECTED", "slack": "NOT_CONNECTED" },
+  "canEdit": true
+}
+```
+
+- 권한 값: `GRANTED` / `DENIED` / `NO_ACCOUNT`
+- 연결 값: `CONNECTED` / `NOT_CONNECTED` / `ERROR`
+- 외부 권한 확인 오류를 `DENIED`로 바꾸지 않고 `{ code, message }` 오류로 반환한다.
+- 검색어가 빈 문자열이면 선택 가능한 가입 사용자 목록을 반환한다. 멤버 GitHub 계정은 사용자 정보에서 가져오며 저장 요청에는 포함하지 않는다.
+- 로그인·관리자 확인, 등록자 자동 관리자 지정, 연결 계정 인증과 실제 외부 권한 확인은 백엔드 담당 범위다. 인증 토큰을 화면에서 입력·보관하지 않는다.
+
+### mock에서 확인하기
+
+`VITE_USE_MOCK=true npm run dev`로 실행하고 `demo1 / password1`로 로그인한다. mock 프로젝트와 멤버 변경은 브라우저 탭의 sessionStorage에 남아 새로고침 후에도 다시 편집할 수 있다. 탭을 닫으면 초기화되며 실제 DB에는 저장하지 않는다.
+
+- 초기 사용자 6명은 화면 개발용 가입 사용자다. `member2` ~ `member6` / `password1`로도 로그인할 수 있으며 기본 프로젝트 편집은 `demo1`만 가능하다.
+- 초기 멤버 박종민은 ‘권한 없음’, 허민규는 ‘GitHub 계정 없음’ 표시 예시다. 실제 팀원의 권한·계정 상태를 뜻하지 않는다.
+- 신규 가입한 mock 사용자도 멤버 검색 목록에 포함된다. 새 프로젝트 등록자는 자동으로 관리자·멤버가 된다.
+- mock의 ‘연결됨’과 권한은 고정 모의 결과이며 GitHub·Notion·Slack에 실제 연결하거나 검증하지 않는다.
+- 실제 API를 확인할 때는 `VITE_USE_MOCK=false`로 실행한다. 실 API 실패 시 mock으로 자동 대체하거나 저장 성공을 표시하지 않는다.
+
 ## 분석 상태 조회 (polling)
 
 - `useAnalysisPolling`이 2초마다 `GET /api/analysis-tasks/{taskId}`를 호출한다. SSE는 쓰지 않는다.

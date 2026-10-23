@@ -5,6 +5,9 @@ import type {
   Meeting,
   MemberList,
   ProjectList,
+  ProjectDetail,
+  ProjectSaveRequest,
+  DirectoryUser,
   SignupRequest,
   StartAnalysisResponse,
   TaskItemList,
@@ -27,6 +30,18 @@ export const realApi = {
 
   // 내 프로젝트 목록과 백엔드 실행 모드(MOCK / LIVE)
   listProjects: () => request<ProjectList>('/projects'),
+
+  // TASK-005·006 연동 계약. 실제 API 구현 전에는 mock 모드로 화면을 개발한다.
+  getProject: (projectId: number) => request<ProjectDetail>(`/projects/${projectId}`),
+
+  createProject: (body: ProjectSaveRequest) =>
+    request<ProjectDetail>('/projects', { method: 'POST', body: JSON.stringify(body) }),
+
+  updateProject: (projectId: number, body: ProjectSaveRequest) =>
+    request<ProjectDetail>(`/projects/${projectId}`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  searchUsers: (keyword: string) =>
+    request<{ users: DirectoryUser[] }>(`/users?keyword=${encodeURIComponent(keyword)}`),
 
   // 참여자 ID를 이름으로 보여줄 때 쓴다.
   listMembers: (projectId: number) => request<MemberList>(`/projects/${projectId}/members`),

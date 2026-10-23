@@ -1,7 +1,8 @@
 import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
-import type { AnalysisTask, ExecutionMode, Meeting, TaskStage, User } from '../api/types'
-import { mockItems, mockMembers, mockProject } from './data'
+import type { AnalysisTask, DirectoryUser, ExecutionMode, Meeting, TaskStage, User } from '../api/types'
+import { mockItems, mockMembers } from './data'
+import { getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
 
 // 백엔드 없이 화면을 개발하기 위한 가짜 API. realApi와 같은 형태를 유지한다.
 
@@ -27,13 +28,13 @@ const stageDurations: [TaskStage, number][] = [
 const QUEUED_MS = 1000
 
 // 새로고침해도 가입 정보와 로그인이 유지되는 것을 흉내 내려고 sessionStorage에 저장한다.
-type MockUser = User & { password: string }
+type MockUser = User & { password: string; githubName?: string | null }
 
 const USERS_KEY = 'mock-users'
 const SESSION_KEY = 'mock-login-user'
 
 // 바로 쓸 수 있는 데모 계정
-const demoUser: MockUser = { userId: 1, loginId: 'demo1', name: '함주헌', password: 'password1' }
+const demoUser: MockUser = { userId: 1, loginId: 'demo1', name: '함주헌', password: 'password1', githubName: 'juhun-ham' }
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -53,13 +54,23 @@ function save(key: string, value: unknown) {
   }
 }
 
-const loadUsers = () => load<MockUser[]>(USERS_KEY, [demoUser])
+const loadUsers = () => load<MockUser[]>(USERS_KEY, [
+  demoUser,
+  ...mockDirectoryUsers.filter((user) => user.userId !== 1).map((user) => ({ ...user, loginId: `member${user.userId}`, password: 'password1' })),
+])
+const directory = (): DirectoryUser[] => {
+  const users = new Map(mockDirectoryUsers.map((user) => [user.userId, user]))
+  for (const user of loadUsers()) users.set(user.userId, { userId: user.userId, name: user.name, githubName: user.githubName ?? users.get(user.userId)?.githubName ?? null })
+  return [...users.values()]
+}
 
 const fail = (status: number, code: string, message: string) => new ApiRequestError(status, { code, message })
 
 // 실제 백엔드처럼 로그인하지 않으면 401을 던진다.
 const requireLogin = () => {
-  if (!load<User | null>(SESSION_KEY, null)) throw fail(401, 'UNAUTHORIZED', '로그인이 필요합니다.')
+  const user = load<User | null>(SESSION_KEY, null)
+  if (!user) throw fail(401, 'UNAUTHORIZED', '로그인이 필요합니다.')
+  return user
 }
 
 // 백엔드 파서와 같은 규칙: 첫 Markdown 제목, "회의 일시 / 날짜"의 ISO 날짜, "회의 참여자 / 참석자"의 이름 목록
@@ -87,7 +98,7 @@ export const mockApi: typeof realApi = {
     if (users.some((u) => u.loginId === body.loginId)) {
       throw fail(409, 'DUPLICATE_LOGIN_ID', '이미 사용 중인 아이디입니다.')
     }
-    const created: MockUser = { ...body, userId: users.length + 1 }
+    const created: MockUser = { ...body, userId: Math.max(0, ...users.map((user) => user.userId), ...mockDirectoryUsers.map((user) => user.userId)) + 1 }
     save(USERS_KEY, [...users, created])
     save(SESSION_KEY, toUser(created))
     return toUser(created)
@@ -114,13 +125,35 @@ export const mockApi: typeof realApi = {
   async listProjects() {
     await delay(200)
     requireLogin()
-    return { projects: [mockProject], executionMode: EXECUTION_MODE }
+    return { projects: listMockProjects(requireLogin()), executionMode: EXECUTION_MODE }
+  },
+
+  async getProject(projectId) {
+    await delay(200)
+    return getMockProject(projectId, requireLogin())
+  },
+
+  async createProject(body) {
+    await delay(400)
+    return saveMockProject(body, requireLogin(), directory())
+  },
+
+  async updateProject(projectId, body) {
+    await delay(400)
+    return saveMockProject(body, requireLogin(), directory(), projectId)
+  },
+
+  async searchUsers(keyword) {
+    await delay(150)
+    requireLogin()
+    const query = keyword.toLowerCase()
+    return { users: directory().filter((user) => user.name.toLowerCase().includes(query) || user.githubName?.toLowerCase().includes(query)) }
   },
 
   async listMembers(projectId) {
     await delay(150)
     requireLogin()
-    return { projectId, members: mockMembers }
+    return { projectId, members: listMockMembers(projectId, requireLogin()) }
   },
 
   async uploadMeeting(projectId, file) {
