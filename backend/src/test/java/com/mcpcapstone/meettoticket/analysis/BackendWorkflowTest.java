@@ -212,6 +212,24 @@ class BackendWorkflowTest {
     }
 
     @Test
+    void 기본_모의_실행은_발행_전_초안으로_끝난다() throws Exception {
+        properties.setMockScenario("draft");
+        UUID task = start(upload("초안.txt", "박종민"));
+        finish();
+        mvc.perform(get("/api/analysis-tasks/{id}/items", task).session(session))
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.items[0].reviewStatus").value("PENDING"))
+                .andExpect(jsonPath("$.items[0].publishStatus").value("DRAFT"))
+                .andExpect(jsonPath("$.items[0].githubIssueNumber").isEmpty())
+                .andExpect(jsonPath("$.summary.drafts").value(1))
+                .andExpect(jsonPath("$.summary.failed").value(0));
+        // 진행 중에 받은 세부 정보가 상태 조회에 남는다
+        mvc.perform(get("/api/analysis-tasks/{id}", task).session(session))
+                .andExpect(jsonPath("$.progress.step").value("EXTRACTING"))
+                .andExpect(jsonPath("$.progress.context.members").isNumber());
+    }
+
+    @Test
     void 검수반려는_실패가_아니며_발행을_차단한다() throws Exception {
         properties.setMockScenario("rejected");
         UUID task = start(upload("반려.txt", "박종민"));

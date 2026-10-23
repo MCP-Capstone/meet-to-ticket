@@ -63,7 +63,7 @@ agent:
   connect-timeout: 3s
   read-timeout: 5s
   task-timeout: ${AGENT_TASK_TIMEOUT:10m}
-  mock-scenario: ${AGENT_MOCK_SCENARIO:approved}
+  mock-scenario: ${AGENT_MOCK_SCENARIO:draft}
 
 app:
   github:

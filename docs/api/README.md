@@ -92,8 +92,10 @@ curl -b cookie.txt -F meetingDate=2026-10-22 -F file=@회의록.md http://localh
 6. 상태 GET을 반복하고 COMPLETED / PARTIALLY_FAILED / FAILED에서 중단.
 7. items GET으로 항목·집계 확인. 처리 중 items GET은 409.
 
-기본 approved 시나리오는 고정 항목 1건의 SKIPPED이며 실제 생성 성공은 0이다.
-서버를 재시작할 때 `AGENT_MOCK_SCENARIO=empty|rejected|failed|partial` 중 하나로 결과 분기를 확인할 수 있다.
+기본 draft 시나리오는 고정 항목 1건의 발행 전 초안(`reviewStatus: PENDING`, `publishStatus: DRAFT`)이며 `summary.drafts`가 1이다.
+서버를 재시작할 때 `AGENT_MOCK_SCENARIO=approved|empty|rejected|failed|partial` 중 하나로 결과 분기를 확인할 수 있다. `approved`는 Phase 1 흐름(고정 항목 1건 SKIPPED)이다.
+
+상태 GET 응답의 `progress`는 진행 화면용 세부 정보다 (아직 없으면 `null`). `step`은 `CONTEXT`(맥락 파악) → `EXTRACTING`(티켓 추출) → `DEDUPING`(중복 검수) → `DISPATCHING`(담당자에게 전송)이고, `context.{members, issues, notionDocs}`, `extraction.{todos, decisions, openQuestions}`, `dedupe.{done, total, linked}`가 단계마다 쌓인다. 아직 모르는 값은 `null`이다. `stage`는 기존 값 그대로다.
 MOCK 메모리 작업은 재시작하면 사라져 진행 중 작업이 실패할 수 있다. DB 종료 결과는 유지된다.
 
 ## Agent 내부 API — 현재 구현
