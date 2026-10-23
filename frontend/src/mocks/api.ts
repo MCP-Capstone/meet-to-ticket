@@ -1,7 +1,8 @@
 import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
-import type { AnalysisTask, DirectoryUser, ExecutionMode, Meeting, TaskStage, User } from '../api/types'
+import type { AnalysisTask, DirectoryUser, ExecutionMode, Meeting, StartAnalysisResponse, TaskStage, User } from '../api/types'
 import { mockItems } from './data'
+import { readMeetingFile, validateMeetingText, validMeetingDate } from '../meetingInput'
 import { getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
 
 // 백엔드 없이 화면을 개발하기 위한 가짜 API. realApi와 같은 형태를 유지한다.
@@ -9,6 +10,7 @@ import { getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 let nextMeetingId = 1
+const meetings = new Map<number, Meeting>()
 
 // 화면 확인용이라 실제 Agent 결과처럼 보이게 LIVE로 둔다. (모의 실행 안내를 보려면 'MOCK')
 const EXECUTION_MODE: ExecutionMode = 'LIVE'
@@ -87,6 +89,15 @@ function parseMeeting(text: string) {
 
 const toUser = ({ userId, loginId, name }: User): User => ({ userId, loginId, name })
 
+function enqueueAnalysis(meetingId: number): StartAnalysisResponse {
+  if (!meetings.has(meetingId)) throw fail(404, 'MEETING_NOT_FOUND', '회의를 찾을 수 없습니다.')
+  if (analyzedMeetings.has(meetingId)) throw fail(409, 'ANALYSIS_ALREADY_REQUESTED', '이미 분석을 요청한 회의입니다.')
+  analyzedMeetings.add(meetingId)
+  const taskId = crypto.randomUUID()
+  tasks.set(taskId, { meetingId, startedAt: Date.now() })
+  return { taskId, meetingId, status: 'QUEUED', executionMode: EXECUTION_MODE }
+}
+
 export const mockApi: typeof realApi = {
   async health() {
     return { status: 'MOCK' }
@@ -156,6 +167,41 @@ export const mockApi: typeof realApi = {
     return { projectId, members: listMockMembers(projectId, requireLogin()) }
   },
 
+  async requestMeetingAnalysis(projectId, input) {
+    await delay(350)
+    listMockMembers(projectId, requireLogin())
+    const invalidInput = () => fail(400, 'INVALID_MEETING_INPUT', '회의 날짜와 회의록 입력을 확인해 주세요.')
+    if (!validMeetingDate(input.meetingDate)) throw invalidInput()
+    const hasFile = input.file !== undefined
+    const hasText = input.content !== undefined && input.content.trim() !== ''
+    if (hasFile === hasText) throw invalidInput()
+    let content: string
+    try {
+      content = input.file !== undefined ? await readMeetingFile(input.file) : input.content ?? ''
+      const invalid = validateMeetingText(content)
+      if (invalid) throw new Error(invalid)
+    } catch (e) {
+      throw fail(400, 'INVALID_MEETING_INPUT', e instanceof Error ? e.message : '회의록 입력을 확인해 주세요.')
+    }
+    const filename = input.file?.name ?? ''
+    const heading = content.match(/^\s*#{1,2}\s+(.+)$/m)?.[1].trim()
+    const title = (input.title?.trim() || heading || filename.replace(/\.[^.]+$/, '') || `${input.meetingDate} 회의`).slice(0, 255)
+    const meeting: Meeting = {
+      meetingId: nextMeetingId++, projectId, title, meetingDate: input.meetingDate,
+      participantIds: [], originalFilename: filename, readyForAnalysis: true,
+    }
+    meetings.set(meeting.meetingId, meeting)
+    return enqueueAnalysis(meeting.meetingId)
+  },
+
+  async getMeeting(meetingId) {
+    await delay(100)
+    const meeting = meetings.get(meetingId)
+    if (!meeting) throw fail(404, 'MEETING_NOT_FOUND', '회의를 찾을 수 없습니다.')
+    listMockMembers(meeting.projectId, requireLogin())
+    return meeting
+  },
+
   async uploadMeeting(projectId, file) {
     await delay(500)
     const members = listMockMembers(projectId, requireLogin())
@@ -179,19 +225,14 @@ export const mockApi: typeof realApi = {
       originalFilename: file.name,
       readyForAnalysis: true,
     }
+    meetings.set(meeting.meetingId, meeting)
     return meeting
   },
 
   async startAnalysis(meetingId) {
     await delay(300)
     requireLogin()
-    if (analyzedMeetings.has(meetingId)) {
-      throw fail(409, 'ANALYSIS_ALREADY_REQUESTED', '이미 분석을 요청한 회의입니다.')
-    }
-    analyzedMeetings.add(meetingId)
-    const taskId = crypto.randomUUID()
-    tasks.set(taskId, { meetingId, startedAt: Date.now() })
-    return { taskId, meetingId, status: 'QUEUED', executionMode: EXECUTION_MODE }
+    return enqueueAnalysis(meetingId)
   },
 
   async getAnalysis(taskId) {
