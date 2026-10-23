@@ -21,7 +21,8 @@ public class MeetingParser {
     private static final Pattern PEOPLE =
             Pattern.compile("(?m)^\\s*(?:[-*]\\s*)?(?:회의\\s*)?(?:참여자|참석자)\\s*[:：]\\s*(.+)$");
 
-    public Parsed parse(byte[] bytes) {
+    /** UTF-8 본문. 최초 BOM은 빼고, 비었거나 NUL이 있거나 UTF-8이 아니면 비어 있다. */
+    public Optional<String> decode(byte[] bytes) {
         try {
             String content =
                     StandardCharsets.UTF_8
@@ -31,17 +32,28 @@ public class MeetingParser {
                             .decode(ByteBuffer.wrap(bytes))
                             .toString();
             if (content.startsWith("\uFEFF")) content = content.substring(1);
-            if (content.isBlank() || content.indexOf('\0') >= 0) throw invalid();
+            if (content.isBlank() || content.indexOf('\0') >= 0) return Optional.empty();
+            return Optional.of(content);
+        } catch (CharacterCodingException e) {
+            return Optional.empty();
+        }
+    }
+
+    /** 첫 #, ## 제목줄. */
+    public Optional<String> heading(String content) {
+        Matcher h = HEADING.matcher(content);
+        return h.find() ? Optional.of(h.group(1).trim()) : Optional.empty();
+    }
+
+    public Parsed parse(byte[] bytes) {
+        String content = decode(bytes).orElseThrow(this::invalid);
+        try {
             Matcher t = TITLE.matcher(content),
                     d = DATE.matcher(content),
                     p = PEOPLE.matcher(content);
             String title;
             if (t.find()) title = t.group(1).trim();
-            else {
-                Matcher h = HEADING.matcher(content);
-                if (!h.find()) throw invalid();
-                title = h.group(1).trim();
-            }
+            else title = heading(content).orElseThrow(this::invalid);
             if (title.isBlank() || title.length() > 255 || !d.find() || !p.find()) throw invalid();
             LocalDate date = LocalDate.parse(d.group(1));
             List<String> names =
@@ -51,7 +63,7 @@ public class MeetingParser {
                             .toList();
             if (names.isEmpty() || new HashSet<>(names).size() != names.size()) throw invalid();
             return new Parsed(title, date, names, content);
-        } catch (CharacterCodingException | DateTimeException e) {
+        } catch (DateTimeException e) {
             throw invalid();
         }
     }
