@@ -110,14 +110,14 @@ Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤
 - `MEETING_REVIEW_INCOMPLETE` (409): 본인의 검토 대기/담당 지정 필요 티켓이 남아 있다.
 - `TICKET_STATUS_CONFLICT` (409): 같은 회의의 본인 티켓이 이미 발행 중이다.
 - `PUBLISH_SELECTION_CHANGED` (409): 확인 창의 ID와 현재 확인 상태 티켓이 다르거나 `ticketIds`를 생략했다. 목록을 다시 불러오고 확인 창부터 진행한다.
-- `PUBLISH_TARGET_UNSUPPORTED` (409): GitHub 외 도구의 확인 티켓이 포함돼 있다. 일부만 몰래 제외하지 않는다.
+- `PUBLISH_TARGET_UNSUPPORTED` (409): 일괄 발행이 처리하지 않는 도구의 확인 티켓이 포함돼 있다. 일부만 몰래 제외하지 않는다. 현재 GitHub, Notion, Slack은 모두 처리한다.
 - `NO_CONFIRMED_TICKETS` (409): 발행할 본인 티켓이 없거나 프로젝트 필터와 일치하지 않는다.
 
 응답과 결과 조회 계약은 기존과 같다. 회의 필터를 생략한 기존 호출은 아래의 기존 동작을 유지하며, 새 화면에서는 반드시 회의 필터를 보낸다.
 
 
-`POST /api/tickets/publish`는 로그인 사용자가 담당인 확인(`CONFIRMED`) 티켓만 한 묶음으로 담는다. 검토 대기와 거절 티켓은 담기지 않는다. 발행 대상이 GitHub가 아닌(Slack, Notion) 확인 티켓도 담기지 않고 확인 상태로 남는다(Agent 일괄 발행은 GitHub만 처리). 담긴 티켓은 `PUBLISHING`(발행 중)이 되어 다시 담을 수 없고(중복 클릭 방지, 없으면 409 `NO_CONFIRMED_TICKETS`), Agent `POST /publish`가 202로 접수한다. 202는 접수이지 발행 성공이 아니다. Agent가 접수하지 않은 것이 확실하면 티켓은 확인 상태로 돌아가고 502 `AGENT_ACCEPTANCE_FAILED`이다.
-Agent는 결과를 `POST /internal/publish-batches/{batchId}/result`(내부 토큰)로 보고하고, 백엔드는 티켓 상태를 `PUBLISHED`/`LINKED`/`UPDATED`/`FAILED`로 바꿔 이슈 번호/URL/실패 사유를 저장한다. 발행 직전 재대조로 처리 유형이 바뀌면 실제 실행한 유형을 저장한다. 요청은 갔지만 결과를 모르는 경우(`UNKNOWN`)와 보고에서 빠진 티켓은 `FAILED`이면서 `outcomeUnknown=true`이다. 다시 시도하면 이슈가 두 번 생길 수 있어 구분한다. 같은 묶음의 보고가 다시 와도 한 번만 반영한다.
+`POST /api/tickets/publish`는 로그인 사용자가 담당인 확인(`CONFIRMED`) 티켓만 한 묶음으로 담는다. 검토 대기와 거절 티켓은 담기지 않는다. GitHub 이슈, Notion 페이지, Slack 회의 결과 공지 티켓을 모두 담는다. 담긴 티켓은 `PUBLISHING`(발행 중)이 되어 다시 담을 수 없고(중복 클릭 방지, 없으면 409 `NO_CONFIRMED_TICKETS`), Agent `POST /publish`가 202로 접수한다. 202는 접수이지 발행 성공이 아니다. Agent가 접수하지 않은 것이 확실하면 티켓은 확인 상태로 돌아가고 502 `AGENT_ACCEPTANCE_FAILED`이다.
+Agent는 결과를 `POST /internal/publish-batches/{batchId}/result`(내부 토큰)로 보고하고, 백엔드는 티켓 상태를 `PUBLISHED`/`LINKED`/`UPDATED`/`FAILED`로 바꿔 이슈 번호/URL/실패 사유를 저장한다. Slack 공지는 Agent가 `POSTED`와 `messageUrl`로 알려 주며 `PUBLISHED`로 저장한다. 결과 항목의 `githubIssueUrl`에는 `publishTarget`에 따라 GitHub 이슈, Notion 페이지, Slack 메시지 URL이 담긴다. 발행 직전 재대조로 처리 유형이 바뀌면 실제 실행한 유형을 저장한다. 요청은 갔지만 결과를 모르는 경우(`UNKNOWN`)와 보고에서 빠진 티켓은 `FAILED`이면서 `outcomeUnknown=true`이다. 다시 시도하면 이슈가 두 번 생길 수 있어 구분한다. 같은 묶음의 보고가 다시 와도 한 번만 반영한다.
 `GET /api/publish-batches/{batchId}`는 `RUNNING`(결과 대기)이면 계속 조회한다. `GET /api/tickets/me`의 `counts.failed`는 실패 배너용이다. MOCK 모드는 GitHub 발행 없이 즉시 `PUBLISHED`로 저장하며 이슈 링크가 없다.
 `POST /api/tickets/{ticketId}/retry`는 실패(`FAILED`) 티켓 하나를 새 묶음으로 다시 발행한다(REQ-019). 티켓 행을 잠근 뒤 발행 중으로 바꾸므로 같은 티켓을 동시에 다시 시도해도 한 번만 접수되고 나머지는 409 `TICKET_STATUS_CONFLICT`이다. 결과는 같은 규칙으로 저장되어 성공하면 `PUBLISHED`/`LINKED`/`UPDATED`, 실패하면 다시 `FAILED`(새 사유)가 된다. Agent가 접수하지 않은 것이 확실하면 502 `AGENT_ACCEPTANCE_FAILED`이고 티켓은 이전 실패 상태와 사유를 유지한다. 결과 항목의 `failureCategory`는 `REPOSITORY_PERMISSION`(`REPOSITORY_NOT_ALLOWED`, `GITHUB_AUTH`, `GITHUB_FORBIDDEN`)이면 PM이 프로젝트 설정에서 저장소 권한을 풀어야 하는 실패이고, 그 밖은 `OTHER`이다. `outcomeUnknown=true`인 티켓도 재시도할 수 있으며 Agent가 발행 직전 재대조로 이미 만들어진 이슈를 연결로 바꾼다.
 `GET /api/tickets/me`의 티켓은 실패(`FAILED`) 상태일 때만 `publishFailure`(`errorCode`, `errorMessage`, `failureCategory`, `retryable`, `outcomeUnknown`)를 담고 그 밖에는 null이다. `outcomeUnknown`에는 이전 시도의 결과 모름도 포함되며, 화면은 이때 GitHub 확인 단계를 거친 뒤 다시 시도하게 한다.
@@ -202,7 +202,7 @@ Agent 환경에서 `uvicorn main:app --port 8001`로 실행한다. 설치는 [Ag
 문서 조회만으로 LLM·MCP를 호출하지 않는다. POST는 실제 업무를 실행하므로 단독 테스트는
 `agent/.env`의 `DRY_RUN=true`, `BACKEND_BASE_URL=` 설정으로 발행·콜백을 끈다. 설정 로더는 .env를 환경변수보다 우선한다.
 
-`POST /publish`는 백엔드가 `batchId`와 `reviewStatus: CONFIRMED` 티켓만 보내는 내부 API다. GitHub 티켓에는 프로젝트 저장소와 확정한 `processingType`(`CREATE`/`LINK`/`UPDATE`), 기존 이슈 번호(연결·갱신 때), 편집된 `contentJson`을 포함한다. Slack 공지 티켓에는 `publishTarget: SLACK`, 프로젝트 `slackChannelId`, 공지의 `contentJson.slack.text`·`reviewers`, 연결된 `slackMembers[{name, slackUserId}]`를 함께 보낸다. Agent는 GitHub 티켓을 저장소별 재대조하고, Slack 공지는 한 번 `post_message`로 게시한다. 최종 결과는 `POST /internal/publish-batches/{batchId}/result`에 GitHub의 `PUBLISHED`/`LINKED`/`UPDATED`, Slack의 `POSTED`, 실패·결과 모름과 이슈·댓글·메시지 링크를 함께 보고한다. 같은 `batchId` 재요청은 중복 발행하지 않는다.
+`POST /publish`는 백엔드가 `batchId`와 `reviewStatus: CONFIRMED` 티켓만 보내는 내부 API다. GitHub 티켓에는 프로젝트 저장소와 확정한 `processingType`(`CREATE`/`LINK`/`UPDATE`), 기존 이슈 번호(연결·갱신 때), 편집된 `contentJson`을 포함한다. Slack 공지 티켓에는 `publishTarget: SLACK`, 프로젝트 `slackChannelId`, 공지의 `contentJson.slack.text`·`reviewers`, 연결된 `slackMembers[{name, slack_user_id}]`(Agent가 dict로 읽어 키가 snake_case)를 함께 보낸다. Agent는 GitHub 티켓을 저장소별 재대조하고, Slack 공지는 한 번 `post_message`로 게시한다. 최종 결과는 `POST /internal/publish-batches/{batchId}/result`에 GitHub의 `PUBLISHED`/`LINKED`/`UPDATED`, Slack의 `POSTED`, 실패·결과 모름과 이슈·댓글·메시지 링크를 함께 보고한다. 같은 `batchId` 재요청은 중복 발행하지 않는다.
 DRY_RUN도 실제 추출·검수 LLM 호출과 모델 API 키가 필요하다. 키는 Swagger 요청 JSON에 넣지 않는다.
 현재 Agent dry-run은 승인 항목을 SKIPPED(발행 생략)로 반환한다. 이를 실제 GitHub 생성 거절로 해석하지 않는다.
 가짜 LLM·MCP로 확인하려면 Agent의 자동 테스트를 실행한다.
