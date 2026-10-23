@@ -108,6 +108,19 @@ async def test_dropped_assignees_warning(settings):
     assert any("담당자 지정이 안 됨" in w for w in a7["content_json"]["warnings"])
 
 
+async def test_dropped_labels_warning(settings):
+    class DroppingPublisher(FakePublisher):
+        async def create_issue(self, **args):
+            res = await super().create_issue(**args)
+            res["dropped_labels"] = ["deleted-label", "old-label"]
+            return res
+
+    result = await run_case(settings, publisher=DroppingPublisher())
+    a7 = by_key(result)["10m1-a7"]
+    assert a7["publish_status"] == "SUCCEEDED"
+    assert "저장소에 없는 라벨이라 빠짐: deleted-label, old-label" in a7["content_json"]["warnings"]
+
+
 @pytest.mark.parametrize("where", ["draft", "review"])
 async def test_llm_error_fails_task(settings, where):
     pub = FakePublisher()
