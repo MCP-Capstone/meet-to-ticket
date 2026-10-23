@@ -1,4 +1,4 @@
-import type { MyTicket, MyTicketList, TicketAction, TicketEditRequest, User } from '../api/types'
+import type { MyTicket, MyTicketList, TicketAction, TicketEditRequest, TicketDedupe, User } from '../api/types'
 import { ApiRequestError } from '../api/client'
 import type { PublishBatchResult } from '../api/types'
 import { publishSelection } from '../batchPublish'
@@ -22,9 +22,19 @@ function read(user: User): StoredTicket[] {
     4: { errorCode: 'GITHUB_FORBIDDEN', errorMessage: 'GitHub 저장소 권한이 없습니다.', failureCategory: 'REPOSITORY_PERMISSION', retryable: true, outcomeUnknown: false },
     5: { errorCode: 'RESULT_UNKNOWN', errorMessage: '요청은 보냈지만 결과를 받지 못했습니다.', failureCategory: 'OTHER', retryable: true, outcomeUnknown: true },
   }
+  // TASK-032: 화면 확인용 예시. 실제 GitHub 이슈를 조회하지 않는다.
+  const dedupeBase: TicketDedupe = { judged: true, skipped: null, relation: 'UNRELATED', issue: null, overlap: false, reason: '기존 업무와 관계없는 새로운 업무입니다.', before: null, after: null, changedByRecheck: false }
+  const dedupes: (TicketDedupe | undefined)[] = [
+    { ...dedupeBase, relation: 'RELATED', issue: { number: 12, title: '예시: CSV 다운로드', state: 'closed', url: 'https://github.com/example/meet-to-ticket/issues/12' }, overlap: true, reason: '같은 CSV 화면이지만 빈 결과 오류에 대한 추가 작업입니다.' },
+    { ...dedupeBase, relation: 'CHANGE', issue: { number: 24, title: '예시: 다운로드 안내', state: 'open', url: 'https://github.com/example/meet-to-ticket/issues/24' }, reason: '기존 안내 문구와 접근성 조건을 보완합니다.', before: '다운로드 시작 안내만 표시한다.', after: '다운로드 완료 안내를 표시한다.\n스크린 리더에도 완료 상태를 전달한다.' },
+    { ...dedupeBase, relation: 'SAME', issue: { number: 36, title: '예시: 파일명 규칙', state: 'open', url: 'https://github.com/example/meet-to-ticket/issues/36' }, reason: '기존 이슈와 같은 업무입니다.', changedByRecheck: true },
+    { ...dedupeBase, judged: false, relation: null, reason: null, skipped: 'timeout' },
+    dedupeBase,
+    undefined,
+  ]
   const seed: StoredTicket[] = statuses.map((status, index) => ({
     ticketId: `21000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`, title: titles[index], status,
-    publishTarget: index === 3 ? 'NOTION' : 'GITHUB', processingType: 'CREATE', publishFailure: failures[index] ?? null,
+    publishTarget: index === 3 ? 'NOTION' : 'GITHUB', processingType: index === 1 ? 'UPDATE' : index === 2 ? 'LINK' : 'CREATE', dedupe: dedupes[index], publishFailure: failures[index] ?? null,
     projectId: project.projectId, projectName: project.name, meetingId: 2101, meetingTitle: 'CSV 내보내기 점검 회의',
     taskId: '21000000-0000-4000-8000-000000000100', createdAt: '2026-10-23T10:00:00+09:00',
     description: `${titles[index]}에 필요한 작업 내용을 확인하고 수정해 주세요.`,

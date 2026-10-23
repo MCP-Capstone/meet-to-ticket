@@ -339,3 +339,17 @@ const res = await fetch('/api/meetings')
 - mock은 실제 외부 호출 없이 접수·완료와 내 티켓 상태를 재현한다. 모의 결과에는 실제 이슈 링크가 없다.
 - 결과 패널을 닫거나 페이지를 벗어나면 패널의 폴링을 중단한다. 내 티켓 목록의 기존 상태 조회는 유지된다. 발행 기록 목록/새로고침 후 결과 패널 복원은 이번 범위 밖이다.
 - 검증: `npm run test:publish`, `npm run test:progress`, `npm run build`, `npm run lint`.
+
+
+### TASK-032: 내 티켓 중복 판단과 변경 전후 (#243)
+
+- `GET /api/tickets/me`가 반환하는 `dedupe`를 읽기 전용으로 표시한다. 발행 대상/처리 유형 변경이나 중복 판단 재실행은 하지 않는다.
+- 판단된 GitHub 신규 발행 티켓의 `overlap=true`에만 **겹칠 수 있음** 경고를 표시한다.
+- 기존 이슈와의 관계, 판단 사유, 이슈 번호·제목·열림/닫힘 상태와 새 탭 링크를 확인할 수 있다. 링크는 기존 `safeIssueUrl` 검증을 재사용한다.
+- `changedByRecheck=true`이면 재대조에서 변경됐다는 안내와 현재 처리 유형을 표시한다. 이전 처리 유형은 추정하지 않는다.
+- 갱신 또는 CHANGE 관계 업무의 `before`/`after`가 있으면 판단 시점 내용을 비교한다. 줄바꿈을 보존하며 HTML로 실행하지 않는다. 한쪽만 있으면 제공된 내용만 표시하고 빠진 항목을 안내한다. 둘 다 비어 있으면 빈 비교 영역을 만들지 않는다.
+- `dedupe` 미제공과 `judged=false`(판단 안 됨)를 구분한다. 알려진 미수행 사유는 한국어로 안내하고, 알 수 없는 사유는 일반 문구로 표시한다.
+- 기존 mock 저장 데이터에 `dedupe`가 없어도 렌더링할 수 있다. 새 예시가 필요하면 개발자 도구에서 `sessionStorage.removeItem('mock-my-tickets-v2')` 후 새로고침한다. 초기화 시 mock 티켓 편집 내용도 지워진다.
+- 새 mock 예시: RELATED 겹침 경고, UPDATE 변경 전후, LINK 재대조 변경, 판단 시간 초과, UNRELATED, 정보 미제공. 링크는 `example/meet-to-ticket` 예시이며 실제 이슈를 조회하지 않는다.
+- 검증: `npm run test:dedupe`, `npm run test:progress`, `npm run test:publish`, `npm run build`, `npm run lint`.
+- 기존 API를 사용하며 의존성 변경은 없다.
