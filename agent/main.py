@@ -28,9 +28,10 @@ load_env()
 from reporter import BackendReporter  # noqa: E402
 from runner import history, run, run_publish_batch, stored_result  # noqa: E402
 from permissions import check_members  # noqa: E402
+from project_connections import check_project_connections  # noqa: E402
 from reindex import create_router  # noqa: E402
 from publisher import ToolCallError  # noqa: E402
-from schemas import CheckMembersRequest, CheckMembersResponse, PublishBatchRequest, RunRequest  # noqa: E402
+from schemas import CheckMembersRequest, CheckMembersResponse, ProjectConnectionsRequest, ProjectConnectionsResponse, PublishBatchRequest, RunRequest  # noqa: E402
 from state import STAGE_EXTRACTING  # noqa: E402
 from api_docs import (  # noqa: E402
     CHECK_MEMBERS_EXAMPLE, CHECK_MEMBERS_RESPONSES, DESCRIPTION, HEALTH_RESPONSES, HISTORY_RESPONSES, JOB_RESPONSES, REQUEST_EXAMPLE, RUN_RESPONSES,
@@ -180,6 +181,15 @@ async def check_project_members(
         return await check_members(_settings(), req, app.state.overrides.get("mcp_tools"))
     except ToolCallError as exc:
         return JSONResponse(status_code=502, content={"errorCode": exc.code, "errorMessage": exc.message})
+
+
+@app.post(
+    "/projects/check-connections", tags=["프로젝트"], operation_id="checkProjectConnections",
+    summary="Notion·Slack 프로젝트 연결 확인", response_model=ProjectConnectionsResponse,
+    description="프로젝트 저장 때 Spring이 호출한다. LLM 없이 business-mcp의 Notion·Slack 읽기 도구를 호출한다.",
+)
+async def check_connections(req: ProjectConnectionsRequest):
+    return await check_project_connections(_settings(), req, app.state.overrides.get("mcp_tools"))
 
 
 @app.get(
