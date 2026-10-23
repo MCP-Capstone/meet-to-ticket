@@ -51,7 +51,7 @@ class RunRequest(CamelModel):
 
 Action = Literal["CREATE", "UPDATE", "DUPLICATE", "NEEDS_CHECK"]
 ReviewStatus = Literal["PENDING", "APPROVED", "REJECTED", "NEEDS_CHECK"]
-PublishStatus = Literal["NOT_STARTED", "SUCCEEDED", "FAILED", "SKIPPED", "BLOCKED", "UNKNOWN"]
+PublishStatus = Literal["NOT_STARTED", "DRAFT", "SUCCEEDED", "FAILED", "SKIPPED", "BLOCKED", "UNKNOWN"]
 
 
 class TaskItemOut(CamelModel):
@@ -61,8 +61,8 @@ class TaskItemOut(CamelModel):
     content_json: dict[str, Any] = Field(description="업무 내용·담당자·기한·검수·발행 상세. 필드 구성은 Agent 결과를 따름")
     action: Action = Field(description="업무 동작 유형. 현재 실제 발행 경로는 신규 생성")
     reason: str | None = Field(None, description="항목 판단 사유")
-    review_status: ReviewStatus = Field(description="검수 결과. Spring은 APPROVED 외 상태를 REJECTED/BLOCKED로 정규화")
-    publish_status: PublishStatus = Field(description="항목별 발행 결과. dry-run이면 승인 항목도 SKIPPED(발행 생략)")
+    review_status: ReviewStatus = Field(description="검수 결과. 초안 저장 모드(기본)는 PENDING(담당자 확인 대기). PUBLISH_ON_RUN이면 Spring은 APPROVED 외 상태를 REJECTED/BLOCKED로 정규화")
+    publish_status: PublishStatus = Field(description="항목별 발행 결과. 초안 저장 모드(기본)는 DRAFT(발행 전 초안). PUBLISH_ON_RUN이고 dry-run이면 승인 항목도 SKIPPED(발행 생략)")
     github_issue_number: int | None = Field(None, description="실제 GitHub 이슈 번호. 없으면 null")
     github_issue_url: str | None = Field(None, description="실제 GitHub 이슈 URL. 없으면 null")
     error_message: str | None = Field(None, description="실행 또는 항목 오류 사유")
@@ -74,7 +74,7 @@ class RunResult(CamelModel):
     stage: str = Field(description="Agent 단계. 종료 시 DONE. Spring 종료 단계는 VERIFYING으로 변환")
     error_code: str | None = Field(None, description="전체 실행 오류 코드. 없으면 null")
     error_message: str | None = Field(None, description="실행 또는 항목 오류 사유")
-    summary: dict[str, int] = Field(default_factory=dict, description="Agent 집계. total/approved/rejected/needsCheck/published/publishFailed/publishUnknown/linked(published 중 기존 이슈 연결). Spring은 항목에서 집계를 다시 계산")
+    summary: dict[str, int] = Field(default_factory=dict, description="Agent 집계. total/drafts/approved/rejected/needsCheck/published/publishFailed/publishUnknown/linked(published 중 기존 이슈 연결). Spring은 항목에서 집계를 다시 계산")
     items: list[TaskItemOut] = Field(default_factory=list, description="최종 항목 목록")
     trace_id: str | None = Field(None, description="LangSmith 실행 ID (Run ID). 동일한 값으로 추적(Trace)을 조회")
     metrics: dict[str, Any] = Field(default_factory=dict, description="실행 지표. 소요 시간, 프롬프트 버전, 모델명, LLM 호출 및 재시도 횟수 포함")

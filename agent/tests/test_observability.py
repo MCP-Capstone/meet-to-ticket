@@ -30,7 +30,9 @@ async def test_result_has_trace_id_and_metrics(settings):
 async def test_progress_stages_in_order(settings):
     rep = FakeReporter()
     await run(make_request(), settings, llm=FakeLLM(), publisher=FakePublisher(), reporter=rep)
-    assert [s for _, _, s in rep.progress_calls] == ["EXTRACTING", "NORMALIZING", "REVIEWING", "PUBLISHING"]
+    stages = [s for _, _, s in rep.progress_calls]
+    # 같은 단계 안에서 화면 단계(progress.step)가 바뀌면 같은 stage로 다시 보고한다
+    assert list(dict.fromkeys(stages)) == ["EXTRACTING", "NORMALIZING", "REVIEWING", "PUBLISHING"]
 
 
 async def test_failed_run_keeps_trace_id(settings):

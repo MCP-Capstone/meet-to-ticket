@@ -2,7 +2,7 @@
 
 BACKEND_BASE_URL이 비어 있으면 아무것도 보내지 않는다(로컬 테스트용).
 경로는 백엔드와 확정 전이라 아래 기본값을 쓰고, 바뀌면 이 파일만 고친다.
-    진행: POST {base}/internal/tasks/{task_id}/progress   {"status", "stage"}
+    진행: POST {base}/internal/tasks/{task_id}/progress   {"status", "stage", "progress"}
     결과: POST {base}/internal/tasks/{task_id}/result     RunResult
 """
 
@@ -52,8 +52,11 @@ class BackendReporter:
             await asyncio.sleep(1.0 * (attempt + 1))
         return False
 
-    async def progress(self, task_id: str, status: str, stage: str) -> None:
-        await self._post(PROGRESS_PATH.format(task_id=task_id), {"status": status, "stage": stage}, retries=0)
+    async def progress(self, task_id: str, status: str, stage: str, progress: dict[str, Any] | None = None) -> None:
+        payload: dict[str, Any] = {"status": status, "stage": stage}
+        if progress is not None:
+            payload["progress"] = progress
+        await self._post(PROGRESS_PATH.format(task_id=task_id), payload, retries=0)
 
     async def result(self, task_id: str, payload: dict[str, Any]) -> bool:
         return await self._post(RESULT_PATH.format(task_id=task_id), payload, retries=3)
