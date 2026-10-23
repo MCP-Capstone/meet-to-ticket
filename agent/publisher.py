@@ -73,11 +73,14 @@ class McpPublisher:
     """GitHub 쓰기 MCP 도구를 감싼다. 도구 오류는 공통 ToolCallError로 바꾼다."""
 
     def __init__(self, create_issue_tool: Any, add_comment_tool: Any | None = None, update_issue_tool: Any | None = None,
-                 post_message_tool: Any | None = None):
+                 post_message_tool: Any | None = None, search_issues_tool: Any | None = None,
+                 find_marker_tool: Any | None = None):
         self.create_tool = create_issue_tool
         self.comment_tool = add_comment_tool
         self.update_tool = update_issue_tool
         self.message_tool = post_message_tool
+        self.search_tool = search_issues_tool
+        self.marker_tool = find_marker_tool
 
     async def _call(self, tool: Any | None, args: dict[str, Any], name: str) -> dict[str, Any]:
         if tool is None:
@@ -100,6 +103,12 @@ class McpPublisher:
     async def post_message(self, **args: Any) -> dict[str, Any]:
         return await self._call(self.message_tool, args, "post_message")
 
+    async def search_issues(self, **args: Any) -> dict[str, Any]:
+        return await self._call(self.search_tool, args, "search_issues")
+
+    async def find_marker(self, **args: Any) -> dict[str, Any]:
+        return await self._call(self.marker_tool, args, "find_marker")
+
 
 class DryRunPublisher:
     """GitHub에 발행하지 않고 호출 내용만 기록한다."""
@@ -119,6 +128,12 @@ class DryRunPublisher:
     async def update_issue(self, **args: Any) -> dict[str, Any]:
         self.calls.append(args)
         return {"status": "dry_run", "number": args.get("number"), "url": None, "dropped_labels": []}
+
+    async def search_issues(self, **args: Any) -> dict[str, Any]:
+        return {"issues": []}
+
+    async def find_marker(self, **args: Any) -> dict[str, Any]:
+        return {"found": False, "where": None, "url": None, "truncated": False}
 
 
 # ---------------------------------------------------------------- 이슈 본문

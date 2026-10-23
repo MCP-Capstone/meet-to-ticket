@@ -363,6 +363,32 @@ def add_comment(client: httpx.Client, owner: str, repo: str, number: int, body: 
     return {"status": "commented", "comment_id": data.get("id"), "url": data.get("html_url")}
 
 
+COMMENT_PAGES_MAX = 10  # 댓글 100개씩 최대 이 페이지 수까지 훑는다 (호출 한도를 지키기 위해)
+
+
+def find_marker(client: httpx.Client, owner: str, repo: str, number: int, marker: str) -> dict[str, Any]:
+    """이슈 본문이나 댓글에 marker 문자열이 이미 있는지 확인한다.
+
+    결과를 모르는 발행을 다시 할 때, 같은 회의의 연결 댓글이나 변경 섹션이 이미 반영됐는지 알아내는 데 쓴다.
+    쓰기가 아니라 호출해도 이슈는 바뀌지 않는다.
+    """
+    number = _issue_number(number)
+    marker = _required_text(marker, "marker")
+    path = f"/repos/{owner}/{repo}/issues/{number}"
+    issue = request(client, "GET", path).json()
+    if marker in (issue.get("body") or ""):
+        return {"found": True, "where": "body", "url": issue.get("html_url"), "truncated": False}
+    for page in range(1, COMMENT_PAGES_MAX + 1):
+        comments = request(client, "GET", f"{path}/comments", params={"per_page": 100, "page": page}).json()
+        for comment in comments:
+            if marker in (comment.get("body") or ""):
+                return {"found": True, "where": "comment", "url": comment.get("html_url"), "truncated": False}
+        if len(comments) < 100:
+            return {"found": False, "where": None, "url": None, "truncated": False}
+    # 댓글이 너무 많아 끝까지 보지 못했다. 없다고 단정하지 않도록 알린다.
+    return {"found": False, "where": None, "url": None, "truncated": True}
+
+
 def _issue_labels(data: dict[str, Any]) -> list[str]:
     """이슈 조회 응답의 라벨을 PATCH에 다시 넣을 수 있는 이름 목록으로 바꾼다."""
     return [

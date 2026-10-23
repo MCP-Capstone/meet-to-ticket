@@ -153,7 +153,7 @@ public class PublishService {
         }
         batch.finish(
                 failed == 0 ? PublishBatchStatus.SUCCEEDED : failed == all.size() ? PublishBatchStatus.FAILED : PublishBatchStatus.PARTIAL_FAILED,
-                result.errorMessage());
+                result.errorMessage(), json.write(all.stream().map(PublishService::entry).toList()));
     }
 
     private void record(TaskItem ticket, PublishGateway.Item r) {
@@ -186,7 +186,10 @@ public class PublishService {
         PublishBatch batch = batches.findById(batchId).orElseThrow(() -> new BusinessException(ErrorCode.PUBLISH_BATCH_NOT_FOUND));
         // 다른 사용자의 묶음은 있는지도 알려주지 않는다.
         if (!batch.getUser().getId().equals(userId)) throw new BusinessException(ErrorCode.PUBLISH_BATCH_NOT_FOUND);
-        List<Entry> entries = items.findByBatch(batchId).stream().map(PublishService::entry).toList();
+        // 끝난 묶음은 그때 저장한 기록을 보여 준다. 티켓이 그 뒤 다시 시도되거나 수정으로 되돌려져도 지난 결과가 바뀌지 않는다.
+        List<Entry> entries = batch.getEntriesJson() != null
+                ? List.of(json.convert(json.read(batch.getEntriesJson()), Entry[].class))
+                : items.findByBatch(batchId).stream().map(PublishService::entry).toList();
         return new Result(batch.getId(), batch.getStatus(), batch.getExecutionMode(), batch.getCreatedAt(), batch.getFinishedAt(), summary(entries), entries);
     }
 
@@ -235,7 +238,7 @@ public class PublishService {
                 i.getId().toString(),
                 new PublishGateway.Project(project.getId(), project.getName(), project.getGithubOwner(), project.getGithubRepo()),
                 meeting.getId(), meeting.getTitle(), meeting.getMeetingDate(),
-                i.getTitle(), content, type.name(), target, edited, "CONFIRMED");
+                i.getTitle(), content, type.name(), target, edited, i.mustRecheckOnPublish(), "CONFIRMED");
     }
 
     public record Started(
