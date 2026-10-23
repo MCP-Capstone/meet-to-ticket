@@ -49,6 +49,7 @@ export function ResultList({ meeting, participants, result }: Props) {
   const { summary } = result
   const problems = summary.failed + summary.unknown
   const linkedCount = result.items.filter(isLinked).length
+  const published = summary.succeeded - linkedCount
 
   return (
     <>
@@ -67,20 +68,31 @@ export function ResultList({ meeting, participants, result }: Props) {
           </div>
         </div>
         <div className="counts">
-          <div className="count">
-            <strong>{summary.succeeded - linkedCount}</strong>
-            <span>발행</span>
-          </div>
+          {summary.drafts > 0 && (
+            <div className="count draft">
+              <strong>{summary.drafts}</strong>
+              <span>발행 전 초안</span>
+            </div>
+          )}
+          {/* 초안만 있는 결과(기획_v16)에서는 발행·반려가 0이라 숨긴다 */}
+          {published > 0 && (
+            <div className="count">
+              <strong>{published}</strong>
+              <span>발행</span>
+            </div>
+          )}
           {linkedCount > 0 && (
             <div className="count linked">
               <strong>{linkedCount}</strong>
               <span>기존 이슈 연결</span>
             </div>
           )}
-          <div className="count excluded">
-            <strong>{summary.rejected}</strong>
-            <span>검수 반려</span>
-          </div>
+          {summary.rejected > 0 && (
+            <div className="count excluded">
+              <strong>{summary.rejected}</strong>
+              <span>검수 반려</span>
+            </div>
+          )}
           {summary.skipped > 0 && (
             <div className="count excluded">
               <strong>{summary.skipped}</strong>
@@ -108,6 +120,8 @@ export function ResultList({ meeting, participants, result }: Props) {
               const note = linked ? (item.reason ?? item.contentJson?.dedupe?.reason ?? null) : noteText(item)
               const corrections = correctionCount(item)
               const background = backgroundText(item)
+              const warnings = item.contentJson?.warnings ?? []
+              const reviewNotes = item.contentJson?.review?.notes ?? []
               return (
                 <li key={item.itemId} className={`item ${statusClass}`}>
                   <div className="item-title">
@@ -129,6 +143,25 @@ export function ResultList({ meeting, participants, result }: Props) {
                     )}
                   </div>
                   {note && <p className="reason">{note}</p>}
+                  {warnings.length > 0 && (
+                    <ul className="warnings">
+                      {warnings.map((w) => (
+                        <li key={w}>{w}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {reviewNotes.length > 0 && (
+                    <div className="review-notes">
+                      <span>
+                        검수 지적{item.contentJson?.review?.fallback && ' · 기본 초안으로 대체됨'}
+                      </span>
+                      <ul>
+                        {reviewNotes.map((n) => (
+                          <li key={n}>{n}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </li>
               )
             })}

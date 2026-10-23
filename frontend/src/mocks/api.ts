@@ -209,6 +209,7 @@ export const mockApi: typeof realApi = {
       createdAt: new Date(task.startedAt).toISOString(),
       finishedAt: null,
       errorMessage: null,
+      progress: null,
     }
     let elapsed = Date.now() - task.startedAt - QUEUED_MS
     if (elapsed < 0) return base

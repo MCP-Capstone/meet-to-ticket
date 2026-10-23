@@ -96,6 +96,19 @@ export type TaskStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'PARTIALLY_FAILED'
 // RUNNING일 때 Agent가 하고 있는 일
 export type TaskStage = 'EXTRACTING' | 'NORMALIZING' | 'REVIEWING' | 'PUBLISHING' | 'VERIFYING'
 
+// 진행 화면 단계 (기획_v16 REQ-007). stage(TaskStage)와 별개다
+export type ProgressStep = 'CONTEXT' | 'EXTRACTING' | 'DEDUPING' | 'DISPATCHING'
+
+// 진행 화면용 세부 정보. 앞 단계 값은 다음 단계에도 남고, 아직 지나지 않은 단계의 값은 없다
+export interface AnalysisProgress {
+  step: ProgressStep
+  // issues, notionDocs는 맥락 파악(TASK-019) 전까지 null
+  context?: { members: number; issues: number | null; notionDocs: number | null }
+  extraction?: { todos: number; decisions: number; openQuestions: number }
+  // 중복 판단이 꺼져 있으면 오지 않는다
+  dedupe?: { done: number; total: number; linked: number }
+}
+
 export interface AnalysisTask {
   taskId: string
   meetingId: number
@@ -106,6 +119,8 @@ export interface AnalysisTask {
   finishedAt: string | null
   // FAILED일 때 사유
   errorMessage: string | null
+  // 진행 세부 정보. 아직 없으면 null
+  progress: AnalysisProgress | null
 }
 
 export interface StartAnalysisResponse {
@@ -137,8 +152,10 @@ export interface TaskItemContent {
     | { names?: string[]; github?: string[]; unresolved?: string[] }
   // 모의 실행: originalText / 실제 Agent: text
   due?: { date?: string | null; time?: string | null; qualifier?: string | null; originalText?: string | null; text?: string | null }
-  // 모의 실행: correctionCount, reason / 실제 Agent: revisions
-  review?: { correctionCount?: number; revisions?: number; reason?: string }
+  // 모의 실행: correctionCount, reason / 실제 Agent: revisions, notes(남은 검수 지적), fallback(기본 초안으로 대체됨)
+  review?: { correctionCount?: number; revisions?: number; reason?: string; notes?: string[]; fallback?: boolean }
+  // 코드가 붙인 확인 메모 (발행 보류·조건부 표기, 남은 검수 지적 수, 원문과 다른 기한 등)
+  warnings?: string[]
   // 중복 판정. linked_existing이 true면 새 이슈가 아니라 기존 GitHub 이슈에 연결한 항목
   dedupe?: {
     relation?: 'SAME' | 'CHANGE' | 'RELATED' | 'UNRELATED' | null
