@@ -142,7 +142,8 @@ class ProjectControllerTest {
 				.andExpect(jsonPath("$.connections.notion").value("NOT_CONNECTED"))
 				.andExpect(jsonPath("$.connections.slack").value("CONNECTED"))
 				.andExpect(jsonPath("$.members[1].slackEmail").value("member@example.com"))
-				.andExpect(jsonPath("$.members[1].slackUserId").value(nullValue()));
+				.andExpect(jsonPath("$.members[1].slackUserId").value("U" + memberId))
+				.andExpect(jsonPath("$.members[1].slackConnectionStatus").value("CONNECTED"));
 	}
 
 	@Test
