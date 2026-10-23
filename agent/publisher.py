@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 from resolve import Due
-from state import MCP_UNAVAILABLE, PUBLISH_FAILED
+from state import MCP_UNAVAILABLE, PUBLISH_FAILED, TARGET_NOTION
 
 TAG = re.compile(r"\[([A-Z][A-Z0-9_]+)\]")
 
@@ -213,3 +213,72 @@ def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str) -
 
     lines += ["---", f"회의: {meeting_id} · work_key: {ticket.get('work_key') or '-'} · 회의 후속조치 Agent가 작성"]
     return "\n".join(lines).strip() + "\n"
+
+
+def build_notion_page(ticket: dict[str, Any], meeting_id: str, background: str) -> dict[str, str]:
+    """Notion 페이지 출력문 (기획_v16 REQ-023, TASK-021). create_page(root, title, markdown)에 그대로 넘긴다.
+
+    GitHub 이슈 본문과 같은 순서지만 GitHub 전용 칸(라벨, 관련 이슈, 상위 이슈, @계정)은 넣지 않는다.
+    """
+    lines: list[str] = ["## 작업 내용", ticket.get("description") or ticket.get("action_text", ""), ""]
+    tasks = ticket.get("tasks") or []
+    if tasks:
+        lines += ["## 상세 작업", *[f"- [ ] {x}" for x in tasks], ""]
+    criteria = ticket.get("acceptance_criteria") or []
+    if criteria:
+        lines += ["## 완료 조건", *[f"- {c}" for c in criteria], ""]
+    quotes = ticket.get("evidence_quotes") or []
+    if quotes:
+        lines += ["## 근거", *[f"> {q}" for q in quotes], ""]
+    names = ticket.get("assignee_names") or []
+    lines += ["## 담당", ", ".join(names) if names else "없음", ""]
+    due = Due(**(ticket.get("due") or {"text": ""}))
+    lines += ["## 기한", due.display(), ""]
+    questions = ticket.get("open_questions") or []
+    if questions:
+        lines += ["## 확인 필요", *[f"- {q}" for q in questions], ""]
+    if background:
+        lines += ["## 회의 배경", _shorten(background, 700), ""]
+    lines += ["---", f"회의: {meeting_id} · work_key: {ticket.get('work_key') or '-'} · 회의 후속조치 Agent가 작성"]
+    return {"title": ticket.get("title") or ticket.get("action_text", ""), "markdown": "\n".join(lines).strip() + "\n"}
+
+
+def build_slack_notice(meeting_title: str, meeting_date: str | None, decisions: list[str],
+                       tickets: list[dict[str, Any]], linked: int, members: list[str]) -> dict[str, Any]:
+    """회의 결과 공지 출력문 (기획_v16 REQ-022, TASK-021). 회의 하나당 하나다.
+
+    검토 요청은 실제로 티켓을 받는 사람과 맞춘다. GitHub 티켓은 회의록 담당자가 프로젝트 멤버 1명과
+    정확히 연결될 때만 그 사람이 받고(백엔드 AssigneeResolver와 같은 규칙), 나머지는 담당 지정 필요다.
+    Notion 티켓은 업로더가 받으므로 따로 센다 (REQ-012).
+    검토 요청은 "@이름"으로 쓴다. 게시할 때 Slack 연결이 확인된 담당자만 post_message의 mentions로
+    넘겨 멘션이 되고, 나머지는 이름 텍스트로 남는다 (#151).
+    """
+    head = f"*[회의 결과] {meeting_title or '회의'}*" + (f" ({meeting_date})" if meeting_date else "")
+    lines = [head, ""]
+    if decisions:
+        lines += ["*결정 사항*", *[f"• {d}" for d in decisions], ""]
+    github = [t for t in tickets if t.get("publish_target") != TARGET_NOTION]
+    notion = len(tickets) - len(github)
+    lines += ["*후속 작업*", f"• 새 작업 {len(tickets) - linked}건 (GitHub 이슈 {len(github) - linked}, Notion 페이지 {notion})"]
+    if linked:
+        lines.append(f"• 기존 이슈 연결 {linked}건")
+    member_count = {name.strip(): 0 for name in members}
+    for name in members:
+        member_count[name.strip()] += 1
+    counts: dict[str, int] = {}
+    unassigned = 0
+    for t in github:
+        names = {n.strip() for n in t.get("assignee_names") or []}
+        name = next(iter(names)) if len(names) == 1 else None
+        if name is None or member_count.get(name) != 1:
+            unassigned += 1  # 여러 명, 미정, 멤버가 아님, 동명이인 → 업로더가 대표 담당을 지정한다 (REQ-011)
+            continue
+        counts[name] = counts.get(name, 0) + 1
+    if counts or unassigned or notion:
+        lines += ["", "*검토 요청*", *[f"• @{name} {n}건" for name, n in counts.items()]]
+        if unassigned:
+            lines.append(f"• 담당 지정 필요 {unassigned}건")
+        if notion:
+            lines.append(f"• Notion 페이지 {notion}건 (업로더 확인)")
+    lines += ["", "각자 내 티켓에서 확인한 뒤 발행해 주세요."]
+    return {"text": "\n".join(lines), "reviewers": [{"name": k, "tickets": v} for k, v in counts.items()]}

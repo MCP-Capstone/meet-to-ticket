@@ -122,7 +122,8 @@ public class AnalysisStore {
                     continue;
                 }
                 var saved = new TaskItem(t, item, json.write(item.contentJson()));
-                saved.assignTo(AssigneeResolver.resolve(item.contentJson(), projectMembers).orElse(null));
+                saved.assignTo(AssigneeResolver.resolve(
+                        item.contentJson(), projectMembers, t.getMeeting().getCreatedBy()).orElse(null));
                 items.save(saved);
             }
         }

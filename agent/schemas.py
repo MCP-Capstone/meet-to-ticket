@@ -158,6 +158,9 @@ class DraftTicket(BaseModel):
     evidence_quotes: list[str] = Field(description="근거가 되는 회의 요약 원문 문장을 글자 그대로 1~3개")
     open_questions: list[str] = Field(description="이 할 일과 관련된 미결 질문 원문. 없으면 빈 목록")
     labels: list[str] = Field(description="라벨 후보 중에서만 고른 0~3개. 후보가 없거나 맞는 라벨이 없으면 빈 목록")
+    publish_target: Literal["GITHUB", "NOTION"] = Field(
+        "GITHUB", description="발행 대상. 코드 변경이 한 부분이라도 필요하면 GITHUB, 코드 변경이 필요 없으면 NOTION")
+    target_reason: str = Field("", description="발행 대상을 고른 한 줄 사유")
 
 
 class DraftBatch(BaseModel):

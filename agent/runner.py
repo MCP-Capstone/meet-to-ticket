@@ -98,6 +98,7 @@ def initial_state(req: RunRequest, trace_id: str | None = None, deadline_seconds
         "started_at": started_at,
         "deadline_at": started_at + deadline_seconds if deadline_seconds > 0 else None,
         "meeting_id": str(m.meeting_id),
+        "meeting_title": m.title or "",
         "meeting_date": m.meeting_date.isoformat() if m.meeting_date else None,
         "original_content": m.original_content,
         "owner": req.project.github_owner,
