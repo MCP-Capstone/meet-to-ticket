@@ -20,7 +20,7 @@
 | POST | /api/auth/login | 200 | 로그인·세션 생성 |
 | POST | /api/auth/logout | 204 | 세션 제거 |
 | GET | /api/auth/me | 200 | 내 정보 |
-| GET | /api/projects | 200 | 내 프로젝트·실행 모드 |
+| GET | /api/projects | 200 | 내 프로젝트: 저장소·도구 연결·멤버 수·최근 회의·관리자 여부와 실행 모드 |
 | POST | /api/projects | 201 | 프로젝트 등록 (등록자는 관리자) |
 | GET | /api/projects/{projectId} | 200 | 프로젝트 상세, 멤버, 편집 가능 여부 |
 | PUT | /api/projects/{projectId} | 200 | 프로젝트 편집 (관리자만) |
@@ -73,6 +73,32 @@ Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤
 티켓 응답의 `dedupe`는 카드 표시용 읽기 전용 값이다: `judged`(false면 "중복 판단 안 됨"), `relation`, `issue`(번호, 제목, 상태, 링크), `overlap`(신규 발행인데 같은 작업이나 관련 이슈가 있으면 "겹칠 수 있음"), `reason`, `before`/`after`(갱신의 변경 전후), `changedByRecheck`.
 
 담당자는 카드에서 본문, 담당 멤버(같은 프로젝트 멤버), 기한을 고치고 확인/거절한다(REQ-014, #167). 수정은 검토 대기 상태에서만 되고 보낸 항목만 바뀐다. 담당 멤버를 바꾸면 그 멤버의 내 티켓으로 옮겨 간다. 기획 4.2 표 밖의 전이와 발행 이후 상태의 수정은 409 `TICKET_STATUS_CONFLICT`, 담당자가 아니면 403 `TICKET_ASSIGNEE_REQUIRED`, 티켓이 없으면 404 `TICKET_NOT_FOUND`이다. 수정한 내용은 `contentJson`의 `description`, `due`, `assignees`에 반영하며, 발행 본문(`issue_body`)은 다시 만들지 않는다.
+
+### 프로젝트 목록 (#214, TASK-008)
+
+`GET /api/projects`는 로그인 사용자가 멤버인 프로젝트만 ID 순으로 반환한다. 미소속이면 `projects: []`, 비로그인이면 401이다. 기존 `projectId`, `name`, 최상위 `executionMode`는 유지한다.
+
+```json
+{
+  "projects": [{
+    "projectId": 1,
+    "name": "CSV 내보내기",
+    "githubOwner": "MCP-Capstone",
+    "githubRepo": "mcp-capstone",
+    "connections": {"github": "CONNECTED", "notion": "NOT_CONNECTED", "slack": null},
+    "memberCount": 6,
+    "lastMeetingDate": "2026-10-23",
+    "canEdit": true
+  }],
+  "executionMode": "MOCK"
+}
+```
+
+- `connections`: 상세 API와 같은 저장값. `CONNECTED`는 연결됨, `NOT_CONNECTED`는 미연결, `ERROR`는 확인 실패, `null`은 확인 전이다. 목록 화면은 실패·확인 전을 ‘권한 확인 필요’로 안내한다. 조회 중 외부 Agent·도구 호출은 없다.
+- `memberCount`: 미가입 팀원을 포함한 전체 프로젝트 멤버 수. `lastMeetingDate`: 저장된 회의 날짜 중 최댓값(회의가 없으면 `null`). 프로젝트 수와 무관하게 소속·멤버 수·최근 회의를 세 번의 조회로 가져온다.
+- `canEdit`: 현재 사용자가 프로젝트 관리자이면 `true`. 목록의 편집·삭제 버튼 표시 기준이며, 실제 권한은 기존 PUT·DELETE API가 다시 검사한다.
+- 삭제는 기존 `DELETE /api/projects/{projectId}`에 `{"confirmName":"프로젝트 이름"}`을 보내고 성공 시 204를 받는다. 처리 중인 회의가 있으면 409 `PROJECT_ANALYSIS_IN_PROGRESS` 메시지를 표시하고 입력은 유지한다. 삭제 후 현재 업로드 프로젝트도 남아 있는 프로젝트로 변경하며, 모두 삭제하면 선택을 비운다.
+- 기존 삭제 API는 회의·작업·티켓·멤버를 삭제하고 이미 발행한 외부 결과물은 유지한다. **기존 이슈 색인 삭제는 TASK-037 후속 작업**이며 현재 삭제 창에도 색인이 남는다고 안내한다.
 
 ### 일괄 발행과 발행 결과 (#194)
 

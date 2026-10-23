@@ -1008,3 +1008,39 @@ button.secondary {
 .publish-result { margin-top: 1rem; }
 .publish-entries > li { border-top: 1px solid #d7dee7; padding: 1rem 0; }
 @media (max-width: 600px) { .publish-groups > li { align-items: stretch; flex-direction: column; } }
+
+/* 프로젝트 목록과 삭제 확인 (TASK-008) */
+.container.project-workspace { max-width: 1280px; }
+.project-list { display: flex; flex-direction: column; gap: 16px; }
+.project-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.project-list-table-wrap { overflow-x: auto; padding: 0; }
+.project-list-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.project-list-table th, .project-list-table td { padding: 16px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.project-list-table thead th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+.project-list-table tbody tr:last-child > * { border-bottom: 0; }
+.project-list-table tbody th { min-width: 140px; overflow-wrap: anywhere; }
+.project-repository { min-width: 180px; overflow-wrap: anywhere; }
+.project-connections { display: flex; gap: 6px; flex-wrap: wrap; min-width: 170px; }
+.project-connection { display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 12px; white-space: nowrap; }
+.project-connection.connected { background: var(--ok-soft); color: var(--ok); }
+.project-connection.disconnected { background: var(--bg); color: var(--muted); }
+.project-connection.unchecked { background: var(--warn-soft); color: var(--warn); }
+.project-date { white-space: nowrap; }
+.project-row-actions { display: flex; gap: 6px; }
+.project-row-actions button { white-space: nowrap; }
+.project-row-actions button, .project-delete-actions button { padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; }
+.project-empty { text-align: center; }
+.project-delete-dialog { border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; color: var(--text); background: var(--card); }
+.project-delete-dialog::backdrop { background: rgb(0 0 0 / 40%); }
+.project-delete-dialog form { display: flex; flex-direction: column; gap: 12px; }
+.project-delete-dialog h2 { overflow-wrap: anywhere; }
+.project-delete-dialog ul { margin: 0; padding-left: 22px; }
+.project-delete-dialog input { width: 100%; min-width: 0; }
+.project-delete-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+@media (max-width: 560px) {
+  .project-list-table th, .project-list-table td { padding: 12px; }
+  .project-delete-dialog { padding: 20px; }
+}
+
+button.danger { color: var(--danger); border: 1px solid var(--danger); }
+.project-delete-actions button[type="submit"] { color: white; background: var(--danger); }
