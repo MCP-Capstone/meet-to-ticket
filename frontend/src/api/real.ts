@@ -7,6 +7,7 @@ import type {
   ProjectList,
   ProjectDetail,
   ProjectSaveRequest,
+  ProjectRole,
   DirectoryUser,
   SignupRequest,
   StartAnalysisResponse,
@@ -31,7 +32,7 @@ export const realApi = {
   // 내 프로젝트 목록과 백엔드 실행 모드(MOCK / LIVE)
   listProjects: () => request<ProjectList>('/projects'),
 
-  // TASK-005·006 연동 계약. 실제 API 구현 전에는 mock 모드로 화면을 개발한다.
+  // 프로젝트 편집 API (TASK-005·006).
   getProject: (projectId: number) => request<ProjectDetail>(`/projects/${projectId}`),
 
   createProject: (body: ProjectSaveRequest) =>
@@ -39,6 +40,11 @@ export const realApi = {
 
   updateProject: (projectId: number, body: ProjectSaveRequest) =>
     request<ProjectDetail>(`/projects/${projectId}`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  changeProjectMemberRole: (projectId: number, memberUserId: number, role: ProjectRole) =>
+    request<ProjectDetail>(`/projects/${projectId}/members/${memberUserId}/role`, {
+      method: 'PUT', body: JSON.stringify({ role }),
+    }),
 
   searchUsers: (keyword: string) =>
     request<{ users: DirectoryUser[] }>(`/users?keyword=${encodeURIComponent(keyword)}`),

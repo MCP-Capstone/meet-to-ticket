@@ -37,7 +37,10 @@ export interface DirectoryUser {
   githubName: string | null
 }
 
+export type ProjectRole = 'ADMIN' | 'MEMBER'
+
 export interface ProjectEditorMember extends DirectoryUser {
+  admin: boolean
   repositoryPermission: RepositoryPermission
 }
 
@@ -58,7 +61,7 @@ export interface ProjectDetail extends Project {
   notionPageUrl: string | null
   slackChannelId: string | null
   members: ProjectEditorMember[]
-  connections: { github: ConnectionStatus | null; notion: ConnectionStatus; slack: ConnectionStatus }
+  connections: { github: ConnectionStatus | null; notion: ConnectionStatus | null; slack: ConnectionStatus | null }
   canEdit: boolean
 }
 

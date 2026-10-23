@@ -2,7 +2,7 @@ import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
 import type { AnalysisTask, DirectoryUser, ExecutionMode, Meeting, TaskStage, User } from '../api/types'
 import { mockItems } from './data'
-import { getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
+import { changeMockProjectRole, getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
 
 // 백엔드 없이 화면을 개발하기 위한 가짜 API. realApi와 같은 형태를 유지한다.
 
@@ -141,6 +141,11 @@ export const mockApi: typeof realApi = {
   async updateProject(projectId, body) {
     await delay(400)
     return saveMockProject(body, requireLogin(), directory(), projectId)
+  },
+
+  async changeProjectMemberRole(projectId, memberUserId, role) {
+    await delay(400)
+    return changeMockProjectRole(projectId, memberUserId, role, requireLogin())
   },
 
   async searchUsers(keyword) {

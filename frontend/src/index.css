@@ -733,3 +733,13 @@ button.secondary {
   .project-member-table td { padding: 8px 4px; }
   .project-candidates li > span { min-width: 0; }
 }
+
+/* 프로젝트 역할 (TASK-056 화면 / #172) */
+.project-member-role {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 86px;
+}
+.project-member-role button { white-space: nowrap; }

@@ -1,4 +1,4 @@
-import type { DirectoryUser, ProjectDetail, ProjectMember, ProjectSaveRequest, User } from '../api/types'
+import type { DirectoryUser, ProjectDetail, ProjectMember, ProjectRole, ProjectSaveRequest, User } from '../api/types'
 import { ApiRequestError } from '../api/client'
 import { mockMembers, mockProject } from './data'
 
@@ -10,7 +10,7 @@ export const mockDirectoryUsers: DirectoryUser[] = mockMembers.map((member, inde
 
 type StoredProject = Omit<ProjectDetail, 'canEdit' | 'members'> & {
   adminUserIds: number[]
-  members: (ProjectDetail['members'][number] & { projectMemberId: number })[]
+  members: (Omit<ProjectDetail['members'][number], 'admin'> & { projectMemberId: number })[]
 }
 const STORAGE_KEY = 'mock-project-editor-v1'
 const seed: StoredProject = {
@@ -49,7 +49,7 @@ function findProject(projectId: number, user: User) {
 
 function toDetail(project: StoredProject, user: User): ProjectDetail {
   const { adminUserIds, ...detail } = project
-  return { ...detail, canEdit: adminUserIds.includes(user.userId) }
+  return { ...detail, members: detail.members.map((member) => ({ ...member, admin: adminUserIds.includes(member.userId) })), canEdit: adminUserIds.includes(user.userId) }
 }
 
 export function listMockProjects(user: User) {
@@ -66,6 +66,26 @@ export function listMockMembers(projectId: number, user: User): ProjectMember[] 
   }))
 }
 
+export function changeMockProjectRole(projectId: number, targetUserId: number, role: ProjectRole, user: User) {
+  const project = findProject(projectId, user)
+  if (!project.adminUserIds.includes(user.userId)) {
+    throw fail(403, 'PROJECT_ADMIN_REQUIRED', '프로젝트 관리자만 수정할 수 있습니다.')
+  }
+  if (role !== 'ADMIN' && role !== 'MEMBER') throw fail(400, 'VALIDATION_FAILED', '역할을 선택해 주세요.')
+  if (!project.members.some((member) => member.userId === targetUserId)) {
+    throw fail(404, 'PROJECT_MEMBER_NOT_FOUND', '프로젝트 멤버를 찾을 수 없습니다.')
+  }
+  const wasAdmin = project.adminUserIds.includes(targetUserId)
+  if (role === 'MEMBER' && wasAdmin && project.adminUserIds.length <= 1) {
+    throw fail(409, 'LAST_PROJECT_ADMIN', '프로젝트 관리자는 최소 1명 이상이어야 합니다.')
+  }
+  project.adminUserIds = role === 'ADMIN'
+    ? [...new Set([...project.adminUserIds, targetUserId])]
+    : project.adminUserIds.filter((id) => id !== targetUserId)
+  writeProjects(readProjects().map((item) => item.projectId === projectId ? project : item))
+  return toDetail(project, user)
+}
+
 export function saveMockProject(body: ProjectSaveRequest, user: User, directory: DirectoryUser[], projectId?: number) {
   const projects = readProjects()
   const previous = projectId === undefined ? undefined : findProject(projectId, user)
@@ -79,7 +99,7 @@ export function saveMockProject(body: ProjectSaveRequest, user: User, directory:
     throw fail(409, 'DUPLICATE_PROJECT', '이미 등록된 GitHub 저장소입니다.')
   }
   // 신규 등록자는 자동 관리자·멤버가 된다. 기존 관리자는 멤버 선택과 별도로 유지한다.
-  const memberIds = [...new Set(previous ? body.memberUserIds : [...body.memberUserIds, user.userId])]
+  const memberIds = [...new Set([...body.memberUserIds, ...(previous?.adminUserIds ?? [user.userId])])]
   let nextMemberId = Math.max(0, ...(previous?.members.map((member) => member.projectMemberId) ?? [])) + 1
   const members = memberIds.map((userId): StoredProject['members'][number] => {
     const member = directory.find((item) => item.userId === userId)

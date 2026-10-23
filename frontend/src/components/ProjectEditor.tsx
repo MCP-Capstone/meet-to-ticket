@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, ApiRequestError } from '../api'
-import type { ConnectionStatus, DirectoryUser, ProjectDetail, ProjectEditorMember, ProjectSaveRequest } from '../api'
+import type { ConnectionStatus, DirectoryUser, ProjectDetail, ProjectEditorMember, ProjectRole, ProjectSaveRequest } from '../api'
 import { Spinner } from './Spinner'
 
 interface Props {
@@ -37,6 +37,10 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
   const [searchAttempt, setSearchAttempt] = useState(0)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [roleChanging, setRoleChanging] = useState<number | null>(null)
+  const [roleError, setRoleError] = useState<string | null>(null)
+  const [roleMessage, setRoleMessage] = useState<string | null>(null)
+  const busy = saving || roleChanging !== null
   const [permissionDenied, setPermissionDenied] = useState(false)
   const submitLock = useRef(false)
   const canEdit = !permissionDenied && (projectId === null || original?.canEdit === true)
@@ -98,10 +102,39 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
     return permissionLabels[member.repositoryPermission]
   }
 
+  const handleRoleChange = async (member: SelectedMember, role: ProjectRole) => {
+    if (projectId === null || submitLock.current || !canEdit || !original?.members.some((item) => item.userId === member.userId)) return
+    submitLock.current = true
+    setRoleChanging(member.userId)
+    setRoleError(null)
+    setRoleMessage(null)
+    onChange()
+    onSavingChange(true)
+    try {
+      const detail = await api.changeProjectMemberRole(projectId, member.userId, role)
+      setOriginal(detail)
+      // 역할은 서버 응답을 따르되 편집 중인 기본 정보와 멤버 추가·제거는 유지한다.
+      // 다른 관리자가 생겼다면 제거 대기 중이어도 서버 정책에 맞게 목록에 남긴다.
+      setMembers((selected) => [...selected, ...detail.members.filter((item) => item.admin && !selected.some((current) => current.userId === item.userId))])
+      setRoleMessage(detail.canEdit
+        ? `${member.name}님의 관리자 역할을 ${role === 'ADMIN' ? '지정' : '해제'}했습니다.`
+        : '내 관리자 권한이 해제되어 읽기 전용으로 전환했습니다.')
+    } catch (e) {
+      if (e instanceof ApiRequestError && e.status === 403) setPermissionDenied(true)
+      setRoleError(toMessage(e))
+    } finally {
+      submitLock.current = false
+      setRoleChanging(null)
+      onSavingChange(false)
+    }
+  }
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     if (submitLock.current || !canEdit) return
     setSaveError(null)
+    setRoleError(null)
+    setRoleMessage(null)
     onChange()
     const parts = repository.trim().split('/')
     if (!name.trim()) { setSaveError('프로젝트 이름을 입력해 주세요.'); return }
@@ -161,7 +194,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
       </div>
       {!canEdit && <p className="notice" role="status">프로젝트 관리자만 정보를 수정할 수 있습니다. 현재는 읽기 전용입니다.</p>}
       {saveError && <p className="error" role="alert">{saveError}</p>}
-      <fieldset className="project-fields" disabled={saving || !canEdit}>
+      <fieldset className="project-fields" disabled={busy || !canEdit}>
         <section className="card">
           <h2>기본 정보</h2>
           <label>프로젝트 이름 (필수)
@@ -195,20 +228,36 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
         </section>
         <section className="card">
           <h2>프로젝트 멤버 <span className="muted">{members.length}명</span></h2>
+          <p className="muted">프로젝트 역할은 GitHub 저장소 권한과 별개입니다. 관리자는 해제 후 멤버에서 제거할 수 있습니다.</p>
+          {projectId === null ? <p className="muted">프로젝트를 등록한 사용자가 자동으로 관리자가 됩니다.</p>
+            : canEdit && <p className="muted">관리자 지정·해제는 즉시 반영됩니다. 내 관리자 권한을 해제하면 편집 중인 내용을 저장할 수 없으니 먼저 저장해 주세요.</p>}
+          {roleError && <p className="error" role="alert">{roleError}</p>}
+          {roleMessage && <p className="project-success" role="status">{roleMessage}</p>}
           {members.length === 0 ? <p className="muted">선택한 멤버가 없습니다. 아래에서 가입한 사용자를 추가하세요.</p> : (
             <div className="project-table-wrap">
               <table className="project-member-table">
-                <caption className="sr-only">선택한 프로젝트 멤버와 저장소 권한</caption>
-                <thead><tr><th scope="col">이름</th><th scope="col">GitHub 계정</th><th scope="col">저장소 권한</th><th scope="col">선택</th></tr></thead>
-                <tbody>{members.map((member) => (
-                  <tr key={member.userId}>
+                <caption className="sr-only">선택한 멤버의 프로젝트 역할과 GitHub 저장소 권한</caption>
+                <thead><tr><th scope="col">이름</th><th scope="col">GitHub 계정</th><th scope="col">저장소 권한</th><th scope="col">프로젝트 역할</th><th scope="col">선택</th></tr></thead>
+                <tbody>{members.map((member) => {
+                  const savedMember = original?.members.find((item) => item.userId === member.userId)
+                  const admin = savedMember?.admin === true
+                  return <tr key={member.userId}>
                     <td>{member.name}</td><td>{member.githubName ?? '계정 없음'}</td>
                     <td>{visiblePermission(member)}</td>
-                    <td><button type="button" className="link" aria-label={`${member.name} 멤버 제거`} onClick={() => {
-                      setMembers((selected) => selected.filter((item) => item.userId !== member.userId)); markChanged()
-                    }}>제거</button></td>
+                    <td><div className="project-member-role">
+                      <span className={`badge ${admin ? 'linked' : 'mock'}`}>{savedMember ? admin ? '관리자' : '일반 멤버' : '저장 후 확정'}</span>
+                      {canEdit && savedMember && <button type="button" className="link"
+                        aria-label={`${member.name} 관리자 ${admin ? '해제' : '지정'}`}
+                        onClick={() => { void handleRoleChange(member, admin ? 'MEMBER' : 'ADMIN') }}>
+                        {roleChanging === member.userId ? '변경 중...' : admin ? '관리자 해제' : '관리자 지정'}
+                      </button>}
+                    </div></td>
+                    <td>{canEdit ? <button type="button" className="link" aria-label={`${member.name} 멤버 제거`}
+                      disabled={admin} title={admin ? '관리자 역할을 먼저 해제해 주세요.' : undefined} onClick={() => {
+                        setMembers((selected) => selected.filter((item) => item.userId !== member.userId)); markChanged()
+                      }}>제거</button> : '—'}</td>
                   </tr>
-                ))}</tbody>
+                })}</tbody>
               </table>
             </div>
           )}
@@ -232,8 +281,8 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
         </section>
       </fieldset>
       <div className="project-actions">
-        <button type="button" className="secondary" onClick={onCancel} disabled={saving}>취소</button>
-        <button type="submit" className="primary" disabled={saving || !canEdit}>
+        <button type="button" className="secondary" onClick={onCancel} disabled={busy}>취소</button>
+        <button type="submit" className="primary" disabled={busy || !canEdit}>
           {saving ? <><Spinner size="sm" label="프로젝트 저장 중" /> 저장 중...</> : '저장'}
         </button>
       </div>
