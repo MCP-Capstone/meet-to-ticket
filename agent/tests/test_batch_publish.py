@@ -97,7 +97,6 @@ async def test_slack_notice_posts_once_and_mentions_only_connected_reviewers():
     assert publisher.calls == [("message", {"channel_id": "C123", "text": "@박서연 확인 부탁", "mentions": [{"name": "박서연", "slack_user_id": "U123"}]})]
 
 
-
 @pytest.mark.anyio
 async def test_slack_retry_after_unknown_outcome_does_not_post_again():
     """post_message는 비멱등이라 결과 모름 뒤 재발행은 같은 공지를 다시 올리지 않는다 (#278)."""
@@ -113,6 +112,21 @@ async def test_slack_retry_after_unknown_outcome_does_not_post_again():
     assert publisher.calls == []
     item = out.items[0]
     assert item.status == "FAILED" and item.error_code == "SLACK_VERIFY_REQUIRED" and item.retryable is False
+
+
+@pytest.mark.anyio
+async def test_slack_config_error_is_reported_before_unknown_outcome_block():
+    """설정 오류는 확실하므로 결과 모름 차단보다 먼저 알린다 (#280)."""
+    publisher = BatchPublisher()
+    notice = ticket("notice", "CREATE")
+    notice.publish_target = "SLACK"
+    notice.content_json = {"slack": {"text": "회의 공지", "reviewers": []}}
+    notice.previous_outcome_unknown = True
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[notice]), publisher)
+
+    assert publisher.calls == [] and out.items[0].error_code == "INVALID_ARGUMENT"
+
 
 @pytest.mark.anyio
 async def test_batch_keeps_publish_success_when_post_publish_indexing_fails(settings, monkeypatch):
