@@ -48,6 +48,20 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
     meeting_date = source.meeting_date.isoformat() if source.meeting_date else ""
     sent = False  # GitHub 쓰기 요청을 보낸 뒤의 예외는 결과를 모르므로 UNKNOWN으로 남긴다
     try:
+        if source.publish_target == "SLACK":
+            channel_id = source.project.slack_channel_id
+            if not channel_id:
+                raise ToolCallError("INVALID_ARGUMENT", "Slack 공지에는 프로젝트 slack_channel_id가 필요합니다")
+            notice = ticket.get("slack") or {}
+            text = (notice.get("text") or ticket.get("description") or "").strip()
+            if not text:
+                raise ToolCallError("INVALID_ARGUMENT", "Slack 공지 문구가 비어 있습니다")
+            reviewer_names = {r.get("name") for r in notice.get("reviewers") or []}
+            mentions = [member for member in source.slack_members if member.get("name") in reviewer_names and member.get("slack_user_id")]
+            sent = True
+            out = await publisher.post_message(channel_id=channel_id, text=text, mentions=mentions)
+            return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="POSTED",
+                                     message_url=out.get("url"))
         if kind == "LINK":
             if not number:
                 raise ToolCallError("INVALID_ARGUMENT", "LINK 처리에는 target_issue_number가 필요합니다")

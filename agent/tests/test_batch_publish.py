@@ -21,6 +21,10 @@ class BatchPublisher:
         self.calls.append(("update", args))
         return {"number": args["number"], "url": "issue-url", "dropped_labels": []}
 
+    async def post_message(self, **args):
+        self.calls.append(("message", args))
+        return {"url": "slack-url"}
+
 
 def ticket(ticket_id, kind, number=None):
     return PublishTicket(
@@ -51,6 +55,21 @@ async def test_link_and_update_require_target_issue_number():
 
     assert out.status == "FAILED"
     assert out.items[0].error_code == "INVALID_ARGUMENT"
+
+
+@pytest.mark.anyio
+async def test_slack_notice_posts_once_and_mentions_only_connected_reviewers():
+    publisher = BatchPublisher()
+    notice = ticket("notice", "CREATE")
+    notice.project = Project(github_owner="o", github_repo="r", slack_channel_id="C123")
+    notice.publish_target = "SLACK"
+    notice.content_json = {"slack": {"text": "@박서연 확인 부탁", "reviewers": [{"name": "박서연", "tickets": 1}]}}
+    notice.slack_members = [{"name": "박서연", "slack_user_id": "U123"}, {"name": "김민준", "slack_user_id": "U456"}]
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[notice]), publisher)
+
+    assert out.items[0].status == "POSTED" and out.items[0].message_url == "slack-url"
+    assert publisher.calls == [("message", {"channel_id": "C123", "text": "@박서연 확인 부탁", "mentions": [{"name": "박서연", "slack_user_id": "U123"}]})]
 
 
 @pytest.mark.anyio
