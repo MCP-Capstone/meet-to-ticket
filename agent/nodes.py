@@ -11,6 +11,7 @@ LLM, 발행 도구, 백엔드 보고는 생성자로 주입한다. 테스트에�
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections import Counter
@@ -70,9 +71,20 @@ INDEX_TIMEOUT_SECONDS = 10
 # 초안 단계 카드 경고 (초안을 다시 쓸 때마다 지우고 새로 붙인다)
 LABEL_WARNING = "라벨 후보에 없어 뺀 라벨"
 DRAFT_QUOTE_WARNING = "초안의 근거 인용 중 원문과 다른"
-DRAFT_LENGTH_WARNING = "초안이 길이 한도를 넘어 잘라냄"
+DRAFT_LENGTH_WARNING = "초안이 길이 한도를 넘어 확인 필요"
 DRAFT_WARNING_PREFIXES = (LABEL_WARNING, DRAFT_QUOTE_WARNING, SUSPICIOUS_WARNING, DRAFT_LENGTH_WARNING)
 MAX_TITLE, MAX_DESCRIPTION, MAX_LIST = 60, 1500, 5
+
+
+def clip_text(text: str, limit: int) -> str:
+    """한도를 넘는 글을 공백 경계에서 자르고 말줄임표를 붙인다 (결과 길이는 limit 이하). 공백이 없으면 글자 단위로 자른다."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    space = cut.rfind(" ")
+    if space >= limit // 2:
+        cut = cut[:space]
+    return cut.rstrip() + "…"
 # 초안 저장 모드에서 보완 한도 후에도 남은 검수 지적 (상세는 content_json.review.notes)
 REVIEW_LEFT_WARNING = "자동 검수 지적"
 MISSING_DRAFT_FEEDBACK = "[9] 초안 작성 결과에 이 할 일이 빠짐 → 이 할 일의 초안을 작성"
@@ -281,6 +293,8 @@ class AgentNodes:
             "open_questions": state.get("open_questions", []),
             "project_context": state.get("project_context", {}),
         }
+        # URL/명령어 경고의 기준 텍스트: 프로젝트 맥락(Notion, 기존 이슈)에 있던 것은 정상으로 본다
+        context_text = json.dumps(context["project_context"], ensure_ascii=False)
         targets = [
             t for t in tickets
             if t["review_status"] == REVIEW_REVISE or (t["review_status"] == REVIEW_PENDING and not t["title"])
@@ -320,7 +334,7 @@ class AgentNodes:
                 if d is not None:
                     # Phase 1 흐름(PUBLISH_ON_RUN)은 분류하지 않고 GitHub로만 발행한다 (baseline 재현)
                     self._apply_draft(t, d, labels, state["original_content"], context["open_questions"],
-                                      classify=not self.settings.publish_on_run)
+                                      classify=not self.settings.publish_on_run, context_text=context_text)
                 elif t["revisions"] < self.settings.max_revisions:
                     # 초안이 빠진 할 일은 검수로 보내지 않고 다시 작성한다 (보완 한도를 같이 쓴다).
                     # 보완 중이던 티켓은 같은 피드백으로 다시 쓴다. 한도에 닿으면 검수가 처리한다
@@ -332,21 +346,29 @@ class AgentNodes:
 
     @staticmethod
     def _apply_draft(t: dict[str, Any], d: Any, labels: list[str], source: str, open_questions: list[str],
-                     classify: bool = True) -> None:
+                     classify: bool = True, context_text: str = "") -> None:
         # 초안 단계 경고는 초안을 다시 쓸 때마다 새로 계산한다 (보완할 때 같은 경고가 쌓이지 않게)
         t["warnings"] = [w for w in t["warnings"] if not w.startswith(DRAFT_WARNING_PREFIXES)]
         t["title"] = d.title.strip()
         t["description"] = d.description.strip()
         t["tasks"] = [x.strip() for x in d.tasks if x.strip()]
         t["acceptance_criteria"] = [c.strip() for c in d.acceptance_criteria if c.strip()]
-        # 출력 검증: 길이 한도를 넘는 초안은 잘라내고, 회의록에 없던 URL/코드블록/명령어는 경고한다 (프롬프트 인젝션 방어)
-        clipped = (len(t["title"]) > MAX_TITLE or len(t["description"]) > MAX_DESCRIPTION
-                   or len(t["tasks"]) > MAX_LIST or len(t["acceptance_criteria"]) > MAX_LIST)
-        if clipped:
-            t["title"], t["description"] = t["title"][:MAX_TITLE], t["description"][:MAX_DESCRIPTION]
-            t["tasks"], t["acceptance_criteria"] = t["tasks"][:MAX_LIST], t["acceptance_criteria"][:MAX_LIST]
-            t["warnings"].append(DRAFT_LENGTH_WARNING)
-        found = scan_draft([t["title"], t["description"], *t["tasks"], *t["acceptance_criteria"]], source)
+        # 출력 검증: 제목/설명이 한도를 넘으면 공백 경계에서 자르고 말줄임표를 붙인다. 작업/완료 조건 항목은 버리지 않고
+        # 경고만 붙인다. 회의록/프로젝트 맥락에 없던 URL/코드블록/명령어는 경고한다 (프롬프트 인젝션 방어)
+        over = []
+        if len(t["title"]) > MAX_TITLE:
+            t["title"] = clip_text(t["title"], MAX_TITLE)
+            over.append(f"제목 {MAX_TITLE}자")
+        if len(t["description"]) > MAX_DESCRIPTION:
+            t["description"] = clip_text(t["description"], MAX_DESCRIPTION)
+            over.append(f"설명 {MAX_DESCRIPTION}자")
+        if len(t["tasks"]) > MAX_LIST:
+            over.append(f"상세 작업 {MAX_LIST}개 (현재 {len(t['tasks'])}개)")
+        if len(t["acceptance_criteria"]) > MAX_LIST:
+            over.append(f"완료 조건 {MAX_LIST}개 (현재 {len(t['acceptance_criteria'])}개)")
+        if over:
+            t["warnings"].append(f"{DRAFT_LENGTH_WARNING}: {', '.join(over)}")
+        found = scan_draft([t["title"], t["description"], *t["tasks"], *t["acceptance_criteria"]], source, context_text)
         if found:
             t["warnings"].append(f"{SUSPICIOUS_WARNING}: {', '.join(found)[:200]}")
         t["labels"], dropped_labels = pick_labels(d.labels, labels)
