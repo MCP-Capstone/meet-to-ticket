@@ -1,18 +1,27 @@
 # meet-to-ticket
 
-회의록에서 할 일을 추출해 티켓(GitHub Issue)으로 만드는 서비스
+회의록에서 할 일을 추출해 티켓으로 만들고 GitHub Issue, Notion 페이지, Slack 공지로 발행하는 서비스
 
 ## 동작 방식
 
 ```
 로그인 -> 프로젝트 선택 -> .txt 회의록 업로드 -> 분석 시작
  -> (Agent) 할 일 추출 -> 담당자/기한 정리 -> 검수(최대 2회 보완)
- -> 검수를 통과한 항목만 GitHub Issue로 발행
- -> 처리 중 화면이 상태를 조회 -> 항목별 결과와 이슈 링크 표시
+ -> 검수를 통과한 항목을 티켓으로 저장 (발행 대상 제안: GitHub / Notion / Slack)
+ -> 담당자가 카드에서 고치고 확인 -> 확인한 티켓만 일괄 발행
+ -> 결과 화면이 상태를 조회 -> 항목별 결과와 대상별 링크 표시
 ```
 
+발행 대상은 티켓마다 Agent가 제안하고 담당자가 바꿀 수 있다. 대상별 필드, 권한, 재발행 규칙은 [발행 대상별 매핑](docs/publish-targets.md)을 본다.
+
+| 발행 대상 | 만드는 것 | 현재 상태 |
+|---|---|---|
+| GitHub | Issue 신규 생성, 기존 Issue에 연결(댓글)/갱신(본문 섹션 추가) | 일괄 발행 구현 |
+| Notion | 프로젝트 기획 페이지 아래 '회의 후속 티켓' 폴더에 페이지 생성 | 일괄 발행 구현 (신규 생성만) |
+| Slack | 프로젝트 채널에 회의 결과 공지 메시지 1건 | 일괄 발행 구현 (신규 게시만). Notion/Slack은 결과 불명 뒤 담당자 확인 결과를 남겨야 재발행 가능. 알려진 한계는 매핑 문서 참고 |
+
 ```
-브라우저 -> frontend(5173) -/api 프록시-> backend(8080) -> agent(8001) -> business-mcp(8000) -> GitHub
+브라우저 -> frontend(5173) -/api 프록시-> backend(8080) -> agent(8001) -> business-mcp(8000) -> GitHub / Notion / Slack
 ```
 
 - backend는 PostgreSQL(5432)과 RabbitMQ(5672, 분석 접수 큐)를 사용한다.
@@ -25,7 +34,7 @@
 | `frontend/` | 웹 프론트 | React, TypeScript, Vite | 5173 |
 | `backend/` | API 서버 | Java 21, Spring Boot 4.1, JPA | 8080 |
 | `agent/` | 회의록 분석 AI Agent | Python 3.12, FastAPI, LangGraph | 8001 |
-| `business-mcp/` | 이슈 생성 MCP 서버 | Python 3.12, MCP | 8000 |
+| `business-mcp/` | GitHub, Notion, Slack 발행 MCP 서버 | Python 3.12, MCP | 8000 |
 | `rag-mcp/` | 기존 이슈 색인/유사 검색 MCP 서버 | Python 3.12, MCP, Chroma | 8002 |
 
 ## 실행 방법
@@ -53,6 +62,7 @@ docker compose -f compose.full.yml up -d --build
 | Python 3.12, [uv](https://docs.astral.sh/uv/) | agent, business-mcp |
 | OpenAI API 키 | agent (회의록 분석) |
 | GitHub 토큰 (이슈 쓰기 권한) | business-mcp (이슈 발행) |
+| Notion Integration 토큰, Slack 봇 토큰 (선택) | business-mcp (Notion/Slack 발행. 필요 권한은 [매핑 문서](docs/publish-targets.md)) |
 
 이슈 발행 테스트는 `MCP-Capstone/mcp-capstone` 저장소에서 한다. 토큰은 이 저장소에 이슈를 만들 수 있어야 한다.
 
@@ -153,6 +163,7 @@ docker compose down -v    # 종료 + 데이터 삭제
 
 - `docs/tech-stack.md`: 기술 스택
 - `docs/convention.md`: 브랜치 / 커밋 / PR 규칙
+- `docs/publish-targets.md`: 발행 대상별 매핑, 상태 대응표, 재발행/결과 불명 정책
 - `docs/dev-env.md`: 포트, CORS, 실행 순서
 - `backend/README.md`: API, demo 프로필, 실제 Agent 연결
 - `agent/README.md`, `business-mcp/README.md`, `rag-mcp/README.md`: 개발환경과 실행
