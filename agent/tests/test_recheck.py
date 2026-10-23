@@ -98,3 +98,22 @@ async def test_slow_sync_does_not_block_recheck(settings):
 
 async def test_no_tickets(settings):
     assert await recheck([], issue_tools=None, llm=None, settings=settings) == {"tickets": [], "sync": None, "skipped": None}
+
+
+async def test_edited_create_is_not_overridden_by_recheck_link(settings):
+    edited = {**CREATE, "edited": True}
+    tools, _ = make_tools()
+    out = await recheck([ticket("a", "CSV 빈 결과 수정", edited)], issue_tools=tools,
+                        llm=ToolLLM(FakeToolChat({"CSV 빈 결과": SAME_12})), settings=settings)
+    assert out["tickets"][0]["handling"] == {**edited, "changed": False}
+
+
+async def test_sync_error_does_not_break_recheck(settings):
+    class BrokenSync(FakeMcpTool):
+        async def ainvoke(self, args):
+            raise ConnectionError("mcp closed")
+
+    tools, _ = make_tools(sync_tool=BrokenSync({}))
+    out = await recheck([ticket("a", "CSV 빈 결과 수정", CREATE)], issue_tools=tools,
+                        llm=ToolLLM(FakeToolChat({"CSV 빈 결과": SAME_12})), settings=settings)
+    assert out["sync"] is None and out["tickets"][0]["handling"]["type"] == "LINK"

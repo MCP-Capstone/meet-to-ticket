@@ -627,10 +627,10 @@ for t in out["tickets"]:
 ```
 
 - 입력 티켓은 결과 `contentJson` 형태(`action_text`, `evidence_quotes`, `expected`, `title`, `work_key`)에 담당자가 확인한 `handling`을 더한 것이다. 입력은 바꾸지 않고 복사본을 돌려준다.
-- 대조 전에 색인을 한 번 증분 동기화한다(`sync_issues(full=false)`, `RAG_SYNC_TIMEOUT_SECONDS`=30). 실패하거나 시간을 넘기면 기존 색인으로 계속한다.
+- 대조 전에 색인을 한 번 증분 동기화한다(`sync_issues(full=false)`, `RAG_SYNC_TIMEOUT_SECONDS`=30). 실패(어떤 예외든)하거나 시간을 넘기면 기존 색인으로 계속한다.
 - 판정 루프와 한도는 초안 생성 때와 같다.
 - 최종 처리 유형(`handling.after_recheck`)
-  - 재대조가 열린 같은 작업(`LINK`)을 찾으면 연결로 바꾸고 `changed=true`. 이미 확인된 티켓이라 다시 묻지 않고 댓글로 연결하며, 결과 화면에 표시한다.
+  - 재대조가 열린 같은 작업(`LINK`)을 찾으면 연결로 바꾸고 `changed=true`. 단 `handling.edited=true`(담당자가 카드에서 직접 바꾼 유형)면 바꾸지 않는다. 이미 확인된 티켓이라 다시 묻지 않고 댓글로 연결하며, 결과 화면에 표시한다.
   - 그 밖에는 담당자가 확인한 처리 유형을 그대로 쓴다. 카드에서 바꾼 유형을 재대조가 덮지 않는다.
   - 재대조에 실패하거나 rag-mcp가 없어도 확인한 처리 유형으로 발행한다.
 

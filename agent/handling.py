@@ -46,12 +46,13 @@ def after_recheck(confirmed: dict[str, Any] | None, rechecked: dict[str, Any] | 
     """발행 직전 재대조(TASK-042) 뒤 실제로 실행할 처리 유형.
 
     재대조가 열린 같은 작업(LINK)을 찾으면 연결로 바꾼다. 이미 확인된 티켓이므로 다시 묻지 않고 댓글로 연결한다.
-    그 밖에는 담당자가 확인한 처리 유형(confirmed)을 그대로 쓴다. 담당자가 카드에서 바꾼 유형을 재대조가 덮지 않는다.
+    단 담당자가 카드에서 직접 바꾼 유형(confirmed["edited"]가 true)은 재대조가 덮지 않는다.
+    그 밖에는 담당자가 확인한 처리 유형(confirmed)을 그대로 쓴다.
     confirmed가 없으면 재대조 결과로 정한다. 결과의 changed가 true면 재대조로 바뀐 것이다.
     """
     new = (rechecked or {}).get("handling") or decide(rechecked)
     base = dict(confirmed) if confirmed else decide(None)
-    if new["type"] == LINK:
+    if new["type"] == LINK and not base.get("edited"):
         changed = base.get("type") != LINK or base.get("issue_number") != new["issue_number"]
         return {**new, "changed": changed}
     if not confirmed:

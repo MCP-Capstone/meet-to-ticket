@@ -30,7 +30,8 @@ async def recheck(
     """저장소 1개의 확인된 티켓을 다시 대조하고 티켓마다 recheck와 handling을 채워 돌려준다.
 
     tickets: 결과 contentJson 형태(action_text, evidence_quotes, expected, title, work_key)에
-             담당자가 확인한 처리 유형 handling({type, issue_number})을 더한 dict. 원본은 바꾸지 않는다.
+             담당자가 확인한 처리 유형 handling({type, issue_number, edited})을 더한 dict.
+             edited가 true면 담당자가 카드에서 직접 바꾼 것이라 재대조가 덮지 않는다. 원본은 바꾸지 않는다.
     반환: {"tickets": [...], "sync": 색인 동기화 결과 또는 None, "skipped": 재대조 전체를 건너뛴 이유 또는 None}
     """
     out = [dict(t) for t in tickets]
@@ -76,4 +77,7 @@ async def _sync(issue_tools: Any, settings: Any) -> dict[str, Any] | None:
         return await asyncio.wait_for(issue_tools.sync(), timeout=settings.rag_sync_timeout_seconds)
     except asyncio.TimeoutError:
         log.warning("재대조 전 색인 갱신이 %s초 안에 끝나지 않아 기존 색인으로 진행", settings.rag_sync_timeout_seconds)
+        return None
+    except Exception:  # 연결 끊김 등 어떤 실패도 재대조와 발행을 막지 않는다
+        log.warning("재대조 전 색인 갱신에 실패해 기존 색인으로 진행", exc_info=True)
         return None
