@@ -8,6 +8,7 @@ import type {
   PublishStarted,
   PublishBatchResult,
   TicketEditRequest,
+  TicketPublicationRequest,
   TicketPublicationPreview,
   TicketAction,
   LoginRequest,
@@ -48,6 +49,9 @@ export const realApi = {
 
   editTicket: (ticketId: string, body: TicketEditRequest) =>
     request<MyTicket>(`/tickets/${encodeURIComponent(ticketId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  changeTicketPublication: (ticketId: string, body: TicketPublicationRequest) =>
+    request<MyTicket>(`/tickets/${encodeURIComponent(ticketId)}/publication`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   changeTicketStatus: (ticketId: string, action: TicketAction) =>
     request<MyTicket>(`/tickets/${encodeURIComponent(ticketId)}/${action}`, { method: 'POST' }),

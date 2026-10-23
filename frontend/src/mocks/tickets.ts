@@ -1,7 +1,8 @@
-import type { MyTicket, MyTicketList, TicketAction, TicketEditRequest, TicketDedupe, TicketPublicationPreview, User } from '../api/types'
+import type { MyTicket, MyTicketList, TicketAction, TicketEditRequest, TicketPublicationRequest, TicketDedupe, TicketPublicationPreview, User } from '../api/types'
 import { ApiRequestError } from '../api/client'
 import type { PublishBatchResult } from '../api/types'
 import { publishSelection } from '../batchPublish'
+import { canUseExistingIssue } from '../ticketPublication'
 import { validMeetingDate } from '../meetingInput'
 import { listMockMembers, listMockProjects } from './projects'
 
@@ -82,6 +83,19 @@ export function editMockTicket(user: User, ticketId: string, body: TicketEditReq
   write(tickets)
   return view(ticket)
 }
+export function changeMockTicketPublication(user: User, ticketId: string, body: TicketPublicationRequest) {
+  const { tickets, ticket } = owned(user, ticketId)
+  if (ticket.status !== 'PENDING_REVIEW') throw fail(409, 'TICKET_STATUS_CONFLICT', '검토 대기에서만 수정할 수 있습니다.')
+  if (!['GITHUB', 'NOTION', 'SLACK'].includes(body.publishTarget) || !['CREATE', 'LINK', 'UPDATE'].includes(body.processingType)) throw fail(400, 'VALIDATION_FAILED', '발행 대상과 처리 유형을 확인해 주세요.')
+  if (body.publishTarget !== 'GITHUB' && body.processingType !== 'CREATE') throw fail(400, 'PROCESSING_TYPE_TARGET_MISMATCH', 'Notion/Slack은 신규 생성만 가능합니다.')
+  if (body.processingType !== 'CREATE' && !canUseExistingIssue(ticket)) throw fail(400, 'EXISTING_ISSUE_REQUIRED', '열린 기존 이슈가 필요합니다.')
+  ticket.publishTarget = body.publishTarget
+  ticket.processingType = body.processingType
+  if (ticket.dedupe) ticket.dedupe.overlap = Boolean(ticket.dedupe.judged && ticket.dedupe.issue && ticket.dedupe.relation !== 'UNRELATED' && body.processingType === 'CREATE')
+  write(tickets)
+  return view(ticket)
+}
+
 export function changeMockTicket(user: User, ticketId: string, action: TicketAction) {
   const { tickets, ticket } = owned(user, ticketId)
   const rules = { confirm: ['PENDING_REVIEW', 'CONFIRMED'], reject: ['PENDING_REVIEW', 'REJECTED'], reopen: ['CONFIRMED', 'PENDING_REVIEW'], restore: ['REJECTED', 'PENDING_REVIEW'], revise: ['FAILED', 'PENDING_REVIEW'] } as const

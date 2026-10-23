@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiRequestError } from '../api'
 import type { MyTicket, ProjectMember, TicketAction, TicketEditRequest, TicketStatus } from '../api'
+import { canUseExistingIssue, publicationRequest } from '../ticketPublication'
 import { validMeetingDate } from '../meetingInput'
 import { failureGuide, needsPermissionFix } from '../publishFailure'
 import { TicketDedupeDetails } from './TicketDedupeDetails'
@@ -27,6 +28,9 @@ interface Props {
 
 export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, onOpenProjectSettings }: Props) {
   const [editing, setEditing] = useState(false)
+  const [publicationEditing, setPublicationEditing] = useState(false)
+  const [publishTarget, setPublishTarget] = useState(ticket.publishTarget)
+  const [processingType, setProcessingType] = useState(ticket.processingType)
   const [description, setDescription] = useState('')
   const [assignee, setAssignee] = useState('')
   const [dueText, setDueText] = useState('')
@@ -46,7 +50,9 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
   const descriptionChanged = description !== (ticket.description ?? '')
   const assigneeChanged = assignee !== String(ticket.assignee?.projectMemberId ?? '')
   const dueChanged = dueText !== (ticket.due.text ?? '') || dueDate !== (ticket.due.date ?? '') || dueTime !== (ticket.due.time ?? '')
-  const dirty = editing && (descriptionChanged || assigneeChanged || dueChanged)
+  const publicationDirty = publishTarget !== ticket.publishTarget || processingType !== ticket.processingType
+  const dirty = (editing && (descriptionChanged || assigneeChanged || dueChanged)) || (publicationEditing && publicationDirty)
+  const existingIssueAvailable = canUseExistingIssue(ticket)
   useEffect(() => {
     onDirtyChange(ticket.ticketId, dirty)
     return () => onDirtyChange(ticket.ticketId, false)
@@ -85,11 +91,13 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
     try {
       await onCommit(ticket, run, transferred)
       setEditing(false)
+      setPublicationEditing(false)
     } catch (e) {
       if (e instanceof ApiRequestError && e.code === 'UNAUTHORIZED') return
-      if (e instanceof ApiRequestError && [403, 404, 409].includes(e.status)) {
+      // 기존 이슈가 그사이 닫히는 등 카드의 중복 판단 정보가 오래된 경우도 다시 불러와야 풀린다.
+      if (e instanceof ApiRequestError && ([403, 404, 409].includes(e.status) || ['EXISTING_ISSUE_REQUIRED', 'PROCESSING_TYPE_TARGET_MISMATCH'].includes(e.code))) {
         setBlocked(true)
-        setError(`${e.message} 최신 목록을 불러와 담당자와 상태를 확인해 주세요. 입력은 아직 저장되지 않았습니다.`)
+        setError(`${e.message} 최신 목록을 불러와 담당자, 상태, 기존 이슈를 확인해 주세요. 입력은 아직 저장되지 않았습니다.`)
       } else {
         setError(e instanceof Error ? e.message : '요청에 실패했습니다. 다시 시도해 주세요.')
       }
@@ -117,9 +125,22 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
     if (!Object.keys(body).length) return
     void perform(() => api.editTicket(ticket.ticketId, body), assigneeChanged)
   }
+  const startPublicationEditing = () => {
+    setPublishTarget(ticket.publishTarget)
+    setProcessingType(ticket.processingType)
+    setError(null)
+    setPublicationEditing(true)
+  }
+  const savePublication = () => {
+    if (publishTarget === 'GITHUB' && processingType !== 'CREATE' && !existingIssueAvailable) {
+      setError('연결/갱신은 서버가 제공한 열린 기존 이슈가 있어야 선택할 수 있습니다.')
+      return
+    }
+    void perform(() => api.changeTicketPublication(ticket.ticketId, publicationRequest(publishTarget, processingType)))
+  }
   const refresh = async () => {
     if (dirty && !window.confirm('저장하지 않은 수정을 버리고 최신 내용을 불러올까요?')) return
-    if (await onRefresh()) { setEditing(false); setBlocked(false); setError(null) }
+    if (await onRefresh()) { setEditing(false); setPublicationEditing(false); setBlocked(false); setError(null) }
   }
 
   return (
@@ -162,6 +183,32 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
           </dl>
         </>
       )}
+      {publicationEditing && <fieldset className="ticket-fields ticket-publication-fields" disabled={busy || pending || blocked}>
+        <legend>발행 대상/처리 유형 수정</legend>
+        <label>발행 대상
+          <select aria-label="발행 대상" value={publishTarget} onChange={(e) => {
+            const value = e.target.value as MyTicket['publishTarget']
+            setPublishTarget(value)
+            if (value !== 'GITHUB') setProcessingType('CREATE')
+          }}>
+            <option value="GITHUB">GitHub</option><option value="NOTION">Notion</option><option value="SLACK">Slack</option>
+          </select>
+        </label>
+        <label>처리 유형
+          <select aria-label="처리 유형" aria-describedby={`publication-help-${ticket.ticketId}`} value={processingType} disabled={publishTarget !== 'GITHUB'} onChange={(e) => setProcessingType(e.target.value as MyTicket['processingType'])}>
+            <option value="CREATE">신규 생성</option>
+            <option value="LINK" disabled={!existingIssueAvailable}>기존 이슈 연결</option>
+            <option value="UPDATE" disabled={!existingIssueAvailable}>기존 이슈 갱신</option>
+          </select>
+        </label>
+        <p className="muted" id={`publication-help-${ticket.ticketId}`}>{publishTarget !== 'GITHUB'
+          ? 'Notion/Slack은 신규 생성만 선택할 수 있습니다.'
+          : existingIssueAvailable
+            ? `연결/갱신 대상: #${ticket.dedupe!.issue!.number} ${ticket.dedupe!.issue!.title ?? ''} (열림). 다른 이슈 번호를 직접 지정할 수 없습니다.`
+            : '열린 기존 이슈 정보가 없어 신규 생성만 선택할 수 있습니다. 닫힌 이슈는 연결/갱신할 수 없습니다.'}</p>
+        {publishTarget !== 'GITHUB' && <p className="notice">{publishTarget === 'NOTION' ? 'Notion' : 'Slack'}으로 분류해 저장할 수 있습니다. 현재 일괄 발행은 GitHub만 지원하므로 이 대상으로 저장하면 발행할 수 없습니다.</p>}
+        {publicationDirty && <p className="notice">아직 저장하지 않은 발행 설정입니다. 카드와 미리보기는 저장된 설정을 표시합니다.</p>}
+      </fieldset>}
       <TicketPublicationPreview ticket={ticket} dirty={dirty} />
       {ticket.status === 'FAILED' && ticket.publishFailure && (
         <div className="publish-failure" role="alert">
@@ -179,14 +226,23 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
       {error && <p className="error" role="alert">{error}</p>}
       {blocked && <button type="button" className="link" disabled={busy} onClick={() => void refresh()}>최신 내용 불러오기</button>}
       <div className="ticket-actions">
-        {editing ? <>
+        {publicationEditing ? <>
+          <button type="button" className="primary" disabled={busy || pending || blocked || !publicationDirty} onClick={savePublication}>{pending ? '저장 중...' : '발행 설정 저장'}</button>
+          <button type="button" className="secondary" disabled={busy || pending} onClick={() => {
+            if (!publicationDirty || window.confirm('저장하지 않은 발행 설정을 취소할까요?')) { setPublicationEditing(false); setError(null) }
+          }}>발행 설정 취소</button>
+          <p className="muted">발행 설정을 저장하거나 취소한 뒤 본문 수정/확인/거절할 수 있습니다.</p>
+        </> : editing ? <>
           <button type="button" className="primary" disabled={busy || pending || blocked || !dirty} onClick={save}>{pending ? '저장 중...' : '저장'}</button>
           <button type="button" className="secondary" disabled={busy || pending} onClick={() => {
             if (!dirty || window.confirm('저장하지 않은 수정을 취소할까요?')) { ++memberRequest.current; setEditing(false); setError(null) }
           }}>수정 취소</button>
           <p className="muted">수정을 저장하거나 취소한 뒤 확인·거절할 수 있습니다.</p>
         </> : <>
-          {ticket.status === 'PENDING_REVIEW' && <button type="button" className="secondary" disabled={busy || blocked} onClick={startEditing}>수정</button>}
+          {ticket.status === 'PENDING_REVIEW' && <>
+            <button type="button" className="secondary" disabled={busy || blocked} onClick={startEditing}>수정</button>
+            <button type="button" className="secondary" disabled={busy || blocked} onClick={startPublicationEditing}>발행 설정 수정</button>
+          </>}
           {ticket.status === 'FAILED' && <>
             <button type="button" className="primary" disabled={busy || pending || blocked || Boolean(ticket.publishFailure?.outcomeUnknown && !checked)}
               onClick={() => void perform(async () => { await api.retryTicket(ticket.ticketId); return { ...ticket, status: 'PUBLISHING', publishFailure: null } })}>{pending ? '처리 중...' : '다시 시도'}</button>
