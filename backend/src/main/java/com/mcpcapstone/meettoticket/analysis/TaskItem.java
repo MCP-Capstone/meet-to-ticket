@@ -141,6 +141,7 @@ public class TaskItem {
     }
 
     // 실패한 티켓을 수정하려고 검토 대기로 되돌린다. 지난 발행 결과는 비우되 결과 모름은 previousOutcomeUnknown으로 남긴다.
+    // 결과 모름이 남아 있으면 발행 대상은 바꿀 수 없다(TicketService.changePublication, #280).
     // 지난 묶음의 결과 조회는 묶음이 끝날 때 저장한 기록(PublishBatch.entriesJson)을 쓰므로 여기서 비워도 깨지지 않는다.
     public void reviseFailed() {
         this.previousOutcomeUnknown = this.previousOutcomeUnknown || this.publishOutcomeUnknown;
@@ -154,7 +155,42 @@ public class TaskItem {
         this.githubIssueUrl = null;
     }
 
-    // 다시 발행할 때 Agent가 발행 직전 재대조를 반드시 하게 할지.
+    // 재대조할 수 없는 대상(Notion, Slack)의 결과 모름 실패를 담당자가 확인한 결과로 정리한다 (#280).
+    // Agent가 결과 모름 뒤 재발행을 막으므로, 이 확인이 없으면 티켓이 실패에서 빠져나오지 못한다.
+    // 반영됐으면 발행됨으로 끝내고(대상이 신규 생성만 되므로), 반영되지 않았으면 결과 모름을 풀어 다시 시도할 수 있게 한다.
+    public void resolveUnknownOutcome(boolean applied, String url) {
+        // 확인 결과는 지금 실패가 결과 모름 자체인지(타임아웃, *_VERIFY_REQUIRED)에 따라 사유를 바꾼다.
+        // 결과 모름 뒤의 재발행이 설정 오류(NOTION_ROOT_MISSING 등)로 끝났다면 그 사유는 그대로 남긴다.
+        boolean aboutUnknown = publishOutcomeUnknown || VERIFY_REQUIRED_CODES.contains(publishErrorCode);
+        this.previousOutcomeUnknown = false;
+        this.publishOutcomeUnknown = false;
+        if (applied) {
+            this.ticketStatus = TicketStatus.PUBLISHED;
+            // 실패한 묶음과의 연결을 끊는다. 지난 묶음의 결과 조회는 묶음에 저장한 기록을 쓴다.
+            this.publishBatch = null;
+            this.githubIssueNumber = null;
+            this.githubIssueUrl = url;
+            this.publishErrorCode = null;
+            this.errorMessage = null;
+            this.publishRetryable = false;
+        } else {
+            if (aboutUnknown) {
+                this.publishErrorCode = VERIFIED_NOT_APPLIED;
+                this.errorMessage = "대상 도구에 반영되지 않은 것을 확인했습니다. 다시 시도하세요.";
+                this.publishRetryable = true;
+            }
+            this.githubIssueNumber = null;
+            this.githubIssueUrl = null;
+        }
+    }
+
+    public static final String VERIFIED_NOT_APPLIED = "VERIFIED_NOT_APPLIED";
+
+    // Agent가 결과 모름 뒤 재발행을 막을 때 쓰는 코드 (agent/batch_publish.py _VERIFY_REQUIRED와 같은 이름).
+    private static final java.util.Set<String> VERIFY_REQUIRED_CODES = java.util.Set.of("NOTION_VERIFY_REQUIRED", "SLACK_VERIFY_REQUIRED");
+
+    // 결과 모름이 남아 있는지. 다시 발행할 때 Agent가 재대조(GitHub)하거나 막는다(Notion, Slack).
+    // 발행 대상을 잠그므로(#280) 결과 모름은 항상 현재 대상의 것이다.
     public boolean mustRecheckOnPublish() {
         return previousOutcomeUnknown || publishOutcomeUnknown;
     }
