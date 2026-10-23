@@ -77,8 +77,9 @@ public class MyTicketController {
                     examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_ASSIGNEE_REQUIRED)))
     @ApiResponse(responseCode = "404", description = "티켓 없음 (TICKET_NOT_FOUND)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_NOT_FOUND)))
-    @ApiResponse(responseCode = "409", description = "검토 대기가 아님 (TICKET_STATUS_CONFLICT)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
-                    examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_STATUS_CONFLICT)))
+    @ApiResponse(responseCode = "409", description = "검토 대기가 아님 (TICKET_STATUS_CONFLICT), 결과 모름이 남아 발행 대상을 바꿀 수 없음 (PUBLISH_TARGET_LOCKED)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = {@ExampleObject(name = "TICKET_STATUS_CONFLICT", value = ApiExamples.ERROR_TICKET_STATUS_CONFLICT),
+                            @ExampleObject(name = "PUBLISH_TARGET_LOCKED", value = ApiExamples.ERROR_PUBLISH_TARGET_LOCKED)}))
     @PatchMapping("/api/tickets/{ticketId}/publication")
     public MyTicketService.Ticket changePublication(
             @Parameter(description = "티켓 ID", required = true) @PathVariable UUID ticketId,
@@ -159,7 +160,7 @@ public class MyTicketController {
         return tickets.restore(ticketId, userId);
     }
 
-    @Operation(operationId = "reviseFailedTicket", summary = "실패한 티켓 수정하러 되돌리기", description = "발행에 실패한 티켓을 검토 대기로 되돌려 고친 뒤 다시 확인할 수 있게 한다. 지난 발행 결과(오류 코드, 재시도 가능 여부, 결과 모름)는 티켓에서 비우며, 지난 묶음의 결과 조회는 그대로 유지된다. 지난 발행이 결과 모름이었다면 다시 발행할 때 Agent가 이미 반영된 이슈, 댓글, 섹션을 반드시 대조한다. 실패 상태가 아니면 409다. 담당자만 할 수 있다.")
+    @Operation(operationId = "reviseFailedTicket", summary = "실패한 티켓 수정하러 되돌리기", description = "발행에 실패한 티켓을 검토 대기로 되돌려 고친 뒤 다시 확인할 수 있게 한다. 확인 결과가 필요한 실패(publishFailure.resolution=MANUAL_CHECK)는 먼저 resolve-outcome으로 결론을 내야 하므로 409다. 지난 발행 결과(오류 코드, 재시도 가능 여부, 결과 모름)는 티켓에서 비우며, 지난 묶음의 결과 조회는 그대로 유지된다. 지난 발행이 결과 모름이었다면 다시 발행할 때 Agent가 이미 반영된 이슈, 댓글, 섹션을 반드시 대조한다. 실패 상태가 아니면 409다. 담당자만 할 수 있다.")
     @ApiResponse(responseCode = "200", description = "변경된 티켓", content = @Content(schema = @Schema(implementation = MyTicketService.Ticket.class),
                     examples = @ExampleObject(value = ApiExamples.TICKET)))
     @ApiResponse(responseCode = "401", description = "로그인 세션 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
@@ -168,12 +169,38 @@ public class MyTicketController {
                     examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_ASSIGNEE_REQUIRED)))
     @ApiResponse(responseCode = "404", description = "티켓 없음 (TICKET_NOT_FOUND)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_NOT_FOUND)))
-    @ApiResponse(responseCode = "409", description = "실패 상태가 아님 (TICKET_STATUS_CONFLICT)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+    @ApiResponse(responseCode = "409", description = "실패 상태가 아니거나 확인 결과가 먼저 필요함 (TICKET_STATUS_CONFLICT)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_STATUS_CONFLICT)))
     @PostMapping("/api/tickets/{ticketId}/revise")
     public MyTicketService.Ticket revise(
             @Parameter(description = "티켓 ID", required = true) @PathVariable UUID ticketId,
             @Parameter(hidden = true) @SessionAttribute(SessionConst.LOGIN_USER_ID) Long userId) {
         return tickets.revise(ticketId, userId);
+    }
+
+    @Operation(operationId = "resolveTicketOutcome", summary = "결과 모름 실패를 확인 결과로 정리",
+            description = "재대조할 수 없는 대상(Notion, Slack)의 결과 모름 실패(publishFailure.resolution=MANUAL_CHECK)를 담당자가 대상 도구에서 직접 확인한 결과로 정리한다. "
+                    + "이 대상은 이미 반영됐는지 찾는 도구가 없어 Agent가 결과 모름 뒤 재발행을 *_VERIFY_REQUIRED로 막으므로 이 확인이 필요하다. "
+                    + "applied=true면 발행됨으로 끝내고 url(선택, 그 대상의 https 링크)을 결과 링크로 저장한다. "
+                    + "applied=false면 결과 모름 표시를 풀고 VERIFIED_NOT_APPLIED(재시도 가능) 실패로 바꿔, 다시 시도하면 차단 없이 발행한다. "
+                    + "GitHub는 다시 시도하면 Agent가 재대조하므로 받지 않는다. MANUAL_CHECK 실패가 아니면 409다. 담당자만 할 수 있다.")
+    @ApiResponse(responseCode = "200", description = "변경된 티켓", content = @Content(schema = @Schema(implementation = MyTicketService.Ticket.class),
+                    examples = @ExampleObject(value = ApiExamples.TICKET)))
+    @ApiResponse(responseCode = "400", description = "입력값 오류 (VALIDATION_FAILED). applied 누락, applied=true인데 대상의 https 링크가 아닌 url", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_VALIDATION_FAILED)))
+    @ApiResponse(responseCode = "401", description = "로그인 세션 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_UNAUTHORIZED)))
+    @ApiResponse(responseCode = "403", description = "티켓 담당자가 아님 (TICKET_ASSIGNEE_REQUIRED)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_ASSIGNEE_REQUIRED)))
+    @ApiResponse(responseCode = "404", description = "티켓 없음 (TICKET_NOT_FOUND)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_NOT_FOUND)))
+    @ApiResponse(responseCode = "409", description = "확인 결과가 필요한 실패(MANUAL_CHECK)가 아님 (TICKET_STATUS_CONFLICT). GitHub 티켓 포함", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_STATUS_CONFLICT)))
+    @PostMapping("/api/tickets/{ticketId}/resolve-outcome")
+    public MyTicketService.Ticket resolveOutcome(
+            @Parameter(description = "티켓 ID", required = true) @PathVariable UUID ticketId,
+            @Valid @RequestBody TicketService.ResolveOutcomeRequest request,
+            @Parameter(hidden = true) @SessionAttribute(SessionConst.LOGIN_USER_ID) Long userId) {
+        return tickets.resolveOutcome(ticketId, userId, request);
     }
 }
