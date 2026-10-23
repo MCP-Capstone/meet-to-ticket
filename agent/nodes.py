@@ -259,7 +259,9 @@ class AgentNodes:
                 t["description"] = d.description.strip()
                 t["tasks"] = [x.strip() for x in d.tasks if x.strip()]
                 t["acceptance_criteria"] = [c.strip() for c in d.acceptance_criteria if c.strip()]
-                t["labels"] = pick_labels(d.labels, labels)
+                t["labels"], dropped_labels = pick_labels(d.labels, labels)
+                if dropped_labels:
+                    t["warnings"].append(f"라벨 후보에 없어 뺀 라벨: {', '.join(dropped_labels)}")
                 kept, dropped = keep_verbatim(d.evidence_quotes, state["original_content"])
                 if dropped:
                     t["warnings"].append(f"원문과 다른 근거 인용 {dropped}개를 제외함")
@@ -318,7 +320,8 @@ class AgentNodes:
             t["title"] = t["action_text"]
         if not t["description"] or 4 in items:
             t["description"] = f"회의에서 정한 액션 아이템: {t['action_text']}"
-            t["tasks"] = []  # 원문에 없는 내용이 남았으면 상세 작업도 믿지 않는다
+        if items & {2, 4}:
+            t["tasks"] = []  # 제외·보류 항목이나 원문에 없는 내용이 남았으면 상세 작업도 믿지 않는다
         if not t["acceptance_criteria"] or 8 in items:
             t["acceptance_criteria"] = [f"{t['action_text']} 완료"]
         if not t["evidence_quotes"]:
@@ -528,6 +531,7 @@ class AgentNodes:
             dropped = res.get("dropped_assignees") or []
             if dropped:
                 t["warnings"].append(f"GitHub에서 담당자 지정이 안 됨: {', '.join(dropped)}")
+            # TODO(TASK-046): MCP가 돌려줄 droppedLabels(발행 때 빠진 라벨)를 결과에 합친다
             if self.issue_tools is not None and t["github_issue_number"]:
                 # 다음 실행의 중복 판단에서 찾을 수 있게 색인에 넣는다. 실패해도 발행 결과는 그대로
                 indexed = await self._index(t["github_issue_number"])

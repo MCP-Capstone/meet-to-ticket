@@ -74,7 +74,9 @@ class AgentState(TypedDict, total=False):
     owner: str
     repo: str
     members: list[dict[str, Any]]
-    label_candidates: list[str]  # 저장소 라벨 (초안 라벨 후보). 비면 설정 ISSUE_LABELS
+    # 초안 라벨 후보. Agent가 MCP list_labels로 저장소 라벨을 받아 채운다 (도구가 생기면 prepare에서).
+    # 비어 있으면 설정 ISSUE_LABELS를 쓴다
+    label_candidates: list[str]
     background: str
     decisions: list[dict[str, Any]]  # 결정 사항 (schemas.ExtractedDecision)
     open_questions: list[str]

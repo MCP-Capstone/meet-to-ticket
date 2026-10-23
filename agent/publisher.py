@@ -122,15 +122,23 @@ def dedupe_link(dedupe: dict[str, Any] | None) -> str | None:
 MAX_LABELS = 3
 
 
-def pick_labels(chosen: list[str], candidates: list[str]) -> list[str]:
-    """후보에 있는 라벨만 후보의 표기 그대로 남긴다 (대소문자 무시, 중복 제거, 최대 MAX_LABELS개)."""
+def pick_labels(chosen: list[str], candidates: list[str]) -> tuple[list[str], list[str]]:
+    """후보에 있는 라벨만 후보의 표기 그대로 남기고, 후보에 없어 뺀 라벨을 함께 돌려준다.
+
+    대소문자는 무시하고 중복은 하나로 합치며 최대 MAX_LABELS개만 남긴다.
+    """
     by_lower = {c.strip().lower(): c.strip() for c in candidates if c.strip()}
     picked: list[str] = []
+    dropped: list[str] = []
     for label in chosen:
-        name = by_lower.get(label.strip().lower())
-        if name and name not in picked:
+        label = label.strip()
+        name = by_lower.get(label.lower())
+        if name is None:
+            if label and label not in dropped:
+                dropped.append(label)
+        elif name not in picked:
             picked.append(name)
-    return picked[:MAX_LABELS]
+    return picked[:MAX_LABELS], dropped
 
 
 def related_lines(ticket: dict[str, Any]) -> tuple[list[str], list[str]]:

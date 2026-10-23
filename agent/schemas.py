@@ -29,7 +29,6 @@ class Project(CamelModel):
     name: str = Field("", description="프로젝트 또는 팀원 이름")
     github_owner: str = Field(description="GitHub 소유자 또는 조직")
     github_repo: str = Field(description="GitHub 저장소명")
-    labels: list[str] = Field(default_factory=list, description="저장소에 있는 라벨 이름. 초안 라벨 후보. 비면 Agent 설정 ISSUE_LABELS를 후보로 씀")
 
 
 class Meeting(CamelModel):

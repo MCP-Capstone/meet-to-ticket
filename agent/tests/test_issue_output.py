@@ -2,10 +2,9 @@ from dataclasses import replace
 
 import pytest
 
-from conftest import FakeLLM, FakePublisher, FakeReporter, make_request, make_state, run_plain, run_review
+from conftest import FakeLLM, FakePublisher, FakeReporter, make_state, run_plain, run_review
 from nodes import AgentNodes
 from publisher import MAX_LABELS, build_issue_body, pick_labels, related_lines
-from runner import initial_state
 
 pytestmark = pytest.mark.anyio
 
@@ -56,19 +55,27 @@ def test_related_and_parent_lines():
 
 def test_pick_labels():
     candidates = ["backend", "Frontend", "bug", "docs"]
-    assert pick_labels(["Backend", "frontend", "backend", "없는 라벨"], candidates) == ["backend", "Frontend"]
-    assert len(pick_labels(candidates, candidates)) == MAX_LABELS
-    assert pick_labels(["backend"], []) == []
+    picked, dropped = pick_labels(["Backend", "frontend", "backend", "없는 라벨", "없는 라벨"], candidates)
+    assert picked == ["backend", "Frontend"] and dropped == ["없는 라벨"]
+    assert len(pick_labels(candidates, candidates)[0]) == MAX_LABELS
+    assert pick_labels(["backend"], []) == ([], ["backend"])
 
 
-async def test_draft_uses_project_labels(settings):
-    req = make_request()
-    req.project.labels = ["backend", "frontend"]
+def label_state(candidates):
+    state = make_state()
+    state["label_candidates"] = candidates
+    return state
+
+
+async def test_draft_uses_label_candidates(settings):
     llm = FakeLLM()
-    state, _ = await run_review(AgentNodes(llm, FakePublisher(), FakeReporter(), settings), initial_state(req))
-    assert llm.draft_labels[0] == ["backend", "frontend"]
+    nodes = AgentNodes(llm, FakePublisher(), FakeReporter(), replace(settings, issue_labels=["meeting"]))
+    state, _ = await run_review(nodes, label_state(["backend", "frontend"]))
+    assert llm.draft_labels[0] == ["backend", "frontend"]  # Agent가 채운 후보가 설정보다 우선
     t = state["tickets"][0]
-    assert t["labels"] == ["backend"]  # 후보에 없는 라벨은 빠진다
+    assert t["labels"] == ["backend"]
+    # 후보에 없어 뺀 라벨은 카드 경고로 남긴다
+    assert "라벨 후보에 없어 뺀 라벨: 후보에 없는 라벨" in t["warnings"]
     assert t["tasks"] == [f"{t['action_text']} 작업"]
 
 
@@ -85,18 +92,24 @@ async def test_no_label_candidates(settings):
     assert all(t["labels"] == [] for t in state["tickets"])
 
 
-async def test_fallback_clears_tasks(settings):
-    llm = FakeLLM(review_plan={"10m1-a3": [[(4, "원문에 없는 표현")]]}, always={"10m1-a3"})
+@pytest.mark.parametrize("item", [2, 4])
+async def test_fallback_clears_tasks(settings, item):
+    llm = FakeLLM(review_plan={"10m1-a3": [[(item, "지적")]]}, always={"10m1-a3"})
     state, _ = await run_review(AgentNodes(llm, FakePublisher(), FakeReporter(), settings), make_state())
     a3 = next(t for t in state["tickets"] if t["work_key"] == "10m1-a3")
     assert a3["fallback"] is True and a3["tasks"] == []
 
 
+async def test_fallback_keeps_tasks_for_other_items(settings):
+    llm = FakeLLM(review_plan={"10m1-a3": [[(3, "할 일 아님")]]}, always={"10m1-a3"})
+    state, _ = await run_review(AgentNodes(llm, FakePublisher(), FakeReporter(), settings), make_state())
+    a3 = next(t for t in state["tickets"] if t["work_key"] == "10m1-a3")
+    assert a3["fallback"] is True and a3["tasks"]  # 3번만 남으면 상세 작업은 그대로
+
+
 async def test_publish_sends_ticket_labels_and_body(settings):
-    req = make_request()
-    req.project.labels = ["backend"]
     pub = FakePublisher()
-    state = await run_plain(AgentNodes(FakeLLM(), pub, FakeReporter(), settings), initial_state(req))
+    state = await run_plain(AgentNodes(FakeLLM(), pub, FakeReporter(), settings), label_state(["backend"]))
     assert pub.calls and all(c["labels"] == ["backend"] for c in pub.calls)
     assert all(c["body"].startswith("## 작업 내용") and "## 상세 작업" in c["body"] for c in pub.calls)
     content = state["result"]["items"][0]["content_json"]

@@ -102,7 +102,6 @@ def initial_state(req: RunRequest, trace_id: str | None = None, deadline_seconds
         "owner": req.project.github_owner,
         "repo": req.project.github_repo,
         "members": [pm.model_dump() for pm in req.project_members],
-        "label_candidates": list(req.project.labels),
         "tickets": [],
         "stage": STAGE_EXTRACTING,
         "error_code": None,

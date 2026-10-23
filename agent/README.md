@@ -399,9 +399,10 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | 관련 이슈 | 회의록 예상 처리, 관련 키, 중복 판단으로 찾은 기존 이슈 | 추출 + 중복 판단 |
 | 상위 이슈 | 예상 처리가 "하위 티켓"일 때의 키 | 추출 |
 | 확인 필요 | 이 할 일과 관련된 미결 질문 | 초안 `open_questions` |
+| 검수 메모 | 기본 초안으로 바뀌었을 때 남은 검수 지적 | 검수 |
 | 회의 배경 | 접힌 블록(`<details>`)으로 배경 요약 | 회의록 배경 |
 
-라벨은 본문이 아니라 이슈 생성 인자로 넘긴다. 초안이 라벨 후보 중에서 티켓마다 0~3개를 고르고, 코드가 후보에 없는 값을 뺀다(`publisher.pick_labels`). 후보는 요청의 `project.labels`(저장소에 있는 라벨)이고, 비어 있으면 설정 `ISSUE_LABELS`를 쓴다. 후보가 없으면 라벨 없이 발행한다.
+라벨은 본문이 아니라 이슈 생성 인자로 넘긴다. 초안이 라벨 후보 중에서 티켓마다 0~3개를 고르고, 코드가 후보에 없는 값을 빼서 카드 경고(`warnings`)에 남긴다(`publisher.pick_labels`). 후보(`label_candidates`)는 Agent가 MCP `list_labels`로 저장소 라벨을 받아 채운다(도구가 생기면 연결). 비어 있으면 설정 `ISSUE_LABELS`를 쓰고, 그것도 없으면 라벨 없이 발행한다.
 
 ### Harness 명세
 
