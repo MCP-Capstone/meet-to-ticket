@@ -121,7 +121,7 @@ class ProjectControllerTest {
 				.andExpect(jsonPath("$.name").value("바꾼 이름"))
 				.andExpect(jsonPath("$.githubRepo").value("repo2-" + suffix))
 				.andExpect(jsonPath("$.notionPageUrl").value("https://www.notion.so/plan"))
-				.andExpect(jsonPath("$.connections.notion").value(nullValue()))
+				.andExpect(jsonPath("$.connections.notion").value("CONNECTED"))
 				.andExpect(jsonPath("$.members.length()").value(1))
 				.andExpect(jsonPath("$.members[0].userId").value(adminId));
 
@@ -140,7 +140,7 @@ class ProjectControllerTest {
 		mvc.perform(put("/api/projects/{id}", id).session(admin).contentType("application/json").content(request))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.connections.notion").value("NOT_CONNECTED"))
-				.andExpect(jsonPath("$.connections.slack").value(nullValue()))
+				.andExpect(jsonPath("$.connections.slack").value("CONNECTED"))
 				.andExpect(jsonPath("$.members[1].slackEmail").value("member@example.com"))
 				.andExpect(jsonPath("$.members[1].slackUserId").value(nullValue()));
 	}
