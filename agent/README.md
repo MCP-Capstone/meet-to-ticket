@@ -576,9 +576,10 @@ model ──(조회 도구 호출)──▶ tools ──▶ model ── … ─
 | `UNRELATED` | 관계 없음 (후보가 없을 때도) |
 
 - 모델에게는 조회 도구 3개(`search_similar_issues`, `search_issues`, `read_issue`)와 `submit_decision`만 준다. 이슈 생성 도구는 주지 않는다. 매 턴 도구를 하나 이상 부르게 한다(`tool_choice="required"`).
-- 회의록에 관련 키(예: AUTH-112)가 있으면 키워드 검색을, 없으면 유사 검색을 먼저 고르도록 프롬프트로 안내한다. 어느 도구를 몇 번 부를지는 모델이 정한다.
+- 회의록에 관련 키(예: AUTH-112)가 있으면 키워드 검색을, 없으면 유사 검색을 먼저 고르도록 프롬프트로 안내한다. 유사 검색의 첫 질의는 회의록 원문 할 일 문장을 그대로 쓰고, 다시 검색할 때만 표현을 바꾼다. 어느 도구를 몇 번 부를지는 모델이 정한다.
 - 모델에게는 회의록 원문의 할 일과 근거 인용을 준다. 초안 설명은 주지 않는다. 초안에 덧붙은 회의 맥락 때문에 같은 작업을 "범위가 더 넓다"며 RELATED로 판단하는 일이 많았다(#107).
-- 판정 순서: 값/방향이 다르면 CHANGE → 기존 이슈가 하기로 한 일 안에 들어가면 SAME → 기존 이슈에 없는 일을 더 요구하면 RELATED.
+- 판정 순서: 값/방향이 다르면 CHANGE → 기존 이슈가 하기로 한 일 안에 들어가면 SAME → 기존 이슈에 없는 일을 더 요구하면 RELATED. 닫힌 이슈도 같은 기준으로 판정한다.
+- CHANGE면 모델이 `before`(기존 값)와 `after`(새 값)를 함께 제출한다. 카드의 변경 전후 표시와 갱신 섹션에 쓴다.
 - 한도는 코드가 센다. 넘으면 판단 없이 끝내고(`skipped`) 새로 발행한다.
 
 | 한도 | 기본값 | `skipped` |
@@ -592,9 +593,28 @@ model ──(조회 도구 호출)──▶ tools ──▶ model ── … ─
 - 도구 오류는 판단을 멈추지 않는다. `[코드] 메시지`로 모델에게 돌려주고, 모델이 다른 도구를 고르거나 UNRELATED로 끝낸다.
 - 24건 회의도 4건씩 동시에 판단해 최악 약 3분 안에 끝난다 (30초 × 24 / 4).
 - `RAG_ENABLED=false`(기본)면 이 단계를 건너뛰고 기존처럼 발행한다.
-- 결과: 항목 `contentJson.dedupe`에 `relation`, `issue_number`, `issue_state`, `issue_title`, `reason`, `tool_calls`(모델이 고른 도구와 인자), `skipped`가 남는다. 연결했으면 `linked_existing: true`, 새로 발행해 색인에 넣었으면 `indexed`가 붙는다. `metrics.dedupe`에 판단 수, 건너뛴 수, 도구 호출 수, 관계별 수, 색인한 수가 남는다.
+- 결과: 항목 `contentJson.dedupe`에 `relation`, `issue_number`, `issue_state`, `issue_title`, `reason`, `before`, `after`(CHANGE일 때만), `tool_calls`(모델이 고른 도구와 인자), `skipped`, `handling`(아래 "처리 유형")이 남는다. 연결했으면 `linked_existing: true`, 새로 발행해 색인에 넣었으면 `indexed`가 붙는다. `metrics.dedupe`에 판단 수, 건너뛴 수, 도구 호출 수, 관계별 수, 색인한 수가 남는다.
 
-#### 발행 처리
+#### 처리 유형 (기획_v16 1.7.2, `handling.py`)
+
+판정마다 처리 유형을 정해 `contentJson.dedupe.handling`에 남긴다. 담당자가 카드에서 바꿀 수 있는 제안이고, 실제 GitHub 쓰기는 일괄 발행(TASK-034)이 실행한다.
+
+| 판정 | 열린 이슈 | 닫힌 이슈 |
+|---|---|---|
+| `SAME` | `LINK`: 기존 이슈에 댓글로 연결 | `CREATE` + 기존 번호 표기, 겹칠 수 있음 |
+| `CHANGE` | `UPDATE`: 기존 이슈 본문 끝에 변경 섹션 추가 | `CREATE` + 기존 번호 표기, 겹칠 수 있음 |
+| `RELATED` | `CREATE` + 관련 이슈 표기, 겹칠 수 있음 | 같음 |
+| `UNRELATED` / 판단 없음 | `CREATE` | `CREATE` |
+
+- `handling`: `{type, issue_number, overlap, judged}`. `overlap`이면 카드에 "겹칠 수 있음", `judged=false`면 "중복 판단 안 됨"을 표시한다. 한도 초과나 오류로 판단하지 못한 티켓은 `CREATE`, `judged=false`다.
+- 문안 함수 (GitHub를 호출하지 않음)
+  - `link_comment(ticket, meeting_date, meeting_title)`: `add_comment`의 body (회의, 원문 할 일, 근거, 판단 사유)
+  - `change_section(...)`: `update_issue`의 `append_section` (`## 회의 변경 사항 (날짜)`, 변경 전 → 후, 원문 할 일, 근거)
+  - `change_note(...)`: `update_issue`의 `note` (갱신 알림 댓글)
+
+#### 발행 처리 (현재 발행 노드)
+
+일괄 발행(TASK-034)으로 옮기기 전까지 그래프의 발행 노드는 아래처럼 동작한다. `UPDATE`(CHANGE + 열린 이슈)도 지금은 새로 발행한다.
 
 | 판단 | 기존 이슈가 열려 있음 | 기존 이슈가 닫혀 있음 |
 |---|---|---|
