@@ -8,6 +8,7 @@
 - GET  /runs/{task_id}/history : 노드별 실행 기록 (checkpointer)
 - POST /projects/reindex      : GitHub 이슈 전체 RAG 재색인 접수
 - GET  /projects/reindex/{job_id} : 재색인 진행·결과 조회
+- POST /projects/drop-index  : 프로젝트 저장소 RAG 색인 삭제
 - GET  /health
 
 이슈를 발행한 taskId를 다시 POST하면 다시 실행하지 않고 저장된 결과를 돌려준다 (runner.stored_result).

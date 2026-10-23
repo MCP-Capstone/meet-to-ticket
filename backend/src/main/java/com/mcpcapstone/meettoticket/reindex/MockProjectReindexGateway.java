@@ -19,4 +19,8 @@ public class MockProjectReindexGateway implements ProjectReindexGateway {
     public AgentStatus status(String jobId) {
         return new AgentStatus(ReindexStatus.SUCCEEDED, null, "재색인이 완료되었습니다.", 0, 0, 0, 0, Instant.now());
     }
+
+    @Override
+    public void dropIndex(String githubOwner, String githubRepo) {
+    }
 }

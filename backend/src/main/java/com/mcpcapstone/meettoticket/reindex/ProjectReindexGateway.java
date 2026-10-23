@@ -9,6 +9,9 @@ public interface ProjectReindexGateway {
     /** @throws JobNotFoundException Agent가 해당 작업을 모를 때(재시작 등). 일시 오류와 구분한다. */
     AgentStatus status(String jobId);
 
+    /** 프로젝트 삭제 뒤 저장소 색인을 지운다. 없던 색인도 성공이다. @throws AgentException Agent 또는 RAG MCP 오류 */
+    void dropIndex(String githubOwner, String githubRepo);
+
     class JobNotFoundException extends RuntimeException {
         public JobNotFoundException(String jobId) {
             super("Agent에 재색인 작업이 없습니다: " + jobId);

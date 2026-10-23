@@ -2,7 +2,7 @@
 
 이 모듈은 ``main.py``가 ``create_router(_settings, lambda: app.state.overrides)``로
 등록해서 사용한다. 분석 실행과 달리 LLM을 사용하지 않으며, RAG MCP의
-``sync_issues(full=true)``만 비동기로 실행한다.
+``sync_issues(full=true)``를 비동기로 실행하고, 프로젝트 삭제 때는 ``drop_index``로 색인을 지운다.
 """
 
 from __future__ import annotations
@@ -127,6 +127,29 @@ def create_router(
         tasks.add(task)
         task.add_done_callback(tasks.discard)
         return {"jobId": job_id, "status": "ACCEPTED"}
+
+    @router.post("/drop-index", summary="프로젝트 저장소 색인 삭제")
+    async def drop_index(req: ReindexRequest) -> dict[str, Any]:
+        """프로젝트 삭제 뒤 백엔드가 부른다. 없던 색인도 성공이고, RAG를 끄고 실행 중이면 지울 것이 없어 건너뛴다."""
+        owner, repo = req.github_owner.strip(), req.github_repo.strip()
+        if not owner or not repo:
+            raise HTTPException(status_code=422, detail="githubOwner와 githubRepo는 비어 있을 수 없습니다")
+        # 재색인이 끝나면서 색인을 다시 채울 수 있으므로 겹치지 않게 한다
+        if (owner.lower(), repo.lower()) in active_repositories:
+            raise HTTPException(status_code=409, detail="이 저장소는 재색인 중이라 색인을 삭제할 수 없습니다")
+        settings = settings_provider()
+        if not settings.rag_enabled:
+            return {"status": "SKIPPED", "deleted": False}
+        try:
+            tool = (await rag_tools(settings)).get("drop_index")
+            if tool is None:
+                raise RuntimeError("[MCP_UNAVAILABLE] RAG MCP에 drop_index 도구가 없습니다")
+            out = await invoke(tool, {"owner": owner, "repo": repo})
+        except Exception as exc:  # noqa: BLE001
+            error = error_from_exception(exc, MCP_UNAVAILABLE)
+            log.warning("색인 삭제 실패 %s/%s: [%s] %s", owner, repo, error.code, error.message)
+            raise HTTPException(status_code=502, detail=f"[{error.code}] {error.message}") from exc
+        return {"status": "DROPPED", "deleted": bool(out.get("deleted"))}
 
     @router.get("/reindex/{job_id}", summary="프로젝트 재색인 상태 조회")
     async def get_reindex(job_id: str) -> dict[str, Any]:
