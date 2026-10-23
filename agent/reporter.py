@@ -16,6 +16,7 @@ log = logging.getLogger("agent.reporter")
 
 PROGRESS_PATH = "/internal/tasks/{task_id}/progress"
 RESULT_PATH = "/internal/tasks/{task_id}/result"
+PUBLISH_RESULT_PATH = "/internal/publish-batches/{batch_id}/result"
 
 
 class BackendReporter:
@@ -60,4 +61,8 @@ class BackendReporter:
 
     async def result(self, task_id: str, payload: dict[str, Any]) -> bool:
         return await self._post(RESULT_PATH.format(task_id=task_id), payload, retries=3)
+
+    async def publish_result(self, batch_id: str, payload: dict[str, Any]) -> bool:
+        """일괄 발행 결과는 분석 작업 결과와 분리된 백엔드 내부 경로로 보고한다."""
+        return await self._post(PUBLISH_RESULT_PATH.format(batch_id=batch_id), payload, retries=3)
 

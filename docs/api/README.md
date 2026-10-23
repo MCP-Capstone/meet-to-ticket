@@ -119,6 +119,7 @@ MOCK 메모리 작업은 재시작하면 사라져 진행 중 작업이 실패�
 | Method | 경로 | 응답 |
 |---|---|---|
 | POST | /runs | 기본 202 `{taskId, status: ACCEPTED}` |
+| POST | /publish | 202 `{batchId, status: ACCEPTED}`. 확인된 티켓 일괄 발행 |
 | POST | /runs?wait=true | 로컬 테스트용 200 최종 결과 |
 | GET | /runs/{task_id} | 200 진행·종료 결과, 알 수 없는 작업은 404 |
 | GET | /runs/{task_id}/history | 200 노드별 실행 기록(checkpoint, 시간 순서), 재시작하면 사라짐, 알 수 없는 작업은 404 |
@@ -127,6 +128,8 @@ MOCK 메모리 작업은 재시작하면 사라져 진행 중 작업이 실패�
 Agent 환경에서 `uvicorn main:app --port 8001`로 실행한다. 설치는 [Agent 안내](../../agent/README.md)를 따른다.
 문서 조회만으로 LLM·MCP를 호출하지 않는다. POST는 실제 업무를 실행하므로 단독 테스트는
 `agent/.env`의 `DRY_RUN=true`, `BACKEND_BASE_URL=` 설정으로 발행·콜백을 끈다. 설정 로더는 .env를 환경변수보다 우선한다.
+
+`POST /publish`는 백엔드가 `batchId`와 `reviewStatus: CONFIRMED` 티켓만 보내는 내부 API다. 티켓마다 프로젝트 저장소와 확정한 `processingType`(`CREATE`/`LINK`/`UPDATE`), 기존 이슈 번호(연결·갱신 때), 편집된 `contentJson`을 포함한다. Agent는 저장소별 `sync_issues(full=false)`와 재대조를 실행한 뒤 실제 처리 유형으로 GitHub를 호출한다. 최종 결과는 `POST /internal/publish-batches/{batchId}/result`에 `PUBLISHED`/`LINKED`/`UPDATED`/`FAILED`/`UNKNOWN`, 이슈 링크·댓글 링크·누락 라벨·재시도 가능 여부와 함께 보고한다. 같은 `batchId` 재요청은 중복 발행하지 않는다.
 DRY_RUN도 실제 추출·검수 LLM 호출과 모델 API 키가 필요하다. 키는 Swagger 요청 JSON에 넣지 않는다.
 현재 Agent dry-run은 승인 항목을 SKIPPED(발행 생략)로 반환한다. 이를 실제 GitHub 생성 거절로 해석하지 않는다.
 가짜 LLM·MCP로 확인하려면 Agent의 자동 테스트를 실행한다.

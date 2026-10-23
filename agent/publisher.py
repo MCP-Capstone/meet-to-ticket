@@ -70,17 +70,30 @@ def error_from_exception(exc: Exception, default_code: str = PUBLISH_FAILED) -> 
 
 
 class McpPublisher:
-    """MCP 서버의 create_issue 도구를 감싼다."""
+    """GitHub 쓰기 MCP 도구를 감싼다. 도구 오류는 공통 ToolCallError로 바꾼다."""
 
-    def __init__(self, create_issue_tool: Any):
-        self.tool = create_issue_tool
+    def __init__(self, create_issue_tool: Any, add_comment_tool: Any | None = None, update_issue_tool: Any | None = None):
+        self.create_tool = create_issue_tool
+        self.comment_tool = add_comment_tool
+        self.update_tool = update_issue_tool
 
-    async def create_issue(self, **args: Any) -> dict[str, Any]:
+    async def _call(self, tool: Any | None, args: dict[str, Any], name: str) -> dict[str, Any]:
+        if tool is None:
+            raise ToolCallError(MCP_UNAVAILABLE, f"{name} MCP 도구를 찾지 못했습니다")
         try:
-            raw = await self.tool.ainvoke(args)
+            raw = await tool.ainvoke(args)
         except Exception as exc:  # noqa: BLE001
             raise error_from_exception(exc) from exc
         return parse_tool_result(raw)
+
+    async def create_issue(self, **args: Any) -> dict[str, Any]:
+        return await self._call(self.create_tool, args, "create_issue")
+
+    async def add_comment(self, **args: Any) -> dict[str, Any]:
+        return await self._call(self.comment_tool, args, "add_comment")
+
+    async def update_issue(self, **args: Any) -> dict[str, Any]:
+        return await self._call(self.update_tool, args, "update_issue")
 
 
 class DryRunPublisher:

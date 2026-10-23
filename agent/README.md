@@ -293,7 +293,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 | 파일 | 역할 |
 |---|---|
-| `main.py` | FastAPI (`POST /runs`, `GET /runs/{task_id}` 진행 단계·결과, `POST /projects/check-members`, `GET /health`) |
+| `main.py` | FastAPI (`POST /runs`, 확인된 티켓용 `POST /publish`, `GET /runs/{task_id}` 진행 단계·결과, `POST /projects/check-members`, `GET /health`) |
 | `permissions.py` | 프로젝트 저장 시 멤버별 저장소 권한 확인. LLM 없이 MCP `check_member_permissions`를 호출 |
 | `cli.py` | 백엔드 없이 회의 요약 파일로 바로 실행 |
 | `runner.py` | 요청 1건 실행 (MCP 연결, 그래프 실행) |
@@ -652,7 +652,7 @@ for t in out["tickets"]:
 
 #### 발행 처리 (현재 발행 노드)
 
-일괄 발행(TASK-034)으로 옮기기 전까지 그래프의 발행 노드는 아래처럼 동작한다. `UPDATE`(CHANGE + 열린 이슈)도 지금은 새로 발행한다.
+`POST /publish`가 확인된 티켓만 별도 일괄 발행한다. 요청에는 백엔드가 발급한 `batchId`, 프로젝트별 저장소, 카드에서 편집된 `contentJson`, 확정 처리 유형과 대상 이슈 번호가 들어간다. Agent는 저장소별 재대조 뒤 `CREATE`는 `create_issue`, `LINK`는 `add_comment`, `UPDATE`는 `update_issue`를 코드로 호출하고 `/internal/publish-batches/{batchId}/result`에 결과를 보고한다. 같은 batchId는 다시 실행하지 않는다.
 
 | 판단 | 기존 이슈가 열려 있음 | 기존 이슈가 닫혀 있음 |
 |---|---|---|
