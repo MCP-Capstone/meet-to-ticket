@@ -357,3 +357,61 @@ def test_search_issues_limit_and_errors():
     with client_with(limited) as c:
         with pytest.raises(ToolError, match=r"^\[GITHUB_RATE_LIMIT\]"):
             github.search_issues(c, "o", "r", "a")
+
+
+# --- 멤버 저장소 권한 확인 ---
+
+
+def test_check_member_permissions():
+    # 저장소를 먼저 확인하고, 멤버마다 assignees API로 지정 가능 여부를 본다 (204 가능, 404 불가, 그 밖 확인 실패)
+    paths = []
+
+    def handler(request):
+        paths.append(request.url.path)
+        if request.url.path == "/repos/o/r":
+            return httpx.Response(200, json={"full_name": "o/r"})
+        user = request.url.path.rsplit("/", 1)[-1]
+        status = {"alice": 204, "bob": 404}.get(user, 500)
+        return httpx.Response(status)
+
+    with client_with(handler) as c:
+        out = github.check_member_permissions(c, "o", "r", [" alice ", "bob", "carol", "ALICE", ""])
+    assert out == [
+        {"github_name": "alice", "permission": "GRANTED"},
+        {"github_name": "bob", "permission": "DENIED"},
+        {"github_name": "carol", "permission": "ERROR"},
+    ]
+    # 같은 계정(대소문자 무시)과 빈 값은 한 번만, 저장소 확인은 먼저 한 번
+    assert paths == ["/repos/o/r", "/repos/o/r/assignees/alice", "/repos/o/r/assignees/bob", "/repos/o/r/assignees/carol"]
+
+
+def test_check_member_permissions_repo_not_visible():
+    # 저장소를 볼 수 없으면 모든 멤버가 "권한 없음"으로 보이므로, 멤버별 결과 없이 오류로 돌려준다
+    with client_with(lambda r: httpx.Response(404, json={"message": "Not Found"})) as c:
+        with pytest.raises(ToolError, match=r"^\[GITHUB_NOT_FOUND\]"):
+            github.check_member_permissions(c, "o", "r", ["alice"])
+
+
+def test_check_member_permissions_connection_error_is_member_error():
+    # 멤버 한 명의 확인 중 연결이 끊기면 그 멤버만 ERROR (권한 없음으로 보지 않는다)
+    def handler(request):
+        if request.url.path == "/repos/o/r":
+            return httpx.Response(200, json={})
+        if request.url.path.endswith("/flaky"):
+            raise httpx.ReadTimeout("timeout", request=request)
+        return httpx.Response(204)
+
+    with client_with(handler) as c:
+        out = github.check_member_permissions(c, "o", "r", ["alice", "flaky"])
+    assert out == [
+        {"github_name": "alice", "permission": "GRANTED"},
+        {"github_name": "flaky", "permission": "ERROR"},
+    ]
+
+
+def test_check_member_permissions_empty_and_limit():
+    # 확인할 계정이 없으면 GitHub를 부르지 않고, 너무 많으면 거부한다
+    with client_with(lambda r: httpx.Response(500)) as c:
+        assert github.check_member_permissions(c, "o", "r", ["", "  "]) == []
+        with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
+            github.check_member_permissions(c, "o", "r", [f"u{i}" for i in range(101)])

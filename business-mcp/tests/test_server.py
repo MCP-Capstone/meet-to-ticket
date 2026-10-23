@@ -30,9 +30,9 @@ def fake_github(monkeypatch):
 
 @pytest.mark.anyio
 async def test_tools_registered_with_annotations():
-    # 도구 4개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
+    # 도구 5개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
     tools_ = {t.name: t.model_dump(by_alias=True) for t in await server.mcp.list_tools()}
-    assert sorted(tools_) == ["create_issue", "list_issues", "list_labels", "search_issues"]
+    assert sorted(tools_) == ["check_member_permissions", "create_issue", "list_issues", "list_labels", "search_issues"]
 
     create = tools_["create_issue"]
     assert create["annotations"]["readOnlyHint"] is False
@@ -43,6 +43,10 @@ async def test_tools_registered_with_annotations():
     read = tools_["list_issues"]
     assert read["annotations"]["readOnlyHint"] is True
     assert set(read["inputSchema"]["required"]) == {"owner", "repo"}
+
+    members = tools_["check_member_permissions"]
+    assert members["annotations"]["readOnlyHint"] is True
+    assert set(members["inputSchema"]["required"]) == {"owner", "repo", "github_names"}
 
     labels = tools_["list_labels"]
     assert labels["annotations"]["readOnlyHint"] is True
@@ -104,3 +108,14 @@ def test_search_issues_tool(monkeypatch, fake_github):
     assert out == {"issues": [{"number": 7, "title": "AUTH-112", "state": "open", "url": "u", "closed_at": None}]}
     with pytest.raises(ToolError, match="REPOSITORY_NOT_ALLOWED"):
         tools.search_issues("x", "y", "AUTH-112")
+
+
+def test_check_member_permissions_tool(monkeypatch, fake_github):
+    # 허용된 저장소면 {"members": [...]}를 돌려주고, 아니면 GitHub 호출 전에 막힌다
+    monkeypatch.setenv("GITHUB_ALLOWED_REPOS", "a/b")
+    fake_github(lambda r: httpx.Response(200, json={}) if r.url.path == "/repos/a/b" else httpx.Response(204))
+    assert tools.check_member_permissions("a", "b", ["alice"]) == {
+        "members": [{"github_name": "alice", "permission": "GRANTED"}]
+    }
+    with pytest.raises(ToolError, match="REPOSITORY_NOT_ALLOWED"):
+        tools.check_member_permissions("x", "y", ["alice"])

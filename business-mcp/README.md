@@ -304,12 +304,14 @@ business-mcp/
 |---|---|---|---|---|
 | `create_issue` | 발행 (신규) | `owner`, `repo`, `title`, `body`, `labels`, `assignees` | `{status: "created", number, url, assignees, dropped_assignees, dropped_labels}` | 아니요 (이슈가 하나 더 생김) |
 | `list_labels` | 초안 라벨 고르기 | `owner`, `repo` | `{labels: [{name, description}]}` | 예 |
+| `check_member_permissions` | 프로젝트 저장(멤버 권한 표시) | `owner`, `repo`, `github_names` | `{members: [{github_name, permission}]}` | 예 |
 | `list_issues` | 연결 확인 | `owner`, `repo`, `state="open"`, `limit=10` | `{issues: [{number, title, state, url, assignees}]}` | 예 |
 | `search_issues` | 중복 판단 (키·단어 검색) | `owner`, `repo`, `query`, `state="all"`, `limit=5` | `{issues: [{number, title, state, url, closed_at}]}` | 예 |
 
 - `create_issue`: 제목 앞뒤 공백 제거, 256자·본문 65000자 초과분은 자름. 담당자 지정이 거부(422)되면 담당자 없이 한 번 더 생성하고 `dropped_assignees`에 표시합니다.
 - `create_issue` 라벨: 보내기 전에 저장소 라벨 목록과 비교해(대소문자 무시) 없는 라벨은 빼고 `dropped_labels`에 표시합니다. push 권한이 있는 토큰으로 없는 라벨을 넘기면 GitHub가 라벨을 새로 만들 수 있어서입니다. 라벨을 요청하지 않으면 라벨 목록을 조회하지 않습니다.
 - `list_labels`: 저장소 라벨 전체(페이지를 모두 받음). Agent는 이 안에서 초안 라벨을 고릅니다.
+- `check_member_permissions`: 멤버마다 이 저장소 이슈의 담당자로 지정할 수 있는지 GitHub assignees API로 확인합니다. `permission`은 `GRANTED`(가능), `DENIED`(불가), `ERROR`(확인 실패, 권한 없음으로 보지 않음). 먼저 저장소를 조회해서, 저장소를 볼 수 없으면 멤버별 결과 없이 `[GITHUB_NOT_FOUND]` 같은 오류를 돌려줍니다. 계정은 앞뒤 공백·대소문자 중복을 정리하고 한 번에 100명까지. GitHub 계정이 없는 멤버(`NO_ACCOUNT`)는 백엔드가 판단하고 넘기지 않습니다.
 - `list_issues`: 최신순, PR 제외, `limit` 1~50, `state`는 `open`·`closed`·`all`
 - `search_issues`: 검색 범위(`repo:owner/repo`, `is:issue`, `state:`)는 코드가 붙이고, 검색어에 섞인 `repo:`·`org:`·`is:` 같은 범위 지정은 지웁니다 (GitHub 검색은 `repo:`를 여러 개 주면 OR로 묶어 다른 저장소까지 찾기 때문). `limit` 1~20. 검색 API는 호출 한도가 따로 있습니다(인증 시 분당 30회 정도). 의미가 비슷한 이슈는 `rag-mcp`의 `search_similar_issues`로 찾습니다.
 

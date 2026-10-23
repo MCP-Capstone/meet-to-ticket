@@ -188,6 +188,50 @@ def search_issues(
     return out[:limit]
 
 
+MEMBERS_MAX = 100  # 한 번에 확인하는 멤버 수 상한 (호출 한도를 지키기 위해)
+# 멤버별 저장소 권한 (프론트 계약의 repositoryPermission과 같은 값. NO_ACCOUNT는 백엔드가 정한다)
+GRANTED = "GRANTED"  # 이 저장소 이슈의 담당자로 지정할 수 있음
+DENIED = "DENIED"  # 지정할 수 없음 (저장소 권한 없음, 또는 없는 계정)
+ERROR = "ERROR"  # 확인 실패 (권한 없음으로 보지 않는다)
+
+
+def check_member_permissions(
+    client: httpx.Client, owner: str, repo: str, github_names: list[str]
+) -> list[dict[str, str]]:
+    """멤버마다 이 저장소 이슈의 담당자로 지정할 수 있는지 확인한다.
+
+    GitHub assignees API: 지정 가능하면 204, 아니면 404.
+    저장소 자체를 볼 수 없으면 모든 멤버가 404가 되어 "권한 없음"으로 잘못 보이므로, 먼저 저장소를 조회하고
+    실패하면 오류(GITHUB_NOT_FOUND 등)로 전체를 돌려준다. 멤버 한 명의 확인이 실패하면 그 멤버만 ERROR.
+    """
+    names: list[str] = []
+    for name in github_names or []:
+        name = (name or "").strip()
+        if name and name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+    if len(names) > MEMBERS_MAX:
+        raise tool_error(INVALID_ARGUMENT, f"한 번에 확인할 수 있는 멤버는 {MEMBERS_MAX}명까지입니다")
+    if not names:
+        return []
+
+    request(client, "GET", f"/repos/{owner}/{repo}")
+    out = []
+    for name in names:
+        try:
+            resp = request(client, "GET", f"/repos/{owner}/{repo}/assignees/{name}", check=False)
+        except httpx.HTTPError:
+            out.append({"github_name": name, "permission": ERROR})
+            continue
+        if resp.status_code == 204:
+            permission = GRANTED
+        elif resp.status_code == 404:
+            permission = DENIED
+        else:
+            permission = ERROR
+        out.append({"github_name": name, "permission": permission})
+    return out
+
+
 LABELS_PER_PAGE = 100  # GitHub가 허용하는 한 페이지 최대 개수
 
 
