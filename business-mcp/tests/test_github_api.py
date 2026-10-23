@@ -499,3 +499,47 @@ def test_check_member_permissions_empty_and_limit():
         assert github.check_member_permissions(c, "o", "r", ["", "  "]) == []
         with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
             github.check_member_permissions(c, "o", "r", [f"u{i}" for i in range(101)])
+
+
+# --- 표식 확인 (결과 모름 재발행의 중복 방지) ---
+
+
+def test_find_marker_in_body_skips_comments():
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"body": "본문\n<!-- m:1 -->", "html_url": "https://github.com/o/r/issues/7"})
+
+    with client_with(handler) as c:
+        out = github.find_marker(c, "o", "r", 7, "<!-- m:1 -->")
+    assert out == {"found": True, "where": "body", "url": "https://github.com/o/r/issues/7", "truncated": False}
+    assert calls == ["/repos/o/r/issues/7"]
+
+
+def test_find_marker_in_comment_and_not_found():
+    def handler(request):
+        if request.url.path.endswith("/comments"):
+            return httpx.Response(200, json=[{"body": "다른 댓글"}, {"body": "x <!-- m:1 -->", "html_url": "c-url"}])
+        return httpx.Response(200, json={"body": "본문"})
+
+    with client_with(handler) as c:
+        assert github.find_marker(c, "o", "r", 7, "<!-- m:1 -->") == {"found": True, "where": "comment", "url": "c-url", "truncated": False}
+        assert github.find_marker(c, "o", "r", 7, "<!-- m:2 -->")["found"] is False
+
+
+def test_find_marker_reports_truncated_when_comments_exceed_limit():
+    def handler(request):
+        if request.url.path.endswith("/comments"):
+            return httpx.Response(200, json=[{"body": "x"}] * 100)
+        return httpx.Response(200, json={"body": "본문"})
+
+    with client_with(handler) as c:
+        out = github.find_marker(c, "o", "r", 7, "<!-- m:1 -->")
+    assert out["found"] is False and out["truncated"] is True
+
+
+def test_find_marker_rejects_empty_marker():
+    with client_with(lambda r: httpx.Response(200, json={})) as c:
+        with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
+            github.find_marker(c, "o", "r", 7, "  ")

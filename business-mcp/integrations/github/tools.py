@@ -80,6 +80,13 @@ def search_issues(
         return {"issues": api.search_issues(client, owner, repo, query, state, limit)}
 
 
+def find_marker(owner: str, repo: str, number: int, marker: str) -> dict[str, Any]:
+    """이슈 본문이나 댓글에 marker가 있는지 {found, where, url, truncated}로 돌려준다 (쓰기 없음)."""
+    api.check_allowed(owner, repo)
+    with api.make_client() as client:
+        return api.find_marker(client, owner, repo, number, marker)
+
+
 def register(mcp: MCPServer) -> None:
     """GitHub 도구를 서버에 등록한다."""
     mcp.tool(
@@ -131,3 +138,11 @@ def register(mcp: MCPServer) -> None:
         ),
         annotations=titled(READ, "GitHub 이슈 키워드 검색"),
     )(search_issues)
+    mcp.tool(
+        description=(
+            "기존 GitHub 이슈의 본문이나 댓글에 marker 문자열이 이미 있는지 확인한다. 이슈는 바꾸지 않는다. "
+            "결과를 모르는 발행을 다시 할 때 같은 연결 댓글이나 변경 섹션이 이미 반영됐는지 볼 때 쓴다. "
+            "truncated가 true면 댓글이 많아 끝까지 보지 못한 것이므로 없다고 단정하지 않는다."
+        ),
+        annotations=titled(READ, "GitHub 이슈 표식 확인"),
+    )(find_marker)

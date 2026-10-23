@@ -35,7 +35,9 @@ public class TicketService {
         CONFIRM(TicketStatus.PENDING_REVIEW, TicketStatus.CONFIRMED),
         REJECT(TicketStatus.PENDING_REVIEW, TicketStatus.REJECTED),
         REOPEN(TicketStatus.CONFIRMED, TicketStatus.PENDING_REVIEW),
-        RESTORE(TicketStatus.REJECTED, TicketStatus.PENDING_REVIEW);
+        RESTORE(TicketStatus.REJECTED, TicketStatus.PENDING_REVIEW),
+        // 발행 실패 티켓은 다시 시도(PublishService.retry)하거나, 고친 뒤 다시 확인하려고 검토 대기로 되돌린다
+        REVISE(TicketStatus.FAILED, TicketStatus.PENDING_REVIEW);
 
         final TicketStatus from;
         final TicketStatus to;
@@ -57,6 +59,15 @@ public class TicketService {
 
     @Transactional
     public MyTicketService.Ticket restore(UUID id, Long userId) { return move(id, userId, Action.RESTORE); }
+
+    // 실패한 티켓을 수정하려고 검토 대기로 되돌린다. 지난 발행 결과는 비우고, 결과 모름이었다면 표시만 남긴다.
+    @Transactional
+    public MyTicketService.Ticket revise(UUID id, Long userId) {
+        TaskItem item = ownedBy(id, userId);
+        if (item.getTicketStatus() != Action.REVISE.from) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+        item.reviseFailed();
+        return view.view(item);
+    }
 
     private MyTicketService.Ticket move(UUID id, Long userId, Action action) {
         TaskItem item = ownedBy(id, userId);

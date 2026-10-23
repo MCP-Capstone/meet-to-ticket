@@ -55,7 +55,14 @@ public class MyTicketService {
                 i.getTask().getCreatedAt(),
                 content.path("description").asText(null),
                 new Due(blankToNull(due.path("text").asText(null)), date(due.path("date").asText(null)), blankToNull(due.path("time").asText(null))),
-                assignee == null ? null : new Assignee(assignee.getId(), assignee.getName()));
+                assignee == null ? null : new Assignee(assignee.getId(), assignee.getName()),
+                i.getTicketStatus() == TicketStatus.FAILED ? failure(i) : null);
+    }
+
+    // 실패 카드가 다시 시도할지, 먼저 GitHub를 확인할지 안내하는 데 쓴다.
+    private static PublishFailure failure(TaskItem i) {
+        return new PublishFailure(i.getPublishErrorCode(), i.getErrorMessage(), PublishFailureCategory.of(i.getPublishErrorCode()),
+                i.isPublishRetryable(), i.mustRecheckOnPublish());
     }
 
     // 카드가 그릴 중복 판단 결과 (REQ-026). 판단하지 않았거나 건너뛰었으면 judged=false.
@@ -115,7 +122,15 @@ public class MyTicketService {
             @Schema(description = "분석 접수 시각", requiredMode = Schema.RequiredMode.REQUIRED, example = "2026-10-22T10:31:00+09:00") OffsetDateTime createdAt,
             @Schema(description = "티켓 본문(작업 내용). 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "CSV 내보내기에서 결과가 비면 오류가 난다.") String description,
             @Schema(description = "기한", requiredMode = Schema.RequiredMode.REQUIRED) Due due,
-            @Schema(description = "담당 멤버. 담당 지정 필요 상태면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) Assignee assignee) {}
+            @Schema(description = "담당 멤버. 담당 지정 필요 상태면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) Assignee assignee,
+            @Schema(description = "발행 실패 사유. 실패 상태가 아니면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) PublishFailure publishFailure) {}
+
+    public record PublishFailure(
+            @Schema(description = "실패 사유 코드 (예: GITHUB_FORBIDDEN)", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "GITHUB_RATE_LIMIT") String errorCode,
+            @Schema(description = "실패 사유", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "잠시 후 다시 시도하세요.") String errorMessage,
+            @Schema(description = "실패 분류. REPOSITORY_PERMISSION이면 PM이 프로젝트 설정에서 저장소 권한을 풀어야 한다", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "OTHER") PublishFailureCategory failureCategory,
+            @Schema(description = "다시 시도해도 되는 실패인지", requiredMode = Schema.RequiredMode.REQUIRED, example = "true") boolean retryable,
+            @Schema(description = "요청은 갔지만 결과를 모르는 경우(이전 시도 포함). 다시 시도하기 전에 GitHub에서 확인해야 한다", requiredMode = Schema.RequiredMode.REQUIRED, example = "false") boolean outcomeUnknown) {}
 
     public record Dedupe(
             @Schema(description = "중복 판단을 했는지. false면 카드에 \"중복 판단 안 됨\"을 표시", requiredMode = Schema.RequiredMode.REQUIRED, example = "true") boolean judged,

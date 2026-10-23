@@ -313,6 +313,7 @@ business-mcp/
 |---|---|---|---|---|
 | `create_issue` | 발행 (신규) | `owner`, `repo`, `title`, `body`, `labels`, `assignees` | `{status: "created", number, url, assignees, dropped_assignees, dropped_labels}` | 아니요 (이슈가 하나 더 생김) |
 | `add_comment` | SAME 기존 이슈 연결 | `owner`, `repo`, `number`, `body` | `{status: "commented", comment_id, url}` | 아니요 (댓글이 하나 더 생김) |
+| `find_marker` | 결과 모름 재발행의 중복 방지 | `owner`, `repo`, `number`, `marker` | `{found, where, url, truncated}` | 예 (읽기 전용) |
 | `update_issue` | CHANGE 기존 이슈 반영 | `owner`, `repo`, `number`, `append_section`, `add_labels`, `note` | `{status: "updated", number, url, dropped_labels, comment_id, comment_url, comment_error}` | 아니요 (본문·댓글이 달라짐) |
 | `list_labels` | 초안 라벨 고르기 | `owner`, `repo` | `{labels: [{name, description}]}` | 예 |
 | `check_member_permissions` | 프로젝트 저장(멤버 권한 표시) | `owner`, `repo`, `github_names` | `{members: [{github_name, permission}]}` | 예 |

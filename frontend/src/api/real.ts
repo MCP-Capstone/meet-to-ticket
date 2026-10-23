@@ -1,8 +1,11 @@
 import { request } from './client'
 import type {
+  DispatchResult,
+  DispatchTicket,
   AnalysisTask,
   MyTicket,
   MyTicketList,
+  PublishStarted,
   TicketEditRequest,
   TicketAction,
   LoginRequest,
@@ -42,6 +45,10 @@ export const realApi = {
 
   changeTicketStatus: (ticketId: string, action: TicketAction) =>
     request<MyTicket>(`/tickets/${encodeURIComponent(ticketId)}/${action}`, { method: 'POST' }),
+
+  // 실패한 티켓 하나를 다시 발행한다. 202는 접수이고 결과는 내 티켓을 다시 조회해 확인한다.
+  retryTicket: (ticketId: string) =>
+    request<PublishStarted>(`/tickets/${encodeURIComponent(ticketId)}/retry`, { method: 'POST' }),
 
   // 내 프로젝트 목록과 백엔드 실행 모드(MOCK / LIVE)
   listProjects: () => request<ProjectList>('/projects'),
@@ -94,4 +101,11 @@ export const realApi = {
 
   // 작업이 끝난 뒤에만 호출한다. 끝나기 전에는 409 TASK_NOT_FINISHED
   getAnalysisItems: (taskId: string) => request<TaskItemList>(`/analysis-tasks/${taskId}/items`),
+
+  // 전송 결과 (TASK-023, 024). 작업이 끝난 뒤에만 호출한다
+  getDispatchResult: (taskId: string) => request<DispatchResult>(`/analysis-tasks/${taskId}/tickets`),
+
+  // 담당 지정 필요 티켓에 대표 담당을 지정해 보낸다 (TASK-025). 회의록을 올린 사람만 할 수 있다
+  assignTicket: (ticketId: string, memberId: number) =>
+    request<DispatchTicket>(`/tickets/${ticketId}/assignee`, { method: 'PUT', body: JSON.stringify({ memberId }) }),
 }

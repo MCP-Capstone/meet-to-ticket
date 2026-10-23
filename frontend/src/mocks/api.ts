@@ -1,10 +1,13 @@
 import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
-import type { AnalysisProgress, AnalysisTask, DirectoryUser, ExecutionMode, Meeting, ProgressStep, StartAnalysisResponse, TaskStage, User } from '../api/types'
-import { listMockTickets, editMockTicket, changeMockTicket } from './tickets'
+
+import type { AnalysisTask, DirectoryUser, DispatchResult, ExecutionMode, Meeting, StartAnalysisResponse, TaskStage, User } from '../api/types'
+import { listMockTickets, editMockTicket, changeMockTicket, retryMockTicket } from './tickets'
 import { mockItems } from './data'
+import { countOf, makeMockDispatch } from './dispatch'
 import { readMeetingFile, validateMeetingText, validMeetingDate } from '../meetingInput'
 import { changeMockProjectRole, getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
+import type { AnalysisProgress, ProgressStep } from '../api/types'
 
 // 백엔드 없이 화면을 개발하기 위한 가짜 API. realApi와 같은 형태를 유지한다.
 
@@ -18,6 +21,8 @@ const EXECUTION_MODE: ExecutionMode = 'MOCK'
 
 // 작업별 시작 시각. 경과 시간으로 상태를 흉내 낸다.
 const tasks = new Map<string, { meetingId: number; startedAt: number }>()
+// 전송 결과는 대표 담당 지정이 남도록 작업마다 한 번 만들어 둔다
+const dispatches = new Map<string, DispatchResult>()
 const analyzedMeetings = new Set<number>()
 const meetingMemberCounts = new Map<number, number>()
 
@@ -167,6 +172,10 @@ export const mockApi: typeof realApi = {
   async changeTicketStatus(ticketId, action) {
     await delay(300)
     return changeMockTicket(requireLogin(), ticketId, action)
+  },
+  async retryTicket(ticketId) {
+    await delay(300)
+    return retryMockTicket(requireLogin(), ticketId)
   },
 
   async listProjects() {
@@ -328,5 +337,29 @@ export const mockApi: typeof realApi = {
         drafts: count('DRAFT'),
       },
     }
+  },
+
+  async getDispatchResult(taskId) {
+    await delay(200)
+    const user = requireLogin()
+    if (!tasks.has(taskId)) throw fail(404, 'TASK_NOT_FOUND', '분석 작업을 찾을 수 없습니다.')
+    if (!dispatches.has(taskId)) dispatches.set(taskId, makeMockDispatch(taskId, user.name))
+    return dispatches.get(taskId)!
+  },
+
+  async assignTicket(ticketId, memberId) {
+    await delay(200)
+    requireLogin()
+    for (const result of dispatches.values()) {
+      const target = result.tickets.find((t) => t.ticket.ticketId === ticketId)
+      if (!target) continue
+      if (target.ticket.status !== 'ASSIGNEE_REQUIRED') throw fail(409, 'TICKET_STATUS_CONFLICT', '현재 티켓 상태에서는 할 수 없는 작업입니다.')
+      const m = result.members.find((x) => x.memberId === memberId)
+      if (!m) throw fail(404, 'PROJECT_MEMBER_NOT_FOUND', '프로젝트 멤버가 아닌 사용자입니다.')
+      target.ticket = { ...target.ticket, status: 'PENDING_REVIEW', assignee: { projectMemberId: m.memberId, name: m.name } }
+      result.counts = countOf(result.tickets)
+      return target
+    }
+    throw fail(404, 'TICKET_NOT_FOUND', '티켓을 찾을 수 없습니다.')
   },
 }

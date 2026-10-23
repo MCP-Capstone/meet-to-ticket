@@ -223,15 +223,71 @@ export interface TaskItemList {
   summary: TaskSummary
 }
 
+// ---------------------------------------------------------------- 전송 결과 (TASK-023, 024, 025)
+// 회의록 처리가 끝난 뒤 업로더가 보는 화면. GET /analysis-tasks/{taskId}/tickets
+
+// 기획 4.2 티켓 상태
+export type TicketStatus =
+  | 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'PUBLISHING' | 'REJECTED' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'FAILED'
+export type ProcessingType = 'CREATE' | 'LINK' | 'UPDATE'
+export type PublishTarget = 'GITHUB' | 'SLACK' | 'NOTION'
+
+// 내 티켓 조회(GET /tickets/me)와 같은 형식
+export interface Ticket {
+  ticketId: string
+  title: string
+  status: TicketStatus
+  processingType: ProcessingType
+  publishTarget: PublishTarget
+  dedupe: {
+    judged: boolean
+    relation: 'SAME' | 'CHANGE' | 'RELATED' | 'UNRELATED' | null
+    issue: { number: number; title: string | null; state: 'open' | 'closed' | null; url: string } | null
+    // 신규 발행인데 같은 작업이나 관련 이슈가 있으면 true ("겹칠 수 있음")
+    overlap: boolean
+    reason: string | null
+  }
+  meetingTitle: string
+  description: string | null
+  due: { text: string | null; date: string | null; time: string | null }
+  // 받은 사람. 담당 지정 필요면 null
+  assignee: { projectMemberId: number; name: string } | null
+}
+
+export interface DispatchTicket {
+  ticket: Ticket
+  // 받은 사람이 로그인 사용자인지 ("나"로 표시)
+  mine: boolean
+  // GitHub 티켓만 있다. 읽기 전용
+  preview: { body: string | null; labels: string[]; evidenceQuotes: string[] } | null
+}
+
+export interface DispatchResult {
+  taskId: string
+  counts: { total: number; pendingReview: number; linked: number; assigneeRequired: number }
+  tickets: DispatchTicket[]
+  // 회의록을 올린 사람이면 true. 대표 담당을 지정할 수 있다
+  canAssign: boolean
+  members: { memberId: number; name: string }[]
+}
+
 export interface ApiError {
   code: string
   message: string
 }
 
-// TASK-026·028·029 서버 계약. 분석 결과의 reviewStatus와 구분한다.
-export type TicketStatus = 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'REJECTED' | 'PUBLISHING' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'FAILED'
-export type TicketAction = 'confirm' | 'reject' | 'reopen' | 'restore'
+// TASK-026·028·029 서버 계약. 티켓 상태(TicketStatus)는 분석 결과의 reviewStatus와 구분한다.
+export type TicketAction = 'confirm' | 'reject' | 'reopen' | 'restore' | 'revise'
 export interface TicketDue { text: string | null; date: string | null; time: string | null }
+// 발행에 실패한 티켓의 사유. outcomeUnknown이면 GitHub에 이미 반영됐을 수 있다.
+export interface PublishFailure {
+  errorCode: string | null
+  errorMessage: string | null
+  failureCategory: 'REPOSITORY_PERMISSION' | 'OTHER' | null
+  retryable: boolean
+  outcomeUnknown: boolean
+}
+export interface PublishStarted { batchId: string; count: number }
 export interface MyTicket {
   ticketId: string
   title: string
@@ -247,9 +303,10 @@ export interface MyTicket {
   description: string | null
   due: TicketDue
   assignee: { projectMemberId: number; name: string } | null
+  publishFailure: PublishFailure | null
 }
 export interface MyTicketList {
-  counts: { pendingReview: number; confirmed: number; rejected: number }
+  counts: { pendingReview: number; confirmed: number; rejected: number; failed: number }
   tickets: MyTicket[]
 }
 export interface TicketEditRequest {
