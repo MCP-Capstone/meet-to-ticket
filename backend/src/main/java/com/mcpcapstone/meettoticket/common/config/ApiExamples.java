@@ -274,10 +274,13 @@ public final class ApiExamples {
              "tickets":[
                {"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정","status":"PUBLISHED","processingType":"CREATE",
                 "projectId":1,"projectName":"CSV 내보내기","githubIssueNumber":42,"githubIssueUrl":"https://github.com/MCP-Capstone/mcp-capstone/issues/42",
-                "errorCode":null,"errorMessage":null,"retryable":false,"outcomeUnknown":false},
+                "errorCode":null,"errorMessage":null,"failureCategory":null,"retryable":false,"outcomeUnknown":false},
                {"ticketId":"7a0b1c52-5d34-4a8e-9b7a-1f2e3d4c5b6a","title":"API 문서 갱신","status":"FAILED","processingType":"CREATE",
                 "projectId":1,"projectName":"CSV 내보내기","githubIssueNumber":null,"githubIssueUrl":null,
-                "errorCode":"GITHUB_FORBIDDEN","errorMessage":"저장소에 이슈를 만들 권한이 없습니다.","retryable":false,"outcomeUnknown":false}]}""";
+                "errorCode":"GITHUB_FORBIDDEN","errorMessage":"저장소에 이슈를 만들 권한이 없습니다.","failureCategory":"REPOSITORY_PERMISSION","retryable":false,"outcomeUnknown":false}]}""";
+
+    public static final String RETRY_STARTED = """
+            {"batchId":"8c2e4a10-7b3d-4f55-a1e2-6d9f0b3c7a44","count":1}""";
 
     public static final String ERROR_NO_CONFIRMED_TICKETS = """
             {

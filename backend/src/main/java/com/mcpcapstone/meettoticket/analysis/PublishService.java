@@ -39,8 +39,7 @@ public class PublishService {
     // Agent 호출은 트랜잭션 밖에서 해 DB 연결을 붙잡지 않는다.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public Started start(Long userId, Long projectId) {
-        record Prepared(UUID batchId, PublishGateway.Request request) {}
-        Prepared prepared = tx.execute(status -> {
+        return dispatch(tx.execute(status -> {
             List<TaskItem> picked = new ArrayList<>();
             for (UUID id : items.findIdsAssignedTo(userId, TicketStatus.CONFIRMED, projectId)) {
                 // 잠근 뒤 다시 확인해야 그 사이 발행 중으로 바뀐 티켓을 걸러낸다.
@@ -50,21 +49,44 @@ public class PublishService {
                         .ifPresent(picked::add);
             }
             if (picked.isEmpty()) throw new BusinessException(ErrorCode.NO_CONFIRMED_TICKETS);
-            PublishBatch batch = batches.save(new PublishBatch(users.getReferenceById(userId), gateway.mode()));
-            List<PublishGateway.Ticket> tickets = new ArrayList<>();
-            for (TaskItem i : picked) {
-                tickets.add(toTicket(i));
-                i.startPublishing(batch);
-            }
-            return new Prepared(batch.getId(), new PublishGateway.Request(batch.getId().toString(), tickets));
-        });
+            return prepare(userId, picked);
+        }));
+    }
 
+    // 실패한 티켓 하나를 다시 발행한다 (REQ-019). 담당자만 할 수 있고 실패 상태가 아니면 409다.
+    // 티켓 행을 잠근 뒤 발행 중으로 바꾸므로 같은 티켓을 동시에 재시도해도 한쪽만 담기고 나머지는 409다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public Started retry(UUID ticketId, Long userId) {
+        return dispatch(tx.execute(status -> {
+            TaskItem ticket = items.findForUpdate(ticketId).orElseThrow(() -> new BusinessException(ErrorCode.TICKET_NOT_FOUND));
+            var assignee = ticket.getAssignee();
+            if (assignee == null || assignee.getUser() == null || !assignee.getUser().getId().equals(userId))
+                throw new BusinessException(ErrorCode.TICKET_ASSIGNEE_REQUIRED);
+            if (ticket.getTicketStatus() != TicketStatus.FAILED) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+            return prepare(userId, List.of(ticket));
+        }));
+    }
+
+    private record Prepared(UUID batchId, PublishGateway.Request request) {}
+
+    // 묶음을 만들고 티켓을 발행 중으로 바꾼다. 트랜잭션 안에서 부른다.
+    private Prepared prepare(Long userId, List<TaskItem> picked) {
+        PublishBatch batch = batches.save(new PublishBatch(users.getReferenceById(userId), gateway.mode()));
+        List<PublishGateway.Ticket> tickets = new ArrayList<>();
+        for (TaskItem i : picked) {
+            tickets.add(toTicket(i));
+            i.startPublishing(batch);
+        }
+        return new Prepared(batch.getId(), new PublishGateway.Request(batch.getId().toString(), tickets));
+    }
+
+    private Started dispatch(Prepared prepared) {
         Optional<PublishGateway.Result> immediate;
         try {
             immediate = gateway.submit(prepared.request());
         } catch (AgentException e) {
             if (!e.uncertain()) {
-                // Agent가 받지 않은 것이 확실하면 티켓을 확인 상태로 돌려 다시 누를 수 있게 한다.
+                // Agent가 받지 않은 것이 확실하면 티켓을 되돌려 다시 누를 수 있게 한다.
                 abort(prepared.batchId(), e.getMessage());
                 throw new BusinessException(ErrorCode.AGENT_ACCEPTANCE_FAILED);
             }
@@ -184,10 +206,14 @@ public class PublishService {
 
     private static Entry entry(TaskItem i) {
         var project = i.getTask().getMeeting().getProject();
+        // 발행 중인 티켓은 이전 실패 사유를 보여 주지 않는다 (재시도 중)
+        boolean waiting = i.getTicketStatus() == TicketStatus.PUBLISHING;
+        String code = waiting ? null : i.getPublishErrorCode();
         return new Entry(
                 i.getId(), i.getTitle(), i.getTicketStatus(), i.getProcessingType(), project.getId(), project.getName(),
-                i.getGithubIssueNumber(), i.getGithubIssueUrl(), i.getPublishErrorCode(), i.getErrorMessage(),
-                i.isPublishRetryable(), i.isPublishOutcomeUnknown());
+                i.getGithubIssueNumber(), i.getGithubIssueUrl(), code, waiting ? null : i.getErrorMessage(),
+                PublishFailureCategory.of(code),
+                !waiting && i.isPublishRetryable(), !waiting && i.isPublishOutcomeUnknown());
     }
 
     // 담당자가 카드에서 고친 내용(contentJson)과 처리 유형을 그대로 보낸다. 발행 본문은 Agent가 이 내용으로 조립한다.
@@ -244,6 +270,7 @@ public class PublishService {
             @Schema(description = "이슈 URL. 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) String githubIssueUrl,
             @Schema(description = "실패 사유 코드 (예: GITHUB_FORBIDDEN)", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) String errorCode,
             @Schema(description = "실패 사유", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) String errorMessage,
+            @Schema(description = "실패 사유 분류. REPOSITORY_PERMISSION이면 PM이 프로젝트 설정에서 저장소 권한을 풀어야 하므로 화면이 프로젝트 설정으로 안내한다. 사유가 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, allowableValues = {"REPOSITORY_PERMISSION", "OTHER"}, example = "REPOSITORY_PERMISSION") PublishFailureCategory failureCategory,
             @Schema(description = "다시 시도해도 되는 실패인지", requiredMode = Schema.RequiredMode.REQUIRED) boolean retryable,
             @Schema(description = "요청은 갔지만 결과를 모르는 경우. 다시 시도하기 전에 GitHub에서 확인해야 한다", requiredMode = Schema.RequiredMode.REQUIRED) boolean outcomeUnknown) {}
 }

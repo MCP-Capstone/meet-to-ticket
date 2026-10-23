@@ -138,20 +138,17 @@ public class TaskItem {
         this.ticketStatus = status;
     }
 
-    // 확인한 티켓을 일괄 발행에 담는다. 결과가 올 때까지 다시 담을 수 없다.
+    // 확인한 티켓(또는 재시도하는 실패 티켓)을 일괄 발행에 담는다. 결과가 올 때까지 다시 담을 수 없다.
+    // 이전 실패 사유는 접수가 취소될 때 되살려야 해서 남겨 두고, 결과가 오면 덮어쓴다.
     public void startPublishing(PublishBatch batch) {
         this.publishBatch = batch;
         this.ticketStatus = TicketStatus.PUBLISHING;
-        this.publishErrorCode = null;
-        this.publishRetryable = false;
-        this.publishOutcomeUnknown = false;
-        this.errorMessage = null;
     }
 
-    // Agent가 접수하지 않은 것이 확실하면 확인 상태로 돌려놓는다.
+    // Agent가 접수하지 않은 것이 확실하면 담기 전 상태(확인 또는 실패)로 돌려놓는다.
     public void cancelPublishing() {
         this.publishBatch = null;
-        this.ticketStatus = TicketStatus.CONFIRMED;
+        this.ticketStatus = this.publishErrorCode != null ? TicketStatus.FAILED : TicketStatus.CONFIRMED;
     }
 
     public void recordPublishResult(
