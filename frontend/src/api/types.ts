@@ -63,6 +63,9 @@ export interface ProjectSaveRequest {
 }
 
 export interface ProjectDetail extends Project {
+  // 선택 메타데이터. 서버가 제공하지 않으면 화면에서 수치를 추정하지 않는다.
+  existingIssueCount?: number | null
+  notionDocumentCount?: number | null
   description: string | null
   githubOwner: string
   githubRepo: string
@@ -101,6 +104,12 @@ export interface Meeting {
   originalFilename: string
   readyForAnalysis: boolean
 }
+
+// 두 입력을 동시에 전송하지 않도록 입력 방식을 타입으로 구분한다.
+export type MeetingAnalysisInput = { meetingDate: string; title?: string } & (
+  | { file: File; content?: never }
+  | { content: string; file?: never }
+)
 
 export type TaskStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'PARTIALLY_FAILED' | 'FAILED'
 

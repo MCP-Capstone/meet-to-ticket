@@ -85,10 +85,12 @@ src/
 | POST | `/api/auth/login` | 로그인 |
 | POST | `/api/auth/logout` | 로그아웃 |
 | GET | `/api/auth/me` | 로그인 상태 확인 (새로고침 시) |
-| GET | `/api/projects` | 내 프로젝트 목록 + 백엔드 실행 모드(`MOCK` / `LIVE`). 지금은 첫 프로젝트를 쓴다 |
+| GET | `/api/projects` | 내 프로젝트 목록 + 백엔드 실행 모드(`MOCK` / `LIVE`). 업로드 화면에서 선택한다 |
 | GET | `/api/projects/{projectId}/members` | 팀원 목록. 참여자 ID를 이름으로 표시 |
-| POST | `/api/projects/{projectId}/meetings` | .txt 회의록 업로드 (multipart, `file`) |
-| POST | `/api/meetings/{meetingId}/analysis-tasks` | 분석 시작 (202, `taskId`) |
+| POST | `/api/projects/{projectId}/analysis-tasks` | 회의 저장·처리 접수 (multipart, `meetingDate`와 `file` 또는 `content`) |
+| GET | `/api/meetings/{meetingId}` | 접수한 회의 메타데이터 조회 |
+| POST | `/api/projects/{projectId}/meetings` | 기존 TXT 업로드 API (새 화면에서는 호출하지 않음) |
+| POST | `/api/meetings/{meetingId}/analysis-tasks` | 기존 분석 시작 API (새 화면에서는 호출하지 않음) |
 | GET | `/api/analysis-tasks/{taskId}` | 분석 상태 / 단계 (2초 간격 조회) |
 | GET | `/api/analysis-tasks/{taskId}/items` | 항목별 검수 / 발행 결과 + 집계 (작업이 끝난 뒤) |
 
@@ -184,6 +186,33 @@ TASK-001 전달 사항:
 - 신규 가입한 mock 사용자도 멤버 검색 목록에 포함된다. 새 프로젝트 등록자는 자동으로 관리자·멤버가 된다.
 - mock의 GitHub 연결 상태와 계정이 있는 멤버의 권한은 조회·저장 시 `null`로 반환한다. Notion·Slack 연결 상태는 고정 모의 결과이며 외부 서비스에 실제 연결하거나 검증하지 않는다.
 - 실제 API를 확인할 때는 `VITE_USE_MOCK=false`로 실행한다. 실 API 실패 시 mock으로 자동 대체하거나 저장 성공을 표시하지 않는다.
+
+## 회의록 업로드·처리 요청 (TASK-010 / #163)
+
+업로드 화면에서 프로젝트·회의 날짜를 선택하고 **파일 업로드** 또는 **텍스트 붙여넣기**를 고른 뒤 **티켓 추출**을 누른다. 회의록 안의 날짜·참석자 줄은 필수가 아니며, 상대 기한 기준은 화면에서 선택한 날짜다. 날짜를 현재 날짜로 자동 대체하지 않는다.
+
+- 파일: UTF-8 `.md`·`.txt`(대소문자 무관), 기본 10MB 이하. 빈 파일·공백뿐인 내용·NUL·잘못된 UTF-8을 사전 검사한다. 파일을 선택하거나 끌어놓는 것만으로는 서버에 요청하지 않는다.
+- 붙여넣기: 빈 내용·NUL과 UTF-8 기준 10MB 초과를 사전 검사한다. 유효한 원문은 공백·줄바꿈을 유지해 전송한다.
+- 실제 서버 한도는 `MAX_UPLOAD_SIZE` 설정을 따른다. multipart 부가 데이터도 요청 크기에 포함되므로 서버의 크기 오류 응답도 표시한다.
+- 두 입력 탭의 내용은 전환 시 유지하지만 선택한 방식의 `file` 또는 `content` 하나만 전송한다.
+- 요약: 프로젝트 상세 응답의 저장소·멤버 수·Slack 채널·연결 상태를 표시한다. `existingIssueCount`, `notionDocumentCount`는 선택 메타데이터이며 제공되지 않으면 ‘확인되지 않음’이다. Notion 문서 수는 연결이 확인된 경우만 표시한다. 현재 프로젝트 API에는 두 건수가 없어 임의의 0을 표시하지 않는다.
+- 요약 조회에 실패해도 입력은 유지하며 요약만 다시 조회할 수 있다. 요청 시 프로젝트 권한은 서버에서 다시 검사한다.
+
+처리 요청:
+
+```typescript
+const form = new FormData()
+form.append('meetingDate', meetingDate)
+form.append('content', text) // 파일 방식이면 대신 form.append('file', file)
+// POST /api/projects/{projectId}/analysis-tasks
+// 202: { taskId, meetingId, status, executionMode }
+```
+
+- 접수 시 새 POST를 한 번 호출한다. 기존 업로드·분석 시작 API는 호출하지 않는다. 요청 중 입력·프로젝트 전환·중복 제출을 막는다.
+- 실패 시 `{code, message}`의 메시지를 표시하고 입력을 유지한다. 처리 요청은 자동 재시도하지 않는다.
+- 202를 받으면 기존 `taskId` 폴링을 시작하고 회의 제목 등은 `GET /api/meetings/{meetingId}`로 보완한다. 메타데이터 조회가 실패해도 접수된 작업은 계속 조회하며 POST를 재호출하지 않는다.
+- 담당자 검토·전송 결과 화면과 진행 단계 개편은 별도 Task다. 현재 분석 파이프라인의 발행 정책은 변경하지 않는다. 실제 실행에서는 기존 `DRY_RUN` 설정을 확인한다.
+- mock에서도 새 처리 API·회의 메타데이터 조회를 지원한다. 회의 날짜·제목·파일명은 입력값을 따르며 실제 Agent·GitHub는 호출하지 않는다. mock 작업은 메모리에 있어 새로고침 후 작업 복원은 이번 범위 밖이다.
 
 ## 프로젝트 관리자 지정·해제 (#172 / TASK-056 화면 연동)
 

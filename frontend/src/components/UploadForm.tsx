@@ -1,150 +1,164 @@
-import { useState } from 'react'
-import type { ChangeEvent, DragEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent, DragEvent, FormEvent } from 'react'
 import { api } from '../api'
-import type { Meeting } from '../api'
+import type { ConnectionStatus, MeetingAnalysisInput, Project, ProjectDetail } from '../api'
+import { readMeetingFile, validateMeetingText, validMeetingDate } from '../meetingInput'
 import { sampleMeetingFileName, sampleMeetingText } from '../mocks/data'
 import { Spinner } from './Spinner'
 
-// 백엔드(Spring) 기본 업로드 한도와 같다.
-export const MAX_FILE_SIZE = 1024 * 1024
-
-const PREVIEW_LINES = 12
-
 interface Props {
-  projectId: number
-  // 참여자 ID를 이름으로 바꾼다.
-  toNames: (ids: number[]) => string[]
+  projects: Project[]
+  projectId: number | null
+  projectsLoading: boolean
+  onProjectChange: (projectId: number) => void
   starting: boolean
-  onStart: (meeting: Meeting) => void
+  onStart: (input: MeetingAnalysisInput) => Promise<void>
 }
 
-const toMessage = (e: unknown) => (e instanceof Error ? e.message : '알 수 없는 오류가 발생했습니다.')
+const toMessage = (e: unknown) => e instanceof Error ? e.message : '알 수 없는 오류가 발생했습니다.'
+const connectionLabel = (status: ConnectionStatus | null | undefined) =>
+  status === 'CONNECTED' ? '연결됨' : status === 'NOT_CONNECTED' ? '미연결' : status === 'ERROR' ? '연결 확인 실패' : '확인되지 않음'
+const countLabel = (count: number | null | undefined) =>
+  typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? `${count}개` : '확인되지 않음'
 
-const formatSize = (bytes: number) =>
-  bytes < 1024 ? `${bytes}B` : bytes < MAX_FILE_SIZE ? `${(bytes / 1024).toFixed(1)}KB` : `${(bytes / MAX_FILE_SIZE).toFixed(1)}MB`
+function ProjectSummary({ projectId }: { projectId: number }) {
+  const [detail, setDetail] = useState<ProjectDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    api.getProject(projectId).then((result) => {
+      if (!cancelled) setDetail(result)
+    }).catch((e: unknown) => {
+      if (!cancelled) setError(toMessage(e))
+    }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [projectId, attempt])
 
-function validate(file: File) {
-  if (!/\.txt$/i.test(file.name)) return '.txt 파일만 업로드할 수 있습니다.'
-  if (file.size === 0) return '빈 파일입니다.'
-  if (file.size > MAX_FILE_SIZE) return '1MB 이하 파일만 업로드할 수 있습니다.'
-  return null
+  if (loading) return <p className="inline-status" role="status"><Spinner size="sm" label="프로젝트 요약 조회 중" /> 프로젝트 정보를 불러오고 있습니다.</p>
+  if (error) return <div className="upload-context-error">
+    <p className="notice">프로젝트 요약을 불러오지 못했습니다. {error}</p>
+    <button type="button" className="link" onClick={() => { setLoading(true); setError(null); setAttempt((value) => value + 1) }}>요약 다시 불러오기</button>
+  </div>
+  if (!detail) return null
+  return <dl className="upload-project-summary" aria-label="선택한 프로젝트 요약">
+    <div><dt>GitHub 저장소</dt><dd>{detail.githubOwner}/{detail.githubRepo} · {connectionLabel(detail.connections.github)}</dd></div>
+    <div><dt>기존 이슈 수</dt><dd>{countLabel(detail.existingIssueCount)}</dd></div>
+    <div><dt>멤버 수</dt><dd>{detail.members.length}명</dd></div>
+    {detail.connections.notion === 'CONNECTED' && <div><dt>Notion 문서 수</dt><dd>{countLabel(detail.notionDocumentCount)}</dd></div>}
+    {detail.notionPageUrl && detail.connections.notion !== 'CONNECTED' && <div><dt>Notion</dt><dd>{connectionLabel(detail.connections.notion)}</dd></div>}
+    <div><dt>Slack 채널</dt><dd>{detail.slackChannelId ? `${detail.slackChannelId} · ${connectionLabel(detail.connections.slack)}` : '미연결'}</dd></div>
+  </dl>
 }
 
-export function UploadForm({ projectId, toNames, starting, onStart }: Props) {
+export function UploadForm({ projects, projectId, projectsLoading, onProjectChange, starting, onStart }: Props) {
+  const [mode, setMode] = useState<'file' | 'text'>('file')
+  const [meetingDate, setMeetingDate] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState('')
-  const [meeting, setMeeting] = useState<Meeting | null>(null)
-  const [uploading, setUploading] = useState(false)
+  const [content, setContent] = useState('')
+  const [reading, setReading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const fileRead = useRef(0)
+  const busy = starting || reading
 
-  // 파일을 고르면 바로 검사하고 업로드한다. 업로드가 끝나야 분석 버튼이 켜진다.
   const handleFile = async (selected: File) => {
+    if (starting) return
+    const token = ++fileRead.current
     setError(null)
-    setMeeting(null)
-    const invalid = validate(selected)
-    if (invalid) {
-      setFile(null)
-      setError(invalid)
-      return
-    }
-    setFile(selected)
-    setPreview((await selected.text()).split('\n').slice(0, PREVIEW_LINES).join('\n'))
-    setUploading(true)
+    setFile(null)
+    setPreview('')
+    setReading(true)
     try {
-      setMeeting(await api.uploadMeeting(projectId, selected))
+      const text = await readMeetingFile(selected)
+      if (token !== fileRead.current) return
+      setFile(selected)
+      setPreview(text.split('\n').slice(0, 12).join('\n'))
     } catch (e) {
-      setError(toMessage(e))
+      if (token === fileRead.current) setError(toMessage(e))
     } finally {
-      setUploading(false)
+      if (token === fileRead.current) setReading(false)
     }
   }
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0]
-    // 같은 파일을 다시 골라도 change가 일어나도록 비운다.
     e.target.value = ''
     if (selected) void handleFile(selected)
   }
-
   const handleDrop = (e: DragEvent<HTMLLabelElement>) => {
     e.preventDefault()
     setDragOver(false)
-    const dropped = e.dataTransfer.files[0]
-    if (dropped) void handleFile(dropped)
+    if (busy) return
+    const selected = e.dataTransfer.files[0]
+    if (selected) void handleFile(selected)
+  }
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (busy) return
+    setError(null)
+    if (projectId === null) { setError('프로젝트를 선택해 주세요.'); return }
+    if (!validMeetingDate(meetingDate)) { setError('회의 날짜를 올바르게 선택해 주세요.'); return }
+    if (mode === 'file') {
+      if (!file) { setError('회의록 파일을 선택해 주세요.'); return }
+      await onStart({ meetingDate, file })
+    } else {
+      const invalid = validateMeetingText(content)
+      if (invalid) { setError(invalid); return }
+      await onStart({ meetingDate, content })
+    }
   }
 
-  const useSample = () => {
-    void handleFile(new File([sampleMeetingText], sampleMeetingFileName, { type: 'text/plain' }))
-  }
-
-  const busy = uploading || starting
-
-  return (
-    <section className="card">
-      <div className="card-header">
-        <div>
-          <h2>회의록 업로드</h2>
-          <p className="muted">.txt 회의록을 올리면 AI가 할 일을 추출하고, 검수를 통과한 항목을 GitHub 이슈로 발행합니다.</p>
-        </div>
-        <button type="button" className="link" onClick={useSample} disabled={busy}>
-          샘플 파일 사용
-        </button>
+  return <form className="card upload-form" onSubmit={handleSubmit}>
+    <div className="card-header"><div>
+      <h2>회의록 업로드</h2>
+      <p className="muted">프로젝트와 회의 날짜를 선택하고, 파일을 올리거나 회의록을 붙여넣어 주세요.</p>
+    </div></div>
+    <fieldset className="upload-fields" disabled={starting}>
+      <div className="row upload-settings">
+        <label>프로젝트 (필수)
+          <select value={projectId ?? ''} onChange={(e) => { if (e.target.value) { onProjectChange(Number(e.target.value)); setError(null) } }} disabled={projectsLoading || busy} required>
+            <option value="" disabled>{projectsLoading ? '프로젝트 불러오는 중' : '프로젝트를 선택하세요'}</option>
+            {projects.map((project) => <option key={project.projectId} value={project.projectId}>{project.name}</option>)}
+          </select>
+        </label>
+        <label>회의 날짜 (필수)
+          <input type="date" value={meetingDate} onChange={(e) => { setMeetingDate(e.target.value); setError(null) }} required />
+        </label>
       </div>
-
-      <label
-        className={`dropzone ${dragOver ? 'over' : ''} ${busy ? 'disabled' : ''}`}
-        onDragOver={(e) => {
-          e.preventDefault()
-          setDragOver(true)
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={handleDrop}
-      >
-        <input type="file" accept=".txt,text/plain" onChange={handleChange} disabled={busy} hidden />
-        <strong>{file ? '다른 파일 선택' : '.txt 파일을 끌어놓거나 클릭해서 선택하세요'}</strong>
-        <span className="muted">최대 1MB, 제목 / 회의 일시 / 회의 참여자가 적힌 회의록 (참여자는 팀원 이름과 같아야 합니다)</span>
-      </label>
-
-      {error && <p className="error">{error}</p>}
-
-      {file && (
-        <div className="file">
-          <div className="file-name">
-            <strong>{file.name}</strong>
-            <span className="muted">{formatSize(file.size)}</span>
+      {!projectsLoading && projects.length === 0 && <p className="notice">참여 중인 프로젝트가 없습니다. 프로젝트 설정에서 먼저 등록해 주세요.</p>}
+      {projectId !== null && <ProjectSummary key={projectId} projectId={projectId} />}
+      <div className="tabs" role="tablist" aria-label="회의록 입력 방식">
+        <button type="button" role="tab" id="meeting-file-tab" aria-selected={mode === 'file'} aria-controls="meeting-file-panel" className={mode === 'file' ? 'active' : ''} disabled={busy} onClick={() => { setMode('file'); setError(null) }}>파일 업로드</button>
+        <button type="button" role="tab" id="meeting-text-tab" aria-selected={mode === 'text'} aria-controls="meeting-text-panel" className={mode === 'text' ? 'active' : ''} disabled={busy} onClick={() => { setMode('text'); setError(null) }}>텍스트 붙여넣기</button>
+      </div>
+      {mode === 'file' ? <div id="meeting-file-panel" role="tabpanel" aria-labelledby="meeting-file-tab" className="upload-panel">
+        <label className={`dropzone ${dragOver ? 'over' : ''} ${busy ? 'disabled' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); if (!busy) setDragOver(true) }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop}>
+          <input type="file" className="sr-only" aria-label="회의록 파일 선택" accept=".md,.txt,text/markdown,text/plain" onChange={handleChange} disabled={busy} />
+          <strong>{file ? '다른 파일 선택' : 'MD/TXT 파일을 끌어놓거나 클릭해서 선택하세요'}</strong>
+          <span className="muted">UTF-8 · 최대 10MB · 파일을 고른 뒤 티켓 추출을 눌러 주세요.</span>
+        </label>
+        <button type="button" className="link" disabled={busy} onClick={() => { void handleFile(new File([sampleMeetingText], sampleMeetingFileName, { type: 'text/plain' })) }}>샘플 파일 사용</button>
+        {reading && <p className="inline-status" role="status"><Spinner size="sm" label="파일 확인 중" /> 파일을 확인하고 있습니다.</p>}
+        {file && <div className="file">
+          <div className="file-name"><strong>{file.name}</strong><span className="muted">{file.size < 1024 ? `${file.size}B` : `${(file.size / 1024).toFixed(1)}KB`}</span>
+            <button type="button" className="link" disabled={busy} onClick={() => { ++fileRead.current; setFile(null); setPreview(''); setError(null) }}>파일 제거</button>
           </div>
-
-          {uploading && (
-            <p className="inline-status">
-              <Spinner size="sm" label="업로드 중" /> 업로드하고 회의 정보를 읽는 중입니다...
-            </p>
-          )}
-
-          {meeting && (
-            <dl className="meeting-info">
-              <dt>제목</dt>
-              <dd>{meeting.title}</dd>
-              <dt>날짜</dt>
-              <dd>{meeting.meetingDate}</dd>
-              <dt>참여자</dt>
-              <dd>{meeting.participantIds.length > 0 ? toNames(meeting.participantIds).join(', ') : '없음'}</dd>
-            </dl>
-          )}
-
           <pre className="preview">{preview}</pre>
-        </div>
-      )}
-
-      <button type="button" className="primary" disabled={!meeting || busy} onClick={() => meeting && onStart(meeting)}>
-        {starting ? (
-          <>
-            <Spinner size="sm" label="분석 요청 중" /> 분석 요청 중...
-          </>
-        ) : (
-          '분석 시작'
-        )}
-      </button>
-    </section>
-  )
+        </div>}
+      </div> : <div id="meeting-text-panel" role="tabpanel" aria-labelledby="meeting-text-tab" className="upload-panel">
+        <label>회의록 내용
+          <textarea rows={12} value={content} placeholder="회의록 요약본을 붙여넣어 주세요." onChange={(e) => { setContent(e.target.value); setError(null) }} />
+        </label>
+        <p className="muted">회의록 안에 회의 날짜나 참석자 줄이 없어도 됩니다.</p>
+      </div>}
+    </fieldset>
+    {error && <p className="error" role="alert">{error}</p>}
+    <button type="submit" className="primary" disabled={busy || projectsLoading || projectId === null || !meetingDate || (mode === 'file' ? !file : !content.trim())}>
+      {starting ? <><Spinner size="sm" label="회의록 처리 요청 중" /> 처리 요청 중...</> : '티켓 추출'}
+    </button>
+  </form>
 }
