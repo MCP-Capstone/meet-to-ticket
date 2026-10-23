@@ -28,7 +28,7 @@ public class UserController {
 
 	private final UserRepository users;
 
-	@Operation(operationId = "searchUsers", summary = "가입 사용자 검색", description = "이름 또는 GitHub 계정으로 찾는다. 검색어가 비어 있으면 가입 사용자를 이름순으로 최대 20명 돌려준다.")
+	@Operation(operationId = "searchUsers", summary = "가입 사용자 검색", description = "이름 또는 GitHub 계정으로 찾는다. 검색어가 비어 있으면 가입 사용자를 이름순으로 최대 20명 돌려준다. Slack 이메일·사용자 ID도 프로젝트 멤버 설정용으로 함께 준다.")
 	@ApiResponse(responseCode = "200", description = "사용자 목록", content = @Content(schema = @Schema(implementation = UserList.class),
 			examples = @ExampleObject(value = ApiExamples.USERS)))
 	@ApiResponse(responseCode = "401", description = "로그인 세션 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
@@ -38,7 +38,7 @@ public class UserController {
 			@Parameter(description = "이름 또는 GitHub 계정 일부", example = "함")
 			@RequestParam(defaultValue = "") String keyword) {
 		List<UserSummary> found = users.search(keyword.trim(), PageRequest.of(0, SEARCH_LIMIT)).stream()
-				.map(u -> new UserSummary(u.getId(), u.getName(), u.getGithubName()))
+				.map(u -> new UserSummary(u.getId(), u.getName(), u.getGithubName(), u.getSlackEmail(), u.getSlackUserId()))
 				.toList();
 		return new UserList(found);
 	}
@@ -50,6 +50,8 @@ public class UserController {
 	public record UserSummary(
 			@Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "1") Long userId,
 			@Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "함주헌") String name,
-			@Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "juhun-ham") String githubName) {
+			@Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "juhun-ham") String githubName,
+			@Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "member@example.com") String slackEmail,
+			@Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "U0123456789") String slackUserId) {
 	}
 }
