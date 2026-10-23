@@ -19,6 +19,13 @@ _RETRYABLE = {"GITHUB_RATE_LIMIT", "GITHUB_ERROR", "MCP_UNAVAILABLE", "PUBLISH_F
 def _ticket(source: PublishTicket) -> dict[str, Any]:
     """저장된 contentJson을 기존 본문·연결 문안 함수가 쓰는 내부 티켓 모양으로 바꾼다."""
     content = dict(source.content_json)
+    assignees = content.get("assignees")
+    if isinstance(assignees, dict):
+        content.update({
+            "assignee_names": assignees.get("names") or [],
+            "assignees": assignees.get("github") or [],
+            "unresolved_assignees": assignees.get("unresolved") or [],
+        })
     content.update({
         "title": source.title,
         "work_key": content.get("work_key") or source.ticket_id,
