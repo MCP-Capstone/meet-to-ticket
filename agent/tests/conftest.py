@@ -82,6 +82,7 @@ class FakeLLM:
         self.rows = rows or []
         self.bad_quote_for = bad_quote_for or set()
         self.draft_calls: list[list[dict[str, Any]]] = []
+        self.draft_labels: list[list[str] | None] = []
         self.review_contexts: list[Any] = []
 
     async def extract_rows(self, summary: str) -> list[ActionRowOut]:
@@ -90,11 +91,12 @@ class FakeLLM:
             raise AgentFatal("LLM_ERROR", "boom")
         return self.rows
 
-    async def draft(self, summary: str, items: list[dict[str, Any]]) -> list[DraftTicket]:
+    async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None) -> list[DraftTicket]:
         if self.fail_on == "draft":
             from state import AgentFatal
             raise AgentFatal("LLM_ERROR", "boom")
         self.draft_calls.append(items)
+        self.draft_labels.append(labels)
         out = []
         for it in items:
             quote = it["action"]
@@ -104,9 +106,11 @@ class FakeLLM:
                 work_key=it["work_key"],
                 title=f"{it['action']}" + (" (수정)" if "feedback" in it else ""),
                 description=f"{it['action']}을(를) 진행한다. 가나다라 표시.",
+                tasks=[f"{it['action']} 작업"],
                 acceptance_criteria=["결과를 팀에 공유한다"],
                 evidence_quotes=[quote],
                 open_questions=[],
+                labels=[*(labels or [])[:1], "후보에 없는 라벨"],  # 후보 밖 라벨은 코드가 뺀다
             ))
         return out
 

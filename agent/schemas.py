@@ -29,6 +29,7 @@ class Project(CamelModel):
     name: str = Field("", description="프로젝트 또는 팀원 이름")
     github_owner: str = Field(description="GitHub 소유자 또는 조직")
     github_repo: str = Field(description="GitHub 저장소명")
+    labels: list[str] = Field(default_factory=list, description="저장소에 있는 라벨 이름. 초안 라벨 후보. 비면 Agent 설정 ISSUE_LABELS를 후보로 씀")
 
 
 class Meeting(CamelModel):
@@ -126,9 +127,11 @@ class DraftTicket(BaseModel):
     work_key: str = Field(description="입력으로 받은 work_key를 그대로")
     title: str = Field(description="이슈 제목. 한국어, 무엇을 하는지 드러나는 명사형·동사형, 60자 이내")
     description: str = Field(description="할 일 설명 2~4문장. 회의 요약에 있는 내용만")
+    tasks: list[str] = Field(description="상세 작업 체크리스트 1~5개. 회의 요약에 있는 범위 안의 작업 단계")
     acceptance_criteria: list[str] = Field(description="확인 가능한 완료 조건 1~5개")
     evidence_quotes: list[str] = Field(description="근거가 되는 회의 요약 원문 문장을 글자 그대로 1~3개")
     open_questions: list[str] = Field(description="이 할 일과 관련된 미결 질문 원문. 없으면 빈 목록")
+    labels: list[str] = Field(description="라벨 후보 중에서만 고른 0~3개. 후보가 없거나 맞는 라벨이 없으면 빈 목록")
 
 
 class DraftBatch(BaseModel):

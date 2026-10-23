@@ -119,24 +119,57 @@ def dedupe_link(dedupe: dict[str, Any] | None) -> str | None:
     }.get(dedupe["relation"])
 
 
+MAX_LABELS = 3
+
+
+def pick_labels(chosen: list[str], candidates: list[str]) -> list[str]:
+    """후보에 있는 라벨만 후보의 표기 그대로 남긴다 (대소문자 무시, 중복 제거, 최대 MAX_LABELS개)."""
+    by_lower = {c.strip().lower(): c.strip() for c in candidates if c.strip()}
+    picked: list[str] = []
+    for label in chosen:
+        name = by_lower.get(label.strip().lower())
+        if name and name not in picked:
+            picked.append(name)
+    return picked[:MAX_LABELS]
+
+
+def related_lines(ticket: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """본문의 관련 이슈 줄과 상위 이슈 줄.
+
+    회의록 예상 처리가 "하위 티켓"이면 그 키는 상위 이슈로, 아니면 관련 키로 적는다.
+    중복 판단으로 찾은 기존 이슈(#번호)는 관련 이슈로 적는다.
+    """
+    expected = ticket.get("expected") or {}
+    keys = expected.get("keys") or []
+    parent = keys if expected.get("kind") == "sub_ticket" else []
+    related: list[str] = []
+    if expected.get("raw"):
+        related.append(f"회의록 예상 처리: {expected['raw']}")
+    if keys and not parent:
+        related.append(f"관련 키: {', '.join(keys)}")
+    link = dedupe_link(ticket.get("dedupe"))
+    if link:
+        related.append(link)
+    return related, parent
+
+
 def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str) -> str:
-    lines: list[str] = []
-    if background:
-        lines += ["## 배경", _shorten(background, 700), ""]
-    lines += ["## 할 일", ticket.get("description") or ticket.get("action_text", ""), ""]
+    """이슈 본문 (기획_v16 REQ-009). MCP는 이 본문을 그대로 올린다. 값이 없는 칸은 담당·기한을 빼고 생략한다."""
+    lines: list[str] = ["## 작업 내용", ticket.get("description") or ticket.get("action_text", ""), ""]
+
+    tasks = ticket.get("tasks") or []
+    if tasks:
+        lines += ["## 상세 작업", *[f"- [ ] {x}" for x in tasks], ""]
 
     criteria = ticket.get("acceptance_criteria") or []
     if criteria:
-        lines += ["## 완료 조건", *[f"- [ ] {c}" for c in criteria], ""]
+        lines += ["## 완료 조건", *[f"- {c}" for c in criteria], ""]
 
     quotes = ticket.get("evidence_quotes") or []
     if quotes:
         lines += ["## 근거"]
         for q in quotes:
             lines += [f"> {q}", ""]
-
-    due = Due(**(ticket.get("due") or {"text": ""}))
-    lines += ["## 기한", due.display(), ""]
 
     names = ticket.get("assignee_names") or []
     logins = ticket.get("assignees") or []
@@ -149,26 +182,26 @@ def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str) -
         lines += [f"- GitHub 계정 미매핑: {', '.join(unresolved)}"]
     lines += [""]
 
-    expected = ticket.get("expected") or {}
-    link = dedupe_link(ticket.get("dedupe"))
-    if expected.get("raw") or expected.get("keys") or link:
-        lines += ["## 관련"]
-        if expected.get("raw"):
-            lines += [f"- 회의록 예상 처리: {expected['raw']}"]
-        if expected.get("keys"):
-            lines += [f"- 관련 키: {', '.join(expected['keys'])}"]
-        if link:
-            lines += [f"- {link}"]
-        lines += [""]
+    due = Due(**(ticket.get("due") or {"text": ""}))
+    lines += ["## 기한", due.display(), ""]
 
-    notes = ticket.get("review_notes") or []
-    if ticket.get("fallback") and notes:
-        lines += ["## 검수 메모", "자동 검수에서 아래 지적이 남아 회의록 원문 기준 기본 초안으로 발행했습니다.",
-                  *[f"- {n}" for n in notes], ""]
+    related, parent = related_lines(ticket)
+    if related:
+        lines += ["## 관련 이슈", *[f"- {x}" for x in related], ""]
+    if parent:
+        lines += ["## 상위 이슈", *[f"- {x}" for x in parent], ""]
 
     questions = ticket.get("open_questions") or []
     if questions:
         lines += ["## 확인 필요", *[f"- {q}" for q in questions], ""]
 
-    lines += ["---", f"회의: {meeting_id} · work_key: {ticket.get('work_key') or '-'} · 회의 후속조치 Agent가 자동 발행"]
+    notes = ticket.get("review_notes") or []
+    if ticket.get("fallback") and notes:
+        lines += ["## 검수 메모", "자동 검수에서 아래 지적이 남아 회의록 원문 기준 기본 초안으로 작성했습니다.",
+                  *[f"- {n}" for n in notes], ""]
+
+    if background:
+        lines += ["<details>", "<summary>회의 배경</summary>", "", _shorten(background, 700), "", "</details>", ""]
+
+    lines += ["---", f"회의: {meeting_id} · work_key: {ticket.get('work_key') or '-'} · 회의 후속조치 Agent가 작성"]
     return "\n".join(lines).strip() + "\n"

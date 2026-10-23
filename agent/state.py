@@ -74,6 +74,7 @@ class AgentState(TypedDict, total=False):
     owner: str
     repo: str
     members: list[dict[str, Any]]
+    label_candidates: list[str]  # 저장소 라벨 (초안 라벨 후보). 비면 설정 ISSUE_LABELS
     background: str
     decisions: list[dict[str, Any]]  # 결정 사항 (schemas.ExtractedDecision)
     open_questions: list[str]

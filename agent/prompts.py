@@ -32,7 +32,7 @@ PROMPT_VERSION = prompt_version(TEXTS)
 
 ROWS_SYSTEM = TEXTS["rows_system"]      # 표가 없을 때 본문에서 할 일 추출
 DRAFT_SYSTEM = TEXTS["draft_system"]    # 이슈 초안 작성
-DRAFT_USER = TEXTS["draft_user"]        # format: summary, items
+DRAFT_USER = TEXTS["draft_user"]        # format: summary, labels, items
 REVIEW_SYSTEM = TEXTS["review_system"]  # 검수
 REVIEW_USER = TEXTS["review_user"]      # format: summary, source_note, excluded, drafts
 DEDUPE_SYSTEM = TEXTS["dedupe_system"]  # 중복 판단 (도구 고르기)
