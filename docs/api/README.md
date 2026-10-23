@@ -35,6 +35,8 @@
 | POST | /api/tickets/{ticketId}/reject | 200 | 거절: 검토 대기 -> 거절 |
 | POST | /api/tickets/{ticketId}/reopen | 200 | 다시 열기: 확인 -> 검토 대기 |
 | POST | /api/tickets/{ticketId}/restore | 200 | 되돌리기: 거절 -> 검토 대기 |
+| POST | /api/tickets/publish | 202 | 확인한 N건 발행 (`projectId` 필터). 확인 상태 티켓만 발행 중으로 바꿔 Agent `POST /publish`로 보냄 |
+| GET | /api/publish-batches/{batchId} | 200 | 발행 결과: 건수 요약, 티켓별 이슈 링크/실패 사유 (요청한 사용자만) |
 | POST | /api/projects/{projectId}/analysis-tasks | 202 | 회의록 처리 요청 (회의 저장 + 분석 접수, 기획_v16) |
 | POST | /api/projects/{projectId}/meetings | 201 | multipart file 업로드·회의 저장 |
 | GET | /api/meetings/{meetingId} | 200 | 본문을 제외한 회의 메타데이터 |
@@ -68,6 +70,12 @@ Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤
 티켓 응답의 `dedupe`는 카드 표시용 읽기 전용 값이다: `judged`(false면 "중복 판단 안 됨"), `relation`, `issue`(번호, 제목, 상태, 링크), `overlap`(신규 발행인데 같은 작업이나 관련 이슈가 있으면 "겹칠 수 있음"), `reason`, `before`/`after`(갱신의 변경 전후), `changedByRecheck`.
 
 담당자는 카드에서 본문, 담당 멤버(같은 프로젝트 멤버), 기한을 고치고 확인/거절한다(REQ-014, #167). 수정은 검토 대기 상태에서만 되고 보낸 항목만 바뀐다. 담당 멤버를 바꾸면 그 멤버의 내 티켓으로 옮겨 간다. 기획 4.2 표 밖의 전이와 발행 이후 상태의 수정은 409 `TICKET_STATUS_CONFLICT`, 담당자가 아니면 403 `TICKET_ASSIGNEE_REQUIRED`, 티켓이 없으면 404 `TICKET_NOT_FOUND`이다. 수정한 내용은 `contentJson`의 `description`, `due`, `assignees`에 반영하며, 발행 본문(`issue_body`)은 다시 만들지 않는다.
+
+### 일괄 발행과 발행 결과 (#194)
+
+`POST /api/tickets/publish`는 로그인 사용자가 담당인 확인(`CONFIRMED`) 티켓만 한 묶음으로 담는다. 검토 대기와 거절 티켓은 담기지 않는다. 발행 대상이 GitHub가 아닌(Slack, Notion) 확인 티켓도 담기지 않고 확인 상태로 남는다(Agent 일괄 발행은 GitHub만 처리). 담긴 티켓은 `PUBLISHING`(발행 중)이 되어 다시 담을 수 없고(중복 클릭 방지, 없으면 409 `NO_CONFIRMED_TICKETS`), Agent `POST /publish`가 202로 접수한다. 202는 접수이지 발행 성공이 아니다. Agent가 접수하지 않은 것이 확실하면 티켓은 확인 상태로 돌아가고 502 `AGENT_ACCEPTANCE_FAILED`이다.
+Agent는 결과를 `POST /internal/publish-batches/{batchId}/result`(내부 토큰)로 보고하고, 백엔드는 티켓 상태를 `PUBLISHED`/`LINKED`/`UPDATED`/`FAILED`로 바꿔 이슈 번호/URL/실패 사유를 저장한다. 발행 직전 재대조로 처리 유형이 바뀌면 실제 실행한 유형을 저장한다. 요청은 갔지만 결과를 모르는 경우(`UNKNOWN`)와 보고에서 빠진 티켓은 `FAILED`이면서 `outcomeUnknown=true`이다. 다시 시도하면 이슈가 두 번 생길 수 있어 구분한다. 같은 묶음의 보고가 다시 와도 한 번만 반영한다.
+`GET /api/publish-batches/{batchId}`는 `RUNNING`(결과 대기)이면 계속 조회한다. `GET /api/tickets/me`의 `counts.failed`는 실패 배너용이다. MOCK 모드는 GitHub 발행 없이 즉시 `PUBLISHED`로 저장하며 이슈 링크가 없다.
 
 ### 회의록 처리 요청 (#153)
 
