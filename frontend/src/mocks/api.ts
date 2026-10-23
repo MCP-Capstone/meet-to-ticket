@@ -8,6 +8,7 @@ import { mockItems } from './data'
 import { countOf, makeMockDispatch } from './dispatch'
 import { readMeetingFile, validateMeetingText, validMeetingDate } from '../meetingInput'
 import { changeMockProjectRole, deleteMockProject, getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
+import type { AnalysisProgress, ProgressStep } from '../api/types'
 
 // 백엔드 없이 화면을 개발하기 위한 가짜 API. realApi와 같은 형태를 유지한다.
 
@@ -16,24 +17,38 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 let nextMeetingId = 1
 const meetings = new Map<number, Meeting>()
 
-// 화면 확인용이라 실제 Agent 결과처럼 보이게 LIVE로 둔다. (모의 실행 안내를 보려면 'MOCK')
-const EXECUTION_MODE: ExecutionMode = 'LIVE'
+// 실제 Agent나 GitHub는 호출하지 않는다.
+const EXECUTION_MODE: ExecutionMode = 'MOCK'
 
 // 작업별 시작 시각. 경과 시간으로 상태를 흉내 낸다.
 const tasks = new Map<string, { meetingId: number; startedAt: number }>()
 // 전송 결과는 대표 담당 지정이 남도록 작업마다 한 번 만들어 둔다
 const dispatches = new Map<string, DispatchResult>()
 const analyzedMeetings = new Set<number>()
+const meetingMemberCounts = new Map<number, number>()
 
 // 분석 단계별 소요 시간 (ms). 합계가 지나면 COMPLETED
-const stageDurations: [TaskStage, number][] = [
-  ['EXTRACTING', 2500],
-  ['NORMALIZING', 1500],
-  ['REVIEWING', 2500],
-  ['PUBLISHING', 1500],
-  ['VERIFYING', 1000],
+const stageDurations: { step: ProgressStep; stage: TaskStage; ms: number }[] = [
+  { step: 'CONTEXT', stage: 'EXTRACTING', ms: 2500 },
+  { step: 'EXTRACTING', stage: 'NORMALIZING', ms: 4000 },
+  { step: 'DEDUPING', stage: 'REVIEWING', ms: 3000 },
+  { step: 'DISPATCHING', stage: 'REVIEWING', ms: 2500 },
 ]
 const QUEUED_MS = 1000
+
+// 건수는 화면 검증용 가짜 값이다. 앞 단계 세부 정보는 다음 단계에도 유지한다.
+function mockProgress(meetingId: number, step: ProgressStep, ratio = 1): AnalysisProgress {
+  const members = meetingMemberCounts.get(meetingId)
+  const dedupeRatio = step === 'DEDUPING' ? ratio : 1
+  return {
+    step,
+    ...(members === undefined ? {} : { context: { members, issues: null, notionDocs: null } }),
+    ...(step === 'CONTEXT' ? {} : { extraction: { todos: mockItems.length, decisions: 1, openQuestions: 0 } }),
+    ...(step !== 'DEDUPING' && step !== 'DISPATCHING' ? {} : {
+      dedupe: { done: Math.floor(mockItems.length * dedupeRatio), total: mockItems.length, linked: dedupeRatio >= 1 ? 1 : 0 },
+    }),
+  }
+}
 
 // 새로고침해도 가입 정보와 로그인이 유지되는 것을 흉내 내려고 sessionStorage에 저장한다.
 type MockUser = User & { password: string }
@@ -176,12 +191,16 @@ export const mockApi: typeof realApi = {
 
   async deleteProject(projectId, confirmName) {
     await delay(300)
-    const duration = QUEUED_MS + stageDurations.reduce((total, [, ms]) => total + ms, 0)
+    const duration = QUEUED_MS + stageDurations.reduce((total, { ms }) => total + ms, 0)
     const projectTasks = [...tasks.entries()].filter(([, task]) => meetings.get(task.meetingId)?.projectId === projectId)
     deleteMockProject(projectId, confirmName, requireLogin(), projectTasks.some(([, task]) => Date.now() - task.startedAt < duration))
     deleteMockProjectTickets(projectId)
     for (const [id] of projectTasks) { tasks.delete(id); dispatches.delete(id) }
-    for (const [id, meeting] of meetings) if (meeting.projectId === projectId) meetings.delete(id)
+    for (const [id, meeting] of meetings) if (meeting.projectId === projectId) {
+      meetings.delete(id)
+      meetingMemberCounts.delete(id)
+      analyzedMeetings.delete(id)
+    }
   },
 
   async getProject(projectId) {
@@ -219,7 +238,7 @@ export const mockApi: typeof realApi = {
 
   async requestMeetingAnalysis(projectId, input) {
     await delay(350)
-    listMockMembers(projectId, requireLogin())
+    const members = listMockMembers(projectId, requireLogin())
     const invalidInput = () => fail(400, 'INVALID_MEETING_INPUT', '회의 날짜와 회의록 입력을 확인해 주세요.')
     if (!validMeetingDate(input.meetingDate)) throw invalidInput()
     const hasFile = input.file !== undefined
@@ -241,6 +260,7 @@ export const mockApi: typeof realApi = {
       participantIds: [], originalFilename: filename, readyForAnalysis: true,
     }
     meetings.set(meeting.meetingId, meeting)
+    meetingMemberCounts.set(meeting.meetingId, members.length)
     return enqueueAnalysis(meeting.meetingId)
   },
 
@@ -276,6 +296,7 @@ export const mockApi: typeof realApi = {
       readyForAnalysis: true,
     }
     meetings.set(meeting.meetingId, meeting)
+    meetingMemberCounts.set(meeting.meetingId, members.length)
     return meeting
   },
 
@@ -304,17 +325,20 @@ export const mockApi: typeof realApi = {
     }
     let elapsed = Date.now() - task.startedAt - QUEUED_MS
     if (elapsed < 0) return base
-    for (const [stage, ms] of stageDurations) {
-      if (elapsed < ms) return { ...base, status: 'RUNNING', stage }
+    for (const { step, stage, ms } of stageDurations) {
+      if (elapsed < ms) return { ...base, status: 'RUNNING', stage, progress: mockProgress(task.meetingId, step, elapsed / ms) }
       elapsed -= ms
     }
-    return { ...base, status: 'COMPLETED', stage: 'VERIFYING', finishedAt: new Date().toISOString() }
+    return { ...base, status: 'COMPLETED', stage: 'VERIFYING', finishedAt: new Date().toISOString(), progress: mockProgress(task.meetingId, 'DISPATCHING') }
   },
 
   async getAnalysisItems(taskId) {
     await delay(300)
     requireLogin()
-    const items = mockItems.map((item) => ({ ...item, itemId: crypto.randomUUID() }))
+    const items = mockItems.map((item) => ({
+      ...item, itemId: crypto.randomUUID(), reviewStatus: 'PENDING' as const, publishStatus: 'DRAFT' as const,
+      githubIssueNumber: null, githubIssueUrl: null, errorMessage: null,
+    }))
     const count = (key: 'SUCCEEDED' | 'FAILED' | 'UNKNOWN' | 'SKIPPED' | 'DRAFT') => items.filter((i) => i.publishStatus === key).length
     return {
       taskId,
@@ -323,8 +347,8 @@ export const mockApi: typeof realApi = {
       items,
       summary: {
         total: items.length,
-        approved: items.filter((i) => i.reviewStatus === 'APPROVED').length,
-        rejected: items.filter((i) => i.reviewStatus === 'REJECTED').length,
+        approved: 0,
+        rejected: 0,
         succeeded: count('SUCCEEDED'),
         failed: count('FAILED'),
         unknown: count('UNKNOWN'),
