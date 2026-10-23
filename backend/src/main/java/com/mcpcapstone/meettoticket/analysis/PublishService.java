@@ -91,6 +91,8 @@ public class PublishService {
             if (assignee == null || assignee.getUser() == null || !assignee.getUser().getId().equals(userId))
                 throw new BusinessException(ErrorCode.TICKET_ASSIGNEE_REQUIRED);
             if (ticket.getTicketStatus() != TicketStatus.FAILED) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+            // 재대조할 수 없는 대상의 결과 모름은 Agent가 어차피 막으므로, 확인 결과(resolve-outcome)를 먼저 남겨야 한다 (#280).
+            if (PublishResolution.of(ticket) == PublishResolution.MANUAL_CHECK) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
             return prepare(userId, List.of(ticket));
         }));
     }
@@ -252,7 +254,8 @@ public class PublishService {
                 i.getId(), i.getTitle(), i.getTicketStatus(), i.getProcessingType(), project.getId(), project.getName(),
                 i.getGithubIssueNumber(), i.getGithubIssueUrl(), code, waiting ? null : i.getErrorMessage(),
                 PublishFailureCategory.of(code),
-                !waiting && i.isPublishRetryable(), !waiting && i.isPublishOutcomeUnknown(), i.getPublishTarget());
+                // 결과 모름은 카드와 같은 기준(지난 결과 모름 포함)으로 내려준다. Notion/Slack 차단 실패도 결과 모름으로 보인다.
+                !waiting && i.isPublishRetryable(), !waiting && i.getTicketStatus() == TicketStatus.FAILED && i.mustRecheckOnPublish(), i.getPublishTarget());
     }
 
     // 담당자가 카드에서 고친 내용(contentJson)과 처리 유형을 그대로 보낸다. 발행 본문은 Agent가 이 내용으로 조립한다.
