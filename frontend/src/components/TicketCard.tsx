@@ -3,8 +3,8 @@ import { api, ApiRequestError } from '../api'
 import type { MyTicket, ProjectMember, TicketAction, TicketEditRequest, TicketStatus } from '../api'
 import { canUseExistingIssue, publicationRequest } from '../ticketPublication'
 import { validMeetingDate } from '../meetingInput'
-import { failureGuide, needsPermissionFix } from '../publishFailure'
-import { toolName } from '../batchPublish'
+import { failureGuide, needsOutcomeCheck, needsPermissionFix } from '../publishFailure'
+import { safePublishUrl, toolName } from '../batchPublish'
 import { TicketDedupeDetails } from './TicketDedupeDetails'
 import { TicketPublicationPreview } from './TicketPublicationPreview'
 
@@ -43,7 +43,22 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
   const [error, setError] = useState<string | null>(null)
   const [blocked, setBlocked] = useState(false)
   const [pending, setPending] = useState(false)
-  const [checked, setChecked] = useState(false)
+  // 재시도나 확인 결과로 실패 내용이 바뀌면 지난 확인 체크와 링크를 다시 쓰지 않게 비운다.
+  // 입력값은 저장 당시의 failureKey와 함께 두고, 키가 다르면 빈 값으로 본다.
+  const failureKey = `${ticket.status}:${ticket.publishFailure?.errorCode ?? ''}:${ticket.publishFailure?.resolution ?? ''}`
+  const [outcomeInput, setOutcomeInput] = useState({ key: failureKey, checked: false, url: '' })
+  const current = outcomeInput.key === failureKey ? outcomeInput : { key: failureKey, checked: false, url: '' }
+  const checked = current.checked
+  const outcomeUrl = current.url
+  const setChecked = (value: boolean) => setOutcomeInput({ ...current, checked: value })
+  const setOutcomeUrl = (value: string) => setOutcomeInput({ ...current, url: value })
+  // 다시 시도나 확인 결과를 보낼 때 비운다. 같은 오류 코드로 다시 실패해도 지난 체크가 되살아나지 않는다.
+  const clearOutcomeInput = () => setOutcomeInput({ key: '', checked: false, url: '' })
+  const checkUrl = ticket.publishFailure ? safePublishUrl(ticket.publishFailure.checkUrl, ticket.publishTarget) : null
+  const typedOutcomeUrl = outcomeUrl.trim()
+  // 서버로는 정리된 링크(기본 포트 제거 등)를 보낸다. 서버도 2048자를 넘는 링크는 받지 않는다.
+  const normalizedOutcomeUrl = typedOutcomeUrl === '' ? null : safePublishUrl(typedOutcomeUrl, ticket.publishTarget)
+  const outcomeUrlInvalid = typedOutcomeUrl !== '' && (!normalizedOutcomeUrl || normalizedOutcomeUrl.length > 2048)
   const operation = useRef(false)
   const memberRequest = useRef(0)
   useEffect(() => () => { ++memberRequest.current }, [])
@@ -187,7 +202,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
       {publicationEditing && <fieldset className="ticket-fields ticket-publication-fields" disabled={busy || pending || blocked}>
         <legend>발행 대상/처리 유형 수정</legend>
         <label>발행 대상
-          <select aria-label="발행 대상" value={publishTarget} onChange={(e) => {
+          <select aria-label="발행 대상" value={publishTarget} disabled={ticket.publishTargetLocked} onChange={(e) => {
             const value = e.target.value as MyTicket['publishTarget']
             setPublishTarget(value)
             if (value !== 'GITHUB') setProcessingType('CREATE')
@@ -208,14 +223,34 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
             ? `연결/갱신 대상: #${ticket.dedupe!.issue!.number} ${ticket.dedupe!.issue!.title ?? ''} (열림). 다른 이슈 번호를 직접 지정할 수 없습니다.`
             : '열린 기존 이슈 정보가 없어 신규 생성만 선택할 수 있습니다. 닫힌 이슈는 연결/갱신할 수 없습니다.'}</p>
         {publishTarget !== 'GITHUB' && <p className="notice">{publishTarget === 'NOTION' ? 'Notion 페이지로 발행하려면 프로젝트 설정에 Notion 기획 페이지가 있어야 합니다.' : 'Slack 공지로 발행하려면 프로젝트 설정에 Slack 채널이 있어야 합니다.'}</p>}
+        {ticket.publishTargetLocked && <p className="notice">결과를 모르는 {toolName[ticket.publishTarget]} 발행이 있어 발행 대상을 바꿀 수 없습니다. 같은 업무가 두 곳에 기록되지 않도록, 먼저 다시 발행해 결과를 확인하세요.</p>}
         {publicationDirty && <p className="notice">아직 저장하지 않은 발행 설정입니다. 카드와 미리보기는 저장된 설정을 표시합니다.</p>}
       </fieldset>}
       <TicketPublicationPreview ticket={ticket} dirty={dirty} />
       {ticket.status === 'FAILED' && ticket.publishFailure && (
         <div className="publish-failure" role="alert">
           <p className="error">{failureGuide(ticket.publishFailure)}</p>
-          {ticket.publishFailure.outcomeUnknown && <>
-            <p className="notice">{toolName[ticket.publishTarget]}에 이미 반영됐을 수 있습니다. 확인 후 다시 시도하세요.</p>
+          {needsOutcomeCheck(ticket.publishFailure) ? <>
+            <p className="notice">{toolName[ticket.publishTarget]}에 이미 반영됐을 수 있는데, 반영 여부를 자동으로 확인할 수 없어 다시 시도하면 중복될 수 있습니다. {toolName[ticket.publishTarget]}에서 확인한 결과를 알려 주세요. 반영되지 않았다면 다시 시도할 수 있게 됩니다.</p>
+            {checkUrl && <a href={checkUrl} target="_blank" rel="noreferrer">{toolName[ticket.publishTarget]}에서 확인하기</a>}
+            <label>반영된 링크 (이미 반영됐을 때, 선택)
+              <input type="url" value={outcomeUrl} placeholder="https://" aria-invalid={outcomeUrlInvalid} disabled={busy || pending || blocked} onChange={(e) => setOutcomeUrl(e.target.value)} />
+            </label>
+            {outcomeUrlInvalid && <p className="error">{toolName[ticket.publishTarget]} 링크(https)만 넣을 수 있습니다.</p>}
+            <div className="ticket-actions">
+              <button type="button" className="secondary" disabled={busy || pending || blocked || outcomeUrlInvalid} onClick={() => {
+                if (window.confirm(`${toolName[ticket.publishTarget]}에 이미 반영된 것을 확인했나요? 발행됨으로 끝내며 되돌릴 수 없습니다.`))
+                  void perform(async () => { const saved = await api.resolveTicketOutcome(ticket.ticketId, { applied: true, url: normalizedOutcomeUrl }); clearOutcomeInput(); return saved })
+              }}>이미 반영됨</button>
+              <button type="button" className="secondary" disabled={busy || pending || blocked} onClick={() => {
+                if (window.confirm(`${toolName[ticket.publishTarget]}에 반영되지 않은 것을 확인했나요? 다시 시도하면 새로 보내므로, 이미 반영된 경우 중복됩니다.`))
+                  void perform(async () => { const saved = await api.resolveTicketOutcome(ticket.ticketId, { applied: false }); clearOutcomeInput(); return saved })
+              }}>반영되지 않음</button>
+            </div>
+            <p className="muted">내용을 고치려면 먼저 확인 결과를 남겨 주세요. 반영되지 않음을 고르면 수정할 수 있습니다.</p>
+          </> : ticket.publishFailure.outcomeUnknown && <>
+            <p className="notice">{toolName[ticket.publishTarget]}에 이미 반영됐을 수 있습니다. 확인 후 다시 시도하세요. 다시 시도하면 이미 만든 이슈가 있는지 먼저 확인합니다.</p>
+            {checkUrl && <a href={checkUrl} target="_blank" rel="noreferrer">{toolName[ticket.publishTarget]}에서 확인하기</a>}
             <label className="check"><input type="checkbox" checked={checked} disabled={busy || pending} onChange={(e) => setChecked(e.target.checked)} />{toolName[ticket.publishTarget]}에서 반영 여부를 확인했습니다</label>
           </>}
           {needsPermissionFix(ticket.publishFailure) && <>
@@ -244,11 +279,11 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
             <button type="button" className="secondary" disabled={busy || blocked} onClick={startEditing}>수정</button>
             <button type="button" className="secondary" disabled={busy || blocked} onClick={startPublicationEditing}>발행 설정 수정</button>
           </>}
-          {ticket.status === 'FAILED' && <>
+          {ticket.status === 'FAILED' && !(ticket.publishFailure && needsOutcomeCheck(ticket.publishFailure)) && <>
             <button type="button" className="primary" disabled={busy || pending || blocked || Boolean(ticket.publishFailure?.outcomeUnknown && !checked)}
-              onClick={() => void perform(async () => { await api.retryTicket(ticket.ticketId); return { ...ticket, status: 'PUBLISHING', publishFailure: null } })}>{pending ? '처리 중...' : '다시 시도'}</button>
+              onClick={() => void perform(async () => { await api.retryTicket(ticket.ticketId); clearOutcomeInput(); return { ...ticket, status: 'PUBLISHING', publishFailure: null } })}>{pending ? '처리 중...' : '다시 시도'}</button>
           </>}
-          {(actions[ticket.status] ?? []).map(({ action, label }) => <button type="button" key={action} className={action === 'confirm' ? 'primary' : 'secondary'} disabled={busy || pending || blocked} onClick={() => void perform(() => api.changeTicketStatus(ticket.ticketId, action))}>{pending ? '처리 중...' : label}</button>)}
+          {(actions[ticket.status] ?? []).filter(({ action }) => !(action === 'revise' && ticket.publishFailure && needsOutcomeCheck(ticket.publishFailure))).map(({ action, label }) => <button type="button" key={action} className={action === 'confirm' ? 'primary' : 'secondary'} disabled={busy || pending || blocked} onClick={() => void perform(() => api.changeTicketStatus(ticket.ticketId, action))}>{pending ? '처리 중...' : label}</button>)}
         </>}
       </div>
     </article>
