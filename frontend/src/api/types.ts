@@ -113,7 +113,8 @@ export type ProgressStep = 'CONTEXT' | 'EXTRACTING' | 'DEDUPING' | 'DISPATCHING'
 // 진행 화면용 세부 정보. 앞 단계 값은 다음 단계에도 남고, 아직 지나지 않은 단계의 값은 없다
 export interface AnalysisProgress {
   step: ProgressStep
-  // issues, notionDocs는 맥락 파악(TASK-019) 전까지 null
+  // issues, notionDocs는 기존 이슈 색인이나 Notion이 꺼져 있거나 불러오지 못하면 null.
+  // 맥락을 불러오기 전에 먼저 null로 한 번 오고, 불러온 뒤 값이 채워져 다시 온다
   context?: { members: number; issues: number | null; notionDocs: number | null }
   extraction?: { todos: number; decisions: number; openQuestions: number }
   // 중복 판단이 꺼져 있으면 오지 않는다

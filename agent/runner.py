@@ -17,7 +17,7 @@ from nodes import AgentNodes, run_metrics
 from publisher import DryRunPublisher, McpPublisher
 from reporter import BackendReporter
 from schemas import PublishBatchRequest, PublishBatchResult, RunRequest, RunResult
-from state import MCP_UNAVAILABLE, STAGE_EXTRACTING, STATUS_FAILED, AgentState
+from state import MCP_UNAVAILABLE, STAGE_EXTRACTING, STATUS_FAILED, STATUS_RUNNING, STEP_CONTEXT, AgentState
 
 log = logging.getLogger("agent.runner")
 
@@ -166,6 +166,15 @@ async def make_issue_tools(
     return tools, "ready"
 
 
+async def report_context_started(req: RunRequest, reporter: Any) -> None:
+    progress = {"step": STEP_CONTEXT,
+                "context": {"members": len(req.project_members), "issues": None, "notionDocs": None}}
+    try:
+        await reporter.progress(req.task_id, STATUS_RUNNING, STAGE_EXTRACTING, progress)
+    except Exception as exc:  # noqa: BLE001 - 보고 실패로 작업을 멈추지 않는다
+        log.warning("진행 보고 실패: %s", exc)
+
+
 async def load_context(
     req: RunRequest, settings: Settings, issue_tools: IssueTools | None, notion_tools: dict[str, Any] | None
 ) -> ProjectContext:
@@ -177,8 +186,9 @@ async def load_context(
             ctx.issues = await issue_tools.count()
         tools = notion_tools or {}
         if req.project.notion_page_url and "list_pages" in tools and "read_page" in tools:
-            ctx.notion_docs, ctx.docs = await load_notion(
-                tools["list_pages"], tools["read_page"], req.project.notion_page_url, req.meeting.original_content)
+            # 읽는 대로 ctx에 담으므로 시간 한도로 멈춰도 그때까지 읽은 문서는 남는다
+            await load_notion(
+                ctx, tools["list_pages"], tools["read_page"], req.project.notion_page_url, req.meeting.original_content)
 
     try:
         await asyncio.wait_for(work(), timeout=settings.context_timeout_seconds)
@@ -357,6 +367,9 @@ async def _run(
             settings, req.project.github_owner, req.project.github_repo, github)
     else:
         rag_status = "ready"
+    # 색인 갱신과 맥락 불러오기는 오래 걸릴 수 있어(각 최대 30초) 진행 화면에 "맥락 파악"을 먼저 보고한다.
+    # 불러온 개수는 prepare가 다시 보고한다
+    await report_context_started(req, reporter)
     state["rag"] = {"status": rag_status, "sync": await sync_index(issue_tools, settings) if issue_tools else None}
 
     if notion_tools is None and req.project.notion_page_url and not publisher_was_injected:
