@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from typing import Any
 
 from handling import change_note, change_section, link_comment
 from publisher import ToolCallError, build_issue_body
 from schemas import PublishBatchRequest, PublishBatchResult, PublishItemResult, PublishTicket
+from state import PUBLISH_FAILED
+
+log = logging.getLogger("agent.batch_publish")
 
 _RETRYABLE = {"GITHUB_RATE_LIMIT", "GITHUB_ERROR", "MCP_UNAVAILABLE", "PUBLISH_FAILED"}
 
@@ -42,13 +46,15 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
     kind = handling["type"]
     number = handling.get("issue_number")
     meeting_date = source.meeting_date.isoformat() if source.meeting_date else ""
+    sent = False  # GitHub 쓰기 요청을 보낸 뒤의 예외는 결과를 모르므로 UNKNOWN으로 남긴다
     try:
         if kind == "LINK":
             if not number:
                 raise ToolCallError("INVALID_ARGUMENT", "LINK 처리에는 target_issue_number가 필요합니다")
+            body = link_comment(ticket, meeting_date=meeting_date, meeting_title=source.meeting_title)
+            sent = True
             out = await publisher.add_comment(
-                owner=source.project.github_owner, repo=source.project.github_repo, number=number,
-                body=link_comment(ticket, meeting_date=meeting_date, meeting_title=source.meeting_title),
+                owner=source.project.github_owner, repo=source.project.github_repo, number=number, body=body,
             )
             return PublishItemResult(ticket_id=source.ticket_id, processing_type=kind, status="LINKED",
                                      github_issue_number=number,
@@ -57,10 +63,12 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
         if kind == "UPDATE":
             if not number:
                 raise ToolCallError("INVALID_ARGUMENT", "UPDATE 처리에는 target_issue_number가 필요합니다")
+            section = change_section(ticket, meeting_date=meeting_date, meeting_title=source.meeting_title)
+            note = change_note(meeting_date=meeting_date, meeting_title=source.meeting_title)
+            sent = True
             out = await publisher.update_issue(
                 owner=source.project.github_owner, repo=source.project.github_repo, number=number,
-                append_section=change_section(ticket, meeting_date=meeting_date, meeting_title=source.meeting_title),
-                add_labels=ticket.get("labels") or [], note=change_note(meeting_date=meeting_date, meeting_title=source.meeting_title),
+                append_section=section, add_labels=ticket.get("labels") or [], note=note,
             )
             if out.get("comment_error"):
                 # 본문 갱신은 성공했으므로 실패로 바꾸지 않는다. 백엔드에는 재시도할 수 있게 오류를 남긴다.
@@ -71,9 +79,10 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             return PublishItemResult(ticket_id=source.ticket_id, processing_type=kind, status="UPDATED",
                                      github_issue_number=out.get("number", number), github_issue_url=out.get("url"),
                                      dropped_labels=out.get("dropped_labels") or [])
+        body = build_issue_body(ticket, str(source.meeting_id), ticket.get("background", ""))
+        sent = True
         out = await publisher.create_issue(
-            owner=source.project.github_owner, repo=source.project.github_repo, title=source.title,
-            body=build_issue_body(ticket, str(source.meeting_id), ticket.get("background", "")),
+            owner=source.project.github_owner, repo=source.project.github_repo, title=source.title, body=body,
             labels=ticket.get("labels") or [], assignees=ticket.get("assignees") or [],
         )
         return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="PUBLISHED",
@@ -81,6 +90,11 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
                                  dropped_labels=out.get("dropped_labels") or [])
     except ToolCallError as exc:
         return _failure(source.ticket_id, kind, exc)
+    except Exception as exc:  # noqa: BLE001
+        # 한 티켓의 예외가 묶음 전체를 멈추면 앞서 발행된 결과까지 사라져 재요청 때 중복 발행된다.
+        log.exception("티켓 발행 중 예상하지 못한 오류 ticket=%s", source.ticket_id)
+        return _failure(source.ticket_id, kind,
+                        ToolCallError(PUBLISH_FAILED, f"{type(exc).__name__}: {exc}", ambiguous=sent))
 
 
 async def publish_batch(request: PublishBatchRequest, publisher: Any) -> PublishBatchResult:

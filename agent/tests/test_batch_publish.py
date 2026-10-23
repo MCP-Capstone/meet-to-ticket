@@ -87,3 +87,42 @@ async def test_batch_keeps_publish_success_when_post_publish_indexing_fails(sett
     assert out.status == "SUCCEEDED"
     assert out.items[0].status == "PUBLISHED"
     assert index.calls == [101]
+
+
+@pytest.mark.anyio
+async def test_unexpected_error_fails_only_that_ticket_and_keeps_earlier_results():
+    """한 티켓의 예상하지 못한 예외가 앞서 발행된 결과를 지우지 않아야 재요청 때 중복 발행되지 않는다."""
+    publisher = BatchPublisher()
+    bad = ticket("b", "LINK", 7)
+    bad.content_json["evidence_quotes"] = [123]
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[
+        ticket("a", "CREATE"), bad, ticket("c", "UPDATE", 8),
+    ]), publisher)
+
+    assert [item.status for item in out.items] == ["PUBLISHED", "FAILED", "UPDATED"]
+    assert out.items[1].error_code == "PUBLISH_FAILED"
+    assert out.status == "PARTIAL_FAILED"
+
+
+@pytest.mark.anyio
+async def test_unexpected_error_after_request_is_reported_as_unknown():
+    class BrokenResult(BatchPublisher):
+        async def create_issue(self, **args):
+            self.calls.append(("create", args))
+            return ["not-a-dict"]
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[ticket("a", "CREATE")]), BrokenResult())
+
+    assert out.items[0].status == "UNKNOWN" and out.items[0].retryable
+
+
+@pytest.mark.anyio
+async def test_dry_run_publisher_handles_link_and_update():
+    from publisher import DryRunPublisher
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[
+        ticket("a", "CREATE"), ticket("b", "LINK", 7), ticket("c", "UPDATE", 8),
+    ]), DryRunPublisher())
+
+    assert [item.status for item in out.items] == ["PUBLISHED", "LINKED", "UPDATED"]
+    assert out.status == "SUCCEEDED"
