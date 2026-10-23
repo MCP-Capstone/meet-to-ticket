@@ -6,6 +6,7 @@ import type {
   MyTicket,
   MyTicketList,
   PublishStarted,
+  PublishBatchResult,
   TicketEditRequest,
   TicketAction,
   LoginRequest,
@@ -45,6 +46,13 @@ export const realApi = {
 
   changeTicketStatus: (ticketId: string, action: TicketAction) =>
     request<MyTicket>(`/tickets/${encodeURIComponent(ticketId)}/${action}`, { method: 'POST' }),
+
+  publishTickets: (projectId: number, meetingId: number, ticketIds: string[]) => {
+    const params = new URLSearchParams({ projectId: String(projectId), meetingId: String(meetingId), ticketIds: ticketIds.join(',') })
+    return request<PublishStarted>(`/tickets/publish?${params}`, { method: 'POST' })
+  },
+
+  getPublishResult: (batchId: string) => request<PublishBatchResult>(`/publish-batches/${encodeURIComponent(batchId)}`),
 
   // 실패한 티켓 하나를 다시 발행한다. 202는 접수이고 결과는 내 티켓을 다시 조회해 확인한다.
   retryTicket: (ticketId: string) =>

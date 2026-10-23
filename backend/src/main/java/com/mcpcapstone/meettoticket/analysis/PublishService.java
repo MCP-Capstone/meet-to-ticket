@@ -53,6 +53,35 @@ public class PublishService {
         }));
     }
 
+    // 회의 + 로그인 담당자 단위 발행. 잠근 뒤 담당자와 상태를 다시 검증한다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public Started startMeeting(Long userId, Long projectId, Long meetingId, List<UUID> expectedTicketIds) {
+        return dispatch(tx.execute(status -> {
+            List<TaskItem> group = new ArrayList<>();
+            for (UUID id : items.findIdsAssignedToMeeting(userId, meetingId)) {
+                items.findForUpdate(id).filter(i -> i.getAssignee() != null
+                        && i.getAssignee().getUser() != null
+                        && i.getAssignee().getUser().getId().equals(userId)
+                        && i.getTask().getMeeting().getId().equals(meetingId)
+                        && (projectId == null || i.getTask().getMeeting().getProject().getId().equals(projectId)))
+                        .ifPresent(group::add);
+            }
+            if (group.stream().anyMatch(i -> i.getTicketStatus() == TicketStatus.PENDING_REVIEW
+                    || i.getTicketStatus() == TicketStatus.ASSIGNEE_REQUIRED))
+                throw new BusinessException(ErrorCode.MEETING_REVIEW_INCOMPLETE);
+            if (group.stream().anyMatch(i -> i.getTicketStatus() == TicketStatus.PUBLISHING))
+                throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+            List<TaskItem> picked = group.stream().filter(i -> i.getTicketStatus() == TicketStatus.CONFIRMED).toList();
+            if (picked.isEmpty()) throw new BusinessException(ErrorCode.NO_CONFIRMED_TICKETS);
+            if (picked.stream().anyMatch(i -> i.getPublishTarget() != PublishTarget.GITHUB))
+                throw new BusinessException(ErrorCode.PUBLISH_TARGET_UNSUPPORTED);
+            if (expectedTicketIds == null || !new HashSet<>(expectedTicketIds).equals(
+                    new HashSet<>(picked.stream().map(TaskItem::getId).toList())))
+                throw new BusinessException(ErrorCode.PUBLISH_SELECTION_CHANGED);
+            return prepare(userId, picked);
+        }));
+    }
+
     // 실패한 티켓 하나를 다시 발행한다 (REQ-019). 담당자만 할 수 있고 실패 상태가 아니면 409다.
     // 티켓 행을 잠근 뒤 발행 중으로 바꾸므로 같은 티켓을 동시에 재시도해도 한쪽만 담기고 나머지는 409다.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

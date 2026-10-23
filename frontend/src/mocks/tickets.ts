@@ -1,5 +1,7 @@
 import type { MyTicket, MyTicketList, TicketAction, TicketEditRequest, User } from '../api/types'
 import { ApiRequestError } from '../api/client'
+import type { PublishBatchResult } from '../api/types'
+import { publishSelection } from '../batchPublish'
 import { validMeetingDate } from '../meetingInput'
 import { listMockMembers, listMockProjects } from './projects'
 
@@ -81,4 +83,51 @@ export function retryMockTicket(user: User, ticketId: string) {
   ticket.publishFailure = null
   write(tickets)
   return { batchId: crypto.randomUUID(), count: 1 }
+}
+
+const BATCH_KEY = 'mock-publish-batches-v1'
+type MockBatch = { userId: number; result: PublishBatchResult }
+const readBatches = (): MockBatch[] => JSON.parse(sessionStorage.getItem(BATCH_KEY) ?? '[]')
+export function publishMockTickets(user: User, projectId: number, meetingId: number, ticketIds: string[]) {
+  const tickets = read(user)
+  const group = tickets.filter((t) => t.assigneeUserId === user.userId && t.projectId === projectId && t.meetingId === meetingId)
+  const selection = publishSelection(group)
+  if (selection.reason) throw fail(409, 'TICKET_STATUS_CONFLICT', selection.reason)
+  const ids = new Set(ticketIds)
+  if (ids.size !== selection.confirmed.length || selection.confirmed.some((t) => !ids.has(t.ticketId))) throw fail(409, 'PUBLISH_SELECTION_CHANGED', '발행 대상이 변경됐습니다. 목록을 다시 확인하세요.')
+  const batchId = crypto.randomUUID()
+  const result: PublishBatchResult = {
+    batchId, status: 'RUNNING', executionMode: 'MOCK', createdAt: new Date().toISOString(), finishedAt: null,
+    summary: { total: ids.size, published: 0, linked: 0, updated: 0, failed: 0, publishing: ids.size },
+    tickets: selection.confirmed.map((ticket) => ({ ticketId: ticket.ticketId, title: ticket.title, status: 'PUBLISHING', processingType: ticket.processingType, projectId, projectName: ticket.projectName, githubIssueNumber: null, githubIssueUrl: null, errorCode: null, errorMessage: null, failureCategory: null, retryable: false, outcomeUnknown: false })),
+  }
+  const batches = readBatches()
+  batches.push({ userId: user.userId, result })
+  sessionStorage.setItem(BATCH_KEY, JSON.stringify(batches))
+  for (const ticket of group) if (ids.has(ticket.ticketId)) ticket.status = 'PUBLISHING'
+  write(tickets)
+  return { batchId, count: ids.size }
+}
+export function getMockPublishResult(user: User, batchId: string) {
+  const batches = readBatches()
+  const batch = batches.find((b) => b.userId === user.userId && b.result.batchId === batchId)
+  if (!batch) throw fail(404, 'PUBLISH_BATCH_NOT_FOUND', '발행 묶음을 찾을 수 없습니다.')
+  const result = batch.result
+  if (result.status === 'RUNNING' && Date.now() - Date.parse(result.createdAt) > 1800) {
+    result.status = 'SUCCEEDED'
+    result.finishedAt = new Date().toISOString()
+    const tickets = read(user)
+    for (const entry of result.tickets) {
+      entry.status = entry.processingType === 'LINK' ? 'LINKED' : entry.processingType === 'UPDATE' ? 'UPDATED' : 'PUBLISHED'
+      const ticket = tickets.find((t) => t.ticketId === entry.ticketId && t.assigneeUserId === user.userId)
+      if (ticket) { ticket.status = entry.status; ticket.publishFailure = null }
+    }
+    result.summary.publishing = 0
+    result.summary.published = result.tickets.filter((t) => t.status === 'PUBLISHED').length
+    result.summary.linked = result.tickets.filter((t) => t.status === 'LINKED').length
+    result.summary.updated = result.tickets.filter((t) => t.status === 'UPDATED').length
+    write(tickets)
+    sessionStorage.setItem(BATCH_KEY, JSON.stringify(batches))
+  }
+  return structuredClone(result)
 }

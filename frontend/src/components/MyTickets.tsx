@@ -3,6 +3,7 @@ import { api, ApiRequestError } from '../api'
 import type { MyTicket, MyTicketList, Project } from '../api'
 import { Spinner } from './Spinner'
 import { TicketCard } from './TicketCard'
+import { BatchPublishFlow } from './BatchPublishFlow'
 
 interface Props {
   projects: Project[]
@@ -24,9 +25,11 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
   const lifecycle = useRef({ mounted: true, version: 0 })
   const mutationLock = useRef(false)
   const dirtyIds = useRef(new Set<string>())
+  const [hasDirty, setHasDirty] = useState(false)
   const dirtyChange = useCallback((id: string, dirty: boolean) => {
     if (dirty) dirtyIds.current.add(id)
     else dirtyIds.current.delete(id)
+    setHasDirty(dirtyIds.current.size > 0)
     onDirtyChange(dirtyIds.current.size > 0)
   }, [onDirtyChange])
   useEffect(() => {
@@ -110,6 +113,11 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
   const manualRefresh = async () => {
     if (canDiscard() && await load()) setRevision((value) => value + 1)
   }
+  const publishLock = useCallback((value: boolean) => {
+    mutationLock.current = value
+    setMutating(value)
+    onBusyChange(value)
+  }, [onBusyChange])
   const busy = mutating || loading
   // 조회 필터 변경 시 기존 프로젝트 카드가 잠깐 표시되지 않게 한다.
   return (
@@ -141,6 +149,7 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
       {error && <div className="ticket-error" role="alert"><p className="error">{error}</p><button type="button" className="link" disabled={busy} onClick={() => void manualRefresh()}>목록 다시 시도</button></div>}
       {loading && <p className="inline-status" role="status"><Spinner size="sm" label="내 티켓 조회 중" />내 티켓을 불러오고 있습니다.</p>}
       {current && !current.tickets.length && !loading && <p className="card empty">{projectId === undefined ? '아직 나에게 전달된 티켓이 없습니다.' : '이 프로젝트에 내가 담당인 티켓이 없습니다.'}</p>}
+      {current && current.tickets.length > 0 && <BatchPublishFlow tickets={current.tickets} busy={busy || Boolean(error)} dirty={hasDirty} onLock={publishLock} onRefresh={load} />}
       {current && <div className="ticket-list" aria-busy={busy}>
         {current.tickets.map((ticket) => <TicketCard key={`${ticket.ticketId}-${revision}`} ticket={ticket} busy={busy} onCommit={commit} onRefresh={load} onDirtyChange={dirtyChange} />)}
       </div>}
