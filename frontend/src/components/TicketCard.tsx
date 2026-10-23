@@ -4,6 +4,7 @@ import type { MyTicket, ProjectMember, TicketAction, TicketEditRequest, TicketSt
 import { canUseExistingIssue, publicationRequest } from '../ticketPublication'
 import { validMeetingDate } from '../meetingInput'
 import { failureGuide, needsPermissionFix } from '../publishFailure'
+import { toolName } from '../batchPublish'
 import { TicketDedupeDetails } from './TicketDedupeDetails'
 import { TicketPublicationPreview } from './TicketPublicationPreview'
 
@@ -206,7 +207,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
           : existingIssueAvailable
             ? `연결/갱신 대상: #${ticket.dedupe!.issue!.number} ${ticket.dedupe!.issue!.title ?? ''} (열림). 다른 이슈 번호를 직접 지정할 수 없습니다.`
             : '열린 기존 이슈 정보가 없어 신규 생성만 선택할 수 있습니다. 닫힌 이슈는 연결/갱신할 수 없습니다.'}</p>
-        {publishTarget !== 'GITHUB' && <p className="notice">{publishTarget === 'NOTION' ? 'Notion' : 'Slack'}으로 분류해 저장할 수 있습니다. 현재 일괄 발행은 GitHub만 지원하므로 이 대상으로 저장하면 발행할 수 없습니다.</p>}
+        {publishTarget !== 'GITHUB' && <p className="notice">{publishTarget === 'NOTION' ? 'Notion 페이지로 발행하려면 프로젝트 설정에 Notion 기획 페이지가 있어야 합니다.' : 'Slack 공지로 발행하려면 프로젝트 설정에 Slack 채널이 있어야 합니다.'}</p>}
         {publicationDirty && <p className="notice">아직 저장하지 않은 발행 설정입니다. 카드와 미리보기는 저장된 설정을 표시합니다.</p>}
       </fieldset>}
       <TicketPublicationPreview ticket={ticket} dirty={dirty} />
@@ -214,8 +215,8 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
         <div className="publish-failure" role="alert">
           <p className="error">{failureGuide(ticket.publishFailure)}</p>
           {ticket.publishFailure.outcomeUnknown && <>
-            <p className="notice">GitHub에 이미 반영됐을 수 있습니다. 확인 후 다시 시도하세요.</p>
-            <label className="check"><input type="checkbox" checked={checked} disabled={busy || pending} onChange={(e) => setChecked(e.target.checked)} />GitHub에서 반영 여부를 확인했습니다</label>
+            <p className="notice">{toolName[ticket.publishTarget]}에 이미 반영됐을 수 있습니다. 확인 후 다시 시도하세요.</p>
+            <label className="check"><input type="checkbox" checked={checked} disabled={busy || pending} onChange={(e) => setChecked(e.target.checked)} />{toolName[ticket.publishTarget]}에서 반영 여부를 확인했습니다</label>
           </>}
           {needsPermissionFix(ticket.publishFailure) && <>
             <p className="muted">저장소 권한은 프로젝트 관리자가 프로젝트 설정에서 확인해야 합니다. 현재 권한을 확인한 뒤 설정으로 이동합니다.</p>
