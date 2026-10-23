@@ -20,7 +20,7 @@ import logging
 import uuid
 from pathlib import Path
 
-from config import load_env, load_settings  # noqa: E402
+from config import load_env, load_settings, validate_settings  # noqa: E402
 
 load_env()
 from parsing import parse_summary  # noqa: E402
@@ -66,9 +66,10 @@ def main() -> None:
     else:
         p.error("회의 요약 파일 또는 --request 중 하나가 필요합니다")
 
-    settings = load_settings()
+    settings = load_settings(validate=False)
     if args.dry_run:
         settings.dry_run = True
+    validate_settings(settings)  # --dry-run을 반영한 뒤 검증한다
 
     print(f"작업: {req.task_id} · 회의: {req.meeting.meeting_id} · "
           f"저장소: {req.project.github_owner}/{req.project.github_repo}{' · DRY-RUN' if settings.dry_run else ''}")

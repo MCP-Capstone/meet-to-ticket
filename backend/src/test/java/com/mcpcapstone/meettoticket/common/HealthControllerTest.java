@@ -7,9 +7,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 // DB 없이 실행되도록 웹 계층만 띄워서 테스트한다.
+@ActiveProfiles("test")
 @WebMvcTest(HealthController.class)
 class HealthControllerTest {
 

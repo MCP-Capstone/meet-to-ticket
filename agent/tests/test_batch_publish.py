@@ -23,7 +23,9 @@ class BatchPublisher:
 
     async def post_message(self, **args):
         self.calls.append(("message", args))
-        return {"url": "slack-url"}
+        # business-mcp post_message의 실제 응답 모양 (business-mcp/integrations/slack/api.py)
+        return {"status": "posted", "channel_id": args["channel_id"], "timestamp": "1.2",
+                "permalink": "slack-url", "mentioned_user_ids": []}
 
 
 def ticket(ticket_id, kind, number=None):
@@ -95,6 +97,37 @@ async def test_slack_notice_posts_once_and_mentions_only_connected_reviewers():
 
     assert out.items[0].status == "POSTED" and out.items[0].message_url == "slack-url"
     assert publisher.calls == [("message", {"channel_id": "C123", "text": "@박서연 확인 부탁", "mentions": [{"name": "박서연", "slack_user_id": "U123"}]})]
+
+
+@pytest.mark.anyio
+async def test_slack_retry_after_unknown_outcome_does_not_post_again():
+    """post_message는 비멱등이라 결과 모름 뒤 재발행은 같은 공지를 다시 올리지 않는다 (#278)."""
+    publisher = BatchPublisher()
+    notice = ticket("notice", "CREATE")
+    notice.project = Project(github_owner="o", github_repo="r", slack_channel_id="C123")
+    notice.publish_target = "SLACK"
+    notice.content_json = {"slack": {"text": "회의 공지", "reviewers": []}}
+    notice.previous_outcome_unknown = True
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[notice]), publisher)
+
+    assert publisher.calls == []
+    item = out.items[0]
+    assert item.status == "FAILED" and item.error_code == "SLACK_VERIFY_REQUIRED" and item.retryable is False
+
+
+@pytest.mark.anyio
+async def test_slack_config_error_is_reported_before_unknown_outcome_block():
+    """설정 오류는 확실하므로 결과 모름 차단보다 먼저 알린다 (#280)."""
+    publisher = BatchPublisher()
+    notice = ticket("notice", "CREATE")
+    notice.publish_target = "SLACK"
+    notice.content_json = {"slack": {"text": "회의 공지", "reviewers": []}}
+    notice.previous_outcome_unknown = True
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[notice]), publisher)
+
+    assert publisher.calls == [] and out.items[0].error_code == "INVALID_ARGUMENT"
 
 
 @pytest.mark.anyio

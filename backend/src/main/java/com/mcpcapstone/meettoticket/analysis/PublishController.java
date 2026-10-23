@@ -62,7 +62,7 @@ public class PublishController {
         return service.result(batchId, userId);
     }
 
-    @Operation(operationId = "retryFailedTicket", summary = "실패한 티켓 다시 시도", description = "담당자가 실패 상태의 티켓 하나를 다시 발행한다. 담당자가 아니면 403, 실패 상태가 아니면 409다. 티켓은 발행 중이 되어 같은 티켓을 동시에 다시 시도해도 이슈가 두 번 생기지 않는다(나중 요청은 409). 202는 접수이며 결과는 batchId로 조회한다. 성공하면 발행됨, 연결됨, 갱신됨이 되고 실패하면 다시 실패가 된다. 결과의 failureCategory가 REPOSITORY_PERMISSION이면 저장소 권한 문제이므로 PM이 프로젝트 설정에서 풀어야 한다.")
+    @Operation(operationId = "retryFailedTicket", summary = "실패한 티켓 다시 시도", description = "담당자가 실패 상태의 티켓 하나를 다시 발행한다. 담당자가 아니면 403, 실패 상태가 아니거나 확인 결과가 필요한 실패(publishFailure.resolution=MANUAL_CHECK, Notion/Slack 결과 모름)면 409다. 티켓은 발행 중이 되어 같은 티켓을 동시에 다시 시도해도 이슈가 두 번 생기지 않는다(나중 요청은 409). 202는 접수이며 결과는 batchId로 조회한다. 성공하면 발행됨, 연결됨, 갱신됨이 되고 실패하면 다시 실패가 된다. 결과의 failureCategory가 REPOSITORY_PERMISSION이면 저장소 권한 문제이므로 PM이 프로젝트 설정에서 풀어야 한다.")
     @ApiResponse(responseCode = "202", description = "재시도 접수", content = @Content(schema = @Schema(implementation = PublishService.Started.class),
                     examples = @ExampleObject(value = ApiExamples.RETRY_STARTED)))
     @ApiResponse(responseCode = "401", description = "로그인 세션 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
@@ -71,7 +71,7 @@ public class PublishController {
                     examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_ASSIGNEE_REQUIRED)))
     @ApiResponse(responseCode = "404", description = "티켓이 없음 (TICKET_NOT_FOUND)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_NOT_FOUND)))
-    @ApiResponse(responseCode = "409", description = "실패 상태가 아니거나 이미 다시 시도 중 (TICKET_STATUS_CONFLICT)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+    @ApiResponse(responseCode = "409", description = "실패 상태가 아니거나, 이미 다시 시도 중이거나, 확인 결과를 먼저 남겨야 하는 실패 (TICKET_STATUS_CONFLICT)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_STATUS_CONFLICT)))
     @ApiResponse(responseCode = "502", description = "Agent가 접수하지 않음. 티켓은 실패 상태로 남는다 (AGENT_ACCEPTANCE_FAILED)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_AGENT_ACCEPTANCE_FAILED)))

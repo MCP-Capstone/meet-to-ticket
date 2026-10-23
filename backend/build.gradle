@@ -22,6 +22,9 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.springframework.boot:spring-boot-starter-amqp'
+	// 스키마는 Flyway 마이그레이션(db/migration)으로만 변경한다. PostgreSQL 지원 모듈이 따로 필요하다.
+	implementation 'org.springframework.boot:spring-boot-starter-flyway'
+	runtimeOnly 'org.flywaydb:flyway-database-postgresql'
 	// 비밀번호 해시(BCrypt)만 사용한다. Spring Security 전체는 쓰지 않는다.
 	implementation 'org.springframework.security:spring-security-crypto'
 	// API 명세 (Swagger UI: /swagger-ui.html). 3.x가 Spring Boot 4를 지원한다.
@@ -40,4 +43,12 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+// ./gradlew bootRun은 기본으로 local 프로파일을 쓴다(기본 자격증명 허용). jar 실행은 시작 가드가 적용된다.
+// --args 또는 SPRING_PROFILES_ACTIVE로 프로파일을 지정하면 그 값이 우선한다.
+tasks.named('bootRun') {
+	if (System.getenv('SPRING_PROFILES_ACTIVE') == null) {
+		systemProperty 'spring.profiles.active', 'local'
+	}
 }

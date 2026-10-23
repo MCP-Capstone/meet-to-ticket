@@ -13,6 +13,8 @@
 | RabbitMQ AMQP | - | 5672 | localhost:5672 |
 | RabbitMQ 관리 화면 | - | 15672 | http://localhost:15672 |
 
+- 루트 `docker-compose.yml`의 PostgreSQL/RabbitMQ 포트(5672, 5432, 15672)는 `127.0.0.1`로만 열린다. 원격 호스트/VM에서는 다른 PC에서 직접 접속할 수 없고, RabbitMQ 관리 화면도 localhost에서만 열린다.
+- `./gradlew bootRun`은 `local` 프로파일로 실행되어 기본 DB/RabbitMQ 자격증명과 빈 내부 토큰을 허용한다. jar 등 프로파일 없는 실행은 기본 자격증명이면 기동을 거부한다.
 - 포트를 바꾸지 않는다. 바꿔야 하면 이 문서부터 수정하고 팀에 공지한다.
 - Vite는 `strictPort`로 설정되어 있어 5173이 사용 중이면 다른 포트로 넘어가지 않고 실패한다.
 

@@ -446,6 +446,7 @@ Notion 기획 문서는 회의록과 관련 있는 문서만 읽는다 (AI-MCP �
 - 담당자의 직군은 기준으로 쓰지 않는다. 분류는 제안이고 담당자가 카드에서 바꿀 수 있다 (TASK-031)
 - 중복 판단은 `GITHUB` 티켓만 한다 (기획 1.7.2)
 - `PUBLISH_ON_RUN=true`(Phase 1 baseline)는 분류와 상관없이 GitHub로만 발행하고 공지를 만들지 않는다
+- `PUBLISH_ON_RUN=true`여도 담당자 미확정(`unresolved_assignees`)/없음이거나 확인 필요(검수 미통과, `NEEDS_CHECK`)인 티켓은 발행하지 않고 `BLOCKED`와 사유(`reason`)로 남긴다. `PUBLISH_ON_RUN=true`는 환경과 무관하게 `ALLOW_AUTO_PUBLISH=true` 승인 없이는 기동하지 않는다(`DRY_RUN=true`면 외부에 쓰지 않으므로 예외)
 
 결과 `contentJson`에는 `publish_target`(`GITHUB`/`NOTION`/`SLACK`)과 `target_reason`이 들어가고, 대상별 출력문이 붙는다.
 
@@ -455,7 +456,7 @@ Notion 기획 문서는 회의록과 관련 있는 문서만 읽는다 (AI-MCP �
 | `NOTION` | `notion_page.{title, markdown}`. `create_page(root, title, markdown)`에 그대로 넘긴다. GitHub 전용 칸(라벨, 관련·상위 이슈, @계정)은 없다 | `publisher.build_notion_page` |
 | `SLACK` | 회의 하나당 공지 티켓 하나(`work_key`: `<회의 ID>-notice`). `slack.text`와 `slack.reviewers` | `publisher.build_slack_notice` |
 
-`POST /publish`는 `publishTarget`이 `NOTION`인 티켓을 GitHub 이슈로 만들지 않고 프로젝트 `notionPageUrl` 아래에 `create_page`로 페이지를 만든다. 결과에는 `notionPageId`와 `notionPageUrl`이 담긴다. 프로젝트에 Notion 기획 페이지 URL이 없으면 `NOTION_ROOT_MISSING`(재시도 불가)으로 실패하고, 권한, 페이지 없음 오류도 재시도 불가, `NOTION_RATE_LIMIT`과 `NOTION_ERROR`는 재시도 가능, 타임아웃은 `UNKNOWN`이다. `create_page`는 같은 요청을 다시 보내면 페이지가 하나 더 생기므로(비멱등), 결과 모름 뒤의 재발행(`previous_outcome_unknown`)은 중복 페이지를 막기 위해 `create_page`를 보내지 않고 `NOTION_VERIFY_REQUIRED`(재시도 불가)로 실패시킨다. Notion의 `회의 후속 티켓` 폴더를 확인해야 한다.
+`POST /publish`는 `publishTarget`이 `NOTION`인 티켓을 GitHub 이슈로 만들지 않고 프로젝트 `notionPageUrl` 아래에 `create_page`로 페이지를 만든다. 결과에는 `notionPageId`와 `notionPageUrl`이 담긴다. 프로젝트에 Notion 기획 페이지 URL이 없으면 `NOTION_ROOT_MISSING`(재시도 불가)으로 실패하고, 권한, 페이지 없음 오류도 재시도 불가, `NOTION_RATE_LIMIT`과 `NOTION_ERROR`는 재시도 가능, 타임아웃은 `UNKNOWN`이다. `create_page`는 같은 요청을 다시 보내면 페이지가 하나 더 생기므로(비멱등), 결과 모름 뒤의 재발행(`previous_outcome_unknown`)은 중복 페이지를 막기 위해 `create_page`를 보내지 않고 `NOTION_VERIFY_REQUIRED`(재시도 불가)로 실패시킨다. Notion의 `회의 후속 티켓` 폴더를 확인해야 한다. Slack 공지의 `post_message`도 비멱등이고 이미 게시됐는지 찾는 도구가 없으므로, 결과 모름 뒤의 재발행은 `post_message`를 보내지 않고 `SLACK_VERIFY_REQUIRED`(재시도 불가)로 실패시킨다(#278). Slack 채널에서 공지가 올라갔는지 확인해야 한다. 담당자가 확인한 결과를 백엔드 `POST /api/tickets/{ticketId}/resolve-outcome`으로 남기면 `previous_outcome_unknown`이 풀려, 반영되지 않은 경우 다시 보낼 수 있다(#280).
 
 Slack 공지는 코드가 만든다 (LLM 없음). 결정 사항, 새 작업 수(GitHub 이슈·Notion 페이지)와 기존 이슈 연결 수, 검토 요청을 담는다. 검토 요청은 실제로 티켓을 받는 사람과 맞춘다: GitHub 티켓은 회의록 담당자가 프로젝트 멤버 1명과 정확히 연결될 때만 "@이름 N건"(백엔드 `AssigneeResolver`와 같은 규칙), 나머지는 "담당 지정 필요 N건", Notion 티켓은 "Notion 페이지 N건 (업로더 확인)"이다. 게시할 때(#151) Slack 연결이 확인된 담당자만 `post_message`의 `mentions`로 넘겨 멘션되고, 나머지는 이름 텍스트로 남는다. 할 일이 없어도 결정 사항이 있으면 공지를 만든다. 백엔드는 `publish_target`을 티켓의 발행 대상 칸에 저장하고(GitHub 이외는 처리 유형이 항상 신규 발행), Slack 공지와 Notion 티켓을 업로더의 내 티켓으로 보낸다 (REQ-012).
 

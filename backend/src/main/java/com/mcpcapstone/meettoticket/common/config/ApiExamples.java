@@ -249,6 +249,13 @@ public final class ApiExamples {
             }
             """;
 
+    public static final String ERROR_PUBLISH_TARGET_LOCKED = """
+            {
+              "code": "PUBLISH_TARGET_LOCKED",
+              "message": "결과를 모르는 발행이 있어 발행 대상을 바꿀 수 없습니다. 먼저 결과를 확인하세요."
+            }
+            """;
+
     public static final String ERROR_EXISTING_ISSUE_REQUIRED = """
             {
               "code": "EXISTING_ISSUE_REQUIRED",

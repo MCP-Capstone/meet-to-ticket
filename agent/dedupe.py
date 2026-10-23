@@ -23,7 +23,9 @@ from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field, ValidationError
 
 import prompts
+from guard import neutralize
 from handling import decide
+from issue_tools import READ_ONLY_TOOLS
 
 log = logging.getLogger("agent.dedupe")
 
@@ -60,6 +62,11 @@ def _submit_tool() -> Any:
 
 def build_judge_graph(chat: Any, tools: list[Any], *, max_calls: int, max_same: int) -> Any:
     """판단 루프 그래프. 티켓마다 다시 만들지 않고 한 번 만들어 같이 쓴다."""
+    # 코드 수준 allowlist: 읽기 전용 도구만 모델에 묶고 ToolNode에도 넣는다. 그 밖의 이름은 모델이 불러도 실행되지 않는다
+    removed = [t.name for t in tools if t.name not in READ_ONLY_TOOLS]
+    if removed:
+        log.warning("읽기 전용 allowlist 밖의 도구를 중복 판단에서 뺌: %s", ", ".join(removed))
+    tools = [t for t in tools if t.name in READ_ONLY_TOOLS]
     # tool_choice="required": 매 턴 도구(조회 또는 제출)를 하나 이상 부르게 해 글로만 답하고 끝나지 않게 한다
     bound = chat.bind_tools([*tools, _submit_tool()], tool_choice="required")
 
@@ -100,13 +107,14 @@ def _user_message(ticket: dict[str, Any]) -> str:
     회의록 원문의 할 일과 근거 인용만 넘긴다.
     """
     expected = ticket.get("expected") or {}
-    return prompts.DEDUPE_USER.format(
+    # 값은 회의록(데이터)에서 온 것이다. 템플릿이 데이터 태그로 감싸므로 태그를 닫는 문자열만 무력화한다
+    return prompts.DEDUPE_USER.format(**{k: neutralize(v) for k, v in dict(
         title=ticket.get("title") or ticket.get("action_text", ""),
         action=ticket.get("action_text", ""),
         evidence=" / ".join(ticket.get("evidence_quotes") or []) or "-",
         keys=", ".join(expected.get("keys") or []) or "없음",
         expected=expected.get("raw") or "없음",
-    )
+    ).items()})
 
 
 def _seen_issues(messages: list[Any]) -> dict[int, dict[str, Any]]:
