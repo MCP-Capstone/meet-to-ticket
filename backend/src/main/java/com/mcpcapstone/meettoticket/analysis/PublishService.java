@@ -43,7 +43,6 @@ public class PublishService {
             List<TaskItem> picked = new ArrayList<>();
             for (UUID id : items.findIdsAssignedTo(userId, TicketStatus.CONFIRMED, projectId)) {
                 // 잠근 뒤 다시 확인해야 그 사이 발행 중으로 바뀐 티켓을 걸러낸다.
-                // Agent 일괄 발행은 GitHub와 Notion을 처리한다. Slack 대상은 확인 상태로 두고 해당 발행 기능(TASK-051)이 맡는다.
                 items.findForUpdate(id)
                         .filter(i -> i.getTicketStatus() == TicketStatus.CONFIRMED && publishable(i.getPublishTarget()))
                         .ifPresent(picked::add);
@@ -96,8 +95,9 @@ public class PublishService {
         }));
     }
 
+    // GitHub 이슈, Notion 페이지, Slack 공지(TASK-051) 모두 Agent 일괄 발행이 처리한다.
     private static boolean publishable(PublishTarget target) {
-        return target == PublishTarget.GITHUB || target == PublishTarget.NOTION;
+        return target == PublishTarget.GITHUB || target == PublishTarget.NOTION || target == PublishTarget.SLACK;
     }
 
     private record Prepared(UUID batchId, PublishGateway.Request request) {}
@@ -191,10 +191,11 @@ public class PublishService {
 
     private void record(TaskItem ticket, PublishGateway.Item r) {
         ProcessingType executed = parse(r.processingType());
-        // 저장 칸 이름은 githubIssueUrl이지만 Notion 대상은 만든 페이지 URL을 여기에 담는다(스키마와 API는 그대로).
-        String url = r.notionPageUrl() != null ? r.notionPageUrl() : r.githubIssueUrl();
+        // 저장 칸 이름은 githubIssueUrl이지만 Notion 대상은 만든 페이지 URL을, Slack 대상은 게시한 메시지 URL을 담는다(스키마는 그대로).
+        String url = r.notionPageUrl() != null ? r.notionPageUrl() : r.messageUrl() != null ? r.messageUrl() : r.githubIssueUrl();
         switch (r.status() == null ? "" : r.status()) {
-            case "PUBLISHED" -> ticket.recordPublishResult(TicketStatus.PUBLISHED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), false, false);
+            // Slack 공지는 Agent가 POSTED로 알려 준다. 티켓 상태로는 발행됨이다.
+            case "PUBLISHED", "POSTED" -> ticket.recordPublishResult(TicketStatus.PUBLISHED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), false, false);
             case "LINKED" -> ticket.recordPublishResult(TicketStatus.LINKED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), false, false);
             // 본문은 갱신됐지만 알림 댓글만 실패한 경우처럼 errorCode가 함께 올 수 있다. 갱신됨으로 두고 사유를 남긴다.
             case "UPDATED" -> ticket.recordPublishResult(TicketStatus.UPDATED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), retryable(r), false);
@@ -251,7 +252,7 @@ public class PublishService {
                 i.getId(), i.getTitle(), i.getTicketStatus(), i.getProcessingType(), project.getId(), project.getName(),
                 i.getGithubIssueNumber(), i.getGithubIssueUrl(), code, waiting ? null : i.getErrorMessage(),
                 PublishFailureCategory.of(code),
-                !waiting && i.isPublishRetryable(), !waiting && i.isPublishOutcomeUnknown());
+                !waiting && i.isPublishRetryable(), !waiting && i.isPublishOutcomeUnknown(), i.getPublishTarget());
     }
 
     // 담당자가 카드에서 고친 내용(contentJson)과 처리 유형을 그대로 보낸다. 발행 본문은 Agent가 이 내용으로 조립한다.
@@ -293,5 +294,6 @@ public class PublishService {
             @Schema(description = "실패 사유", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) String errorMessage,
             @Schema(description = "실패 사유 분류. REPOSITORY_PERMISSION이면 PM이 프로젝트 설정에서 저장소 권한을 풀어야 하므로 화면이 프로젝트 설정으로 안내한다. 사유가 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, allowableValues = {"REPOSITORY_PERMISSION", "OTHER"}, example = "REPOSITORY_PERMISSION") PublishFailureCategory failureCategory,
             @Schema(description = "다시 시도해도 되는 실패인지", requiredMode = Schema.RequiredMode.REQUIRED) boolean retryable,
-            @Schema(description = "요청은 갔지만 결과를 모르는 경우. 다시 시도하기 전에 GitHub에서 확인해야 한다", requiredMode = Schema.RequiredMode.REQUIRED) boolean outcomeUnknown) {}
+            @Schema(description = "요청은 갔지만 결과를 모르는 경우. 다시 시도하기 전에 발행 대상 도구에서 확인해야 한다", requiredMode = Schema.RequiredMode.REQUIRED) boolean outcomeUnknown,
+            @Schema(description = "발행 대상. githubIssueUrl에는 대상에 따라 GitHub 이슈, Notion 페이지, Slack 메시지 URL이 담긴다. 이 필드가 생기기 전에 끝난 묶음은 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "GITHUB") PublishTarget publishTarget) {}
 }
