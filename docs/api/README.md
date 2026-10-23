@@ -24,6 +24,7 @@
 | POST | /api/projects | 201 | 프로젝트 등록 (등록자는 관리자) |
 | GET | /api/projects/{projectId} | 200 | 프로젝트 상세, 멤버, 편집 가능 여부 |
 | PUT | /api/projects/{projectId} | 200 | 프로젝트 편집 (관리자만) |
+| PUT | /api/projects/{projectId}/members/{memberUserId}/role | 200 | 관리자 지정/해제 (관리자만) |
 | GET | /api/users?keyword= | 200 | 멤버로 고를 가입 사용자 검색 |
 | GET | /api/projects/{projectId}/members | 200 | 팀원·GitHub 계정 |
 | POST | /api/projects/{projectId}/analysis-tasks | 202 | 회의록 처리 요청 (회의 저장 + 분석 접수, 기획_v16) |
@@ -38,7 +39,7 @@
 호출 한도(토큰 없이 IP당 시간당 60회)나 장애로 확인하지 못하면 입력값 그대로 저장하고 가입한다.
 
 프로젝트를 등록한 사용자는 관리자(ADMIN)이자 멤버가 되고, 편집(PUT)은 관리자만 한다(아니면 403 `PROJECT_ADMIN_REQUIRED`).
-`memberUserIds`는 변경 후 전체 멤버 목록이며, 관리자는 목록에 없어도 남는다. 같은 GitHub 저장소는 대소문자가 달라도 409 `DUPLICATE_PROJECT_REPOSITORY`이다.
+`memberUserIds`는 변경 후 전체 멤버 목록이며, 관리자는 목록에 없어도 남는다. 관리자 지정/해제는 role API(`{"role": "ADMIN" | "MEMBER"}`)로 하고, 마지막 관리자를 해제하면 409 `LAST_PROJECT_ADMIN`이다. 같은 GitHub 저장소는 대소문자가 달라도 409 `DUPLICATE_PROJECT_REPOSITORY`이다.
 멤버 저장소 권한과 도구 연결은 TASK-006 전까지 확인하지 않는다. GitHub 계정이 없는 멤버만 `NO_ACCOUNT`이고, 확인 전 값은 `null`이다.
 
 로그인·가입·로그아웃·health 외에는 JSESSIONID 세션이 필요하다. Swagger에서 먼저 로그인하면 같은 출처 요청에 쿠키가 적용된다.

@@ -17,4 +17,9 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, Lo
     List<ProjectMember> findByProjectIdOrderById(Long projectId);
 
     boolean existsByProjectIdAndName(Long projectId, String name);
+
+    // 관리자 지정/해제를 한 번에 하나씩 처리해, 동시에 해제해도 관리자가 0명이 되지 않게 한다.
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from ProjectMember m where m.project.id = :projectId and m.role = :role")
+    List<ProjectMember> lockByProjectIdAndRole(Long projectId, ProjectRole role);
 }

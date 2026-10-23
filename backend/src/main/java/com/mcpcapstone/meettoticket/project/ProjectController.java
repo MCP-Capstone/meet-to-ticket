@@ -15,6 +15,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.mcpcapstone.meettoticket.project.dto.ProjectDetail;
+import com.mcpcapstone.meettoticket.project.dto.ProjectRoleRequest;
 import com.mcpcapstone.meettoticket.project.dto.ProjectSaveRequest;
 
 import jakarta.validation.Valid;
@@ -91,6 +92,28 @@ public class ProjectController {
             @Valid @RequestBody ProjectSaveRequest request,
             @Parameter(hidden = true) @SessionAttribute(SessionConst.LOGIN_USER_ID) Long userId) {
         return service.update(projectId, request, userId);
+    }
+
+    @Operation(operationId = "changeProjectMemberRole", summary = "프로젝트 관리자 지정/해제", description = "관리자만 할 수 있다. 자기 자신도 해제할 수 있지만 관리자는 항상 1명 이상 남아야 한다.")
+    @ApiResponse(responseCode = "200", description = "변경 완료", content = @Content(schema = @Schema(implementation = ProjectDetail.class),
+                    examples = @ExampleObject(value = ApiExamples.PROJECT_DETAIL)))
+    @ApiResponse(responseCode = "400", description = "역할 값 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_VALIDATION_FAILED)))
+    @ApiResponse(responseCode = "401", description = "로그인 세션 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_UNAUTHORIZED)))
+    @ApiResponse(responseCode = "403", description = "프로젝트 소속 아님 (PROJECT_ACCESS_DENIED) 또는 관리자 아님 (PROJECT_ADMIN_REQUIRED)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_PROJECT_ADMIN_REQUIRED)))
+    @ApiResponse(responseCode = "404", description = "대상 사용자가 프로젝트 멤버가 아님", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_PROJECT_MEMBER_NOT_FOUND)))
+    @ApiResponse(responseCode = "409", description = "마지막 관리자는 해제할 수 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_LAST_PROJECT_ADMIN)))
+    @PutMapping("/api/projects/{projectId}/members/{memberUserId}/role")
+    public ProjectDetail changeRole(
+            @Parameter(description = "프로젝트 ID", example = "1", required = true) @PathVariable Long projectId,
+            @Parameter(description = "역할을 바꿀 멤버의 사용자 ID", example = "2", required = true) @PathVariable Long memberUserId,
+            @Valid @RequestBody ProjectRoleRequest request,
+            @Parameter(hidden = true) @SessionAttribute(SessionConst.LOGIN_USER_ID) Long userId) {
+        return service.changeRole(projectId, memberUserId, request.role(), userId);
     }
 
     @Operation(operationId = "listProjectMembers", summary = "프로젝트 팀원 조회", description = "참여자 ID를 이름으로 표시할 때 사용한다. userId와 githubName은 연결되지 않았다면 null이다.")

@@ -62,6 +62,10 @@ public class ProjectMember {
         this.role = ProjectRole.ADMIN;
     }
 
+    public void changeRole(ProjectRole role) {
+        this.role = role;
+    }
+
     // 가입 사용자 멤버는 저장할 때마다 사용자 정보의 이름과 GitHub 계정으로 맞춘다.
     public void syncWithUser() {
         if (user == null) return;

@@ -20,6 +20,8 @@ public enum ErrorCode {
 	PROJECT_ADMIN_REQUIRED(HttpStatus.FORBIDDEN, "프로젝트 관리자만 편집할 수 있습니다."),
 	DUPLICATE_PROJECT_REPOSITORY(HttpStatus.CONFLICT, "이미 다른 프로젝트에 등록된 GitHub 저장소입니다."),
 	MEMBER_USER_NOT_FOUND(HttpStatus.BAD_REQUEST, "가입하지 않은 사용자가 멤버에 포함되어 있습니다."),
+	PROJECT_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "프로젝트 멤버가 아닌 사용자입니다."),
+	LAST_PROJECT_ADMIN(HttpStatus.CONFLICT, "관리자는 1명 이상 있어야 합니다. 다른 멤버를 먼저 관리자로 지정해 주세요."),
 	MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "회의를 찾을 수 없습니다."),
 	INVALID_MEETING_FILE(HttpStatus.BAD_REQUEST, "UTF-8 .txt 파일의 제목·날짜·참여자를 확인해 주세요."),
 	PARTICIPANT_MAPPING_FAILED(HttpStatus.BAD_REQUEST, "미등록 또는 동명이인 참여자가 있어 연결할 수 없습니다."),
