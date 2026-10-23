@@ -27,10 +27,10 @@ async def test_10min_review(settings):
         assert tickets[key]["action"] == "NEEDS_CHECK"
     approved = [t for t in state["tickets"] if t["review_status"] == "APPROVED"]
     assert len(approved) == 6 and all(t["action"] == "CREATE" for t in approved)
-    # 다중 담당자: 정하늘은 github_name이 없어 비움
+    # 다중 담당자: 기본 요청은 전원 매핑돼 있다 (미확정 담당자는 test_unconfirmed_publish)
     a7 = tickets["10m1-a7"]
-    assert a7["assignees"] == ["minjun-k", "seoyeon-p", "doyun-l", "yujin-c", "jihoon-o"]
-    assert a7["unresolved_assignees"] == ["정하늘"]
+    assert a7["assignees"] == ["minjun-k", "seoyeon-p", "doyun-l", "yujin-c", "haneul-j", "jihoon-o"]
+    assert a7["unresolved_assignees"] == []
     # 기한 계산
     assert tickets["10m1-a2"]["due"] == {"text": "2026-10-20 오전", "date": "2026-10-20", "time": "12:00"}
 

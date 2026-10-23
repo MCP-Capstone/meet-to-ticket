@@ -1,0 +1,17 @@
+{
+  "version": "v2.1",
+  "scored_unit_count": 37,
+  "meeting_input_count": 30,
+  "dedupe_repo": "meet-to-ticket-eval",
+  "dedupe": {
+    "ev41_same_open": {"relation": "SAME", "issue": 2, "handling": "LINK"},
+    "ev42_change_open": {"relation": "CHANGE", "issue": 1, "handling": "UPDATE"},
+    "ev43_same_closed": {"relation": "SAME", "issue": 3, "handling": "CREATE+REF"},
+    "ev44_change_closed": {"relation": "CHANGE", "issue": 5, "handling": "CREATE+REF"},
+    "ev45_related": {"relation": "RELATED", "issue": 4, "handling": "CREATE+REF"},
+    "ev46_unrelated": {"relation": "UNRELATED", "issue": null, "handling": "CREATE"}
+  },
+  "forbidden_text": {
+    "ev30_pii_redaction": ["qa.customer@example.test", "010-0000-0000"]
+  }
+}

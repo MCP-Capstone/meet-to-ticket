@@ -75,7 +75,9 @@ async def test_keyword_search_and_resource_read():
     assert out["issues"][0]["number"] == 7
     text = await judge["read_issue"].ainvoke({"number": 12})
     assert reads == ["issue://o/r/12"]  # Resource를 도구로 감싸 읽는다
-    assert len(text) <= 300 and text.endswith("(길어서 생략됨)")
+    # 이슈 본문은 데이터 태그로 감싸 넘기고, 길이 한도는 태그 안의 본문에 적용한다 (#265)
+    assert text.startswith("<existing_issue>\n") and text.endswith("(길어서 생략됨)\n</existing_issue>")
+    assert len(text) <= 300 + len("<existing_issue>\n\n</existing_issue>")
 
 
 async def test_errors_are_returned_to_model_as_text():

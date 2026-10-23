@@ -155,6 +155,8 @@ docker compose down -v    # 종료 + 데이터 삭제
 - 모든 서비스는 로컬(호스트)에서 실행하므로 주소는 `localhost:5432`로 같다.
 - agent, business-mcp, rag-mcp는 DB를 사용하지 않는다. 테이블 구조는 backend(JPA 엔티티)가 관리한다.
 - 값을 바꾸려면 `.env.example`을 `.env`로 복사해서 수정한다.
+- DB/RabbitMQ 포트는 `127.0.0.1`로만 열린다. 원격 호스트/VM의 Compose에는 다른 PC에서 직접 접속할 수 없고, RabbitMQ 관리 화면(15672)도 localhost 전용이다.
+- `./gradlew bootRun`은 `local` 프로파일로 실행되어 기본 자격증명을 허용한다. 프로파일 없이 jar로 실행하면 기본 자격증명/빈 내부 토큰은 기동이 거부된다.
 - 5432 포트를 이미 쓰는 로컬 PostgreSQL이 있으면 먼저 종료한다.
 
 ## 문서
