@@ -6,7 +6,7 @@ MCP 도구(server.py)가 이 모듈을 통해서만 GitHub를 호출한다.
 - 테스트에서는 make_client(transport=httpx.MockTransport(...))로 실제 요청 없이 검증한다.
 
 저장소와 토큰을 정하는 방식
-- 현재(1차): 토큰(GITHUB_TOKEN)과 쓸 수 있는 저장소 목록은 mcp-server/.env에서 읽는다.
+- 현재(1차): 토큰(GITHUB_TOKEN)과 쓸 수 있는 저장소 목록은 business-mcp/.env에서 읽는다.
   어느 저장소에 만들지(owner, repo)는 도구를 부를 때 인자로 받지만, .env에 허용된 저장소가 아니면 거부한다.
   즉 토큰 하나로, 미리 정해 둔 저장소에만 이슈를 만든다.
 - 추후: 백엔드 API에서 프로젝트별 저장소와 연동 정보(토큰 등)를 받아,

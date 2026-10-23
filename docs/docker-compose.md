@@ -2,7 +2,7 @@
 
 이 구성은 demo 프로파일과 기본 테스트 계정을 사용하는 로컬·데모용이며, 운영 배포용 구성이 아닙니다.
 
-`compose.full.yml`은 frontend, backend, agent, mcp-server, rag-mcp, postgres, rabbitmq를 함께 실행한다.
+`compose.full.yml`은 frontend, backend, agent, business-mcp, rag-mcp, postgres, rabbitmq를 함께 실행한다.
 기존 `docker-compose.yml`은 로컬 개발용 DB·RabbitMQ 설정으로 유지한다.
 전체 구성은 별도 프로젝트 이름 `meet-to-ticket-full`을 사용해 기존 DB 컨테이너와 구분한다.
 Docker Compose 2.24 이상과 Docker 엔진이 필요하다. 로컬 Java·Node·Python 설치는 빌드에 필요하지 않다.
@@ -23,7 +23,7 @@ cp -n .env.example .env
 |---|---|
 | 루트 `.env` | `BACKEND_INTERNAL_TOKEN`, 공개 포트, 실행 모드, DB·RabbitMQ 및 demo 계정 설정 |
 | `agent/.env` | `OPENAI_API_KEY` 및 선택적인 모델·추적 설정 |
-| `mcp-server/.env` | `GITHUB_TOKEN`, `GITHUB_OWNER=MCP-Capstone`, `GITHUB_REPO=mcp-capstone` |
+| `business-mcp/.env` | `GITHUB_TOKEN`, `GITHUB_OWNER=MCP-Capstone`, `GITHUB_REPO=mcp-capstone` |
 | `rag-mcp/.env` | `GITHUB_TOKEN`(이슈 읽기), `GITHUB_OWNER`, `GITHUB_REPO`, `OPENAI_API_KEY`(임베딩) |
 
 키 파일이 없어도 컨테이너는 기동하지만 실제 LLM 분석에는 OpenAI 키, 실제 이슈 발행에는 GitHub 토큰이 필요하다.
@@ -61,7 +61,7 @@ Agent는 Spring이 실행될 때까지 기다리도록 설정하지 않아 진�
 | frontend | `frontend:80` | `127.0.0.1:5173` (로컬 컴퓨터에서만 접근) |
 | backend | `backend:8080` | `127.0.0.1:8080` (로컬 컴퓨터에서만 접근) |
 | agent | `agent:8001` | 없음 |
-| mcp-server | `mcp-server:8000` | 없음 |
+| business-mcp | `business-mcp:8000` | 없음 |
 | rag-mcp | `rag-mcp:8002` | 없음 |
 | postgres | `postgres:5432` | 없음 |
 | rabbitmq | `rabbitmq:5672` (관리 UI 15672도 내부 전용) | 없음 |

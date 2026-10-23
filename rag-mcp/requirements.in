@@ -1,4 +1,4 @@
-# RAG MCP 서버 전용 환경 (mcp-server와 같은 mcp 2.x, Vector DB·임베딩 패키지가 추가되어 환경을 따로 둔다)
+# RAG MCP 서버 전용 환경 (business-mcp와 같은 mcp 2.x, Vector DB·임베딩 패키지가 추가되어 환경을 따로 둔다)
 mcp>=2.3,<3
 chromadb>=1.0,<2                        # Vector DB (내장 모드로 폴더에 저장)
 openai>=1.0                             # 임베딩 생성

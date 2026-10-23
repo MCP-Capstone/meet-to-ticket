@@ -1,7 +1,7 @@
 # agent 개발환경 가이드
 
 회의록을 분석해 GitHub 이슈를 발행하는 LangGraph 에이전트의 **파이썬 환경 설정** 문서입니다. 이 문서는 `agent/` 폴더만 다룹니다.
-`backend/`, `frontend/` 환경과 `mcp-server/` 환경은 범위 밖입니다. 서버 쪽은 `mcp-server/README.md`를 보세요.
+`backend/`, `frontend/` 환경과 `business-mcp/` 환경은 범위 밖입니다. 서버 쪽은 `business-mcp/README.md`를 보세요.
 
 이 폴더는 **mcp 1.x** 환경입니다. 확인된 버전(2026-10-20 기준)은 아래와 같습니다.
 
@@ -35,8 +35,8 @@
 
 ## 2. 왜 가상환경이 2개인가
 
-이 폴더의 `langchain-mcp-adapters`는 `mcp>=1.24.0,<2.0.0`을 요구합니다. 반면 MCP 서버(`mcp-server/`)는 mcp 2.x의 `MCPServer`를 씁니다.
-그래서 두 프로그램을 한 환경에 설치할 수 없고, `agent/`와 `mcp-server/`에 가상환경을 하나씩 둡니다.
+이 폴더의 `langchain-mcp-adapters`는 `mcp>=1.24.0,<2.0.0`을 요구합니다. 반면 MCP 서버(`business-mcp/`)는 mcp 2.x의 `MCPServer`를 씁니다.
+그래서 두 프로그램을 한 환경에 설치할 수 없고, `agent/`와 `business-mcp/`에 가상환경을 하나씩 둡니다.
 두 프로그램은 HTTP(Streamable HTTP)로 통신하므로 같은 환경에 있을 필요가 없습니다.
 mcp 2.x 서버는 HTTP에서 mcp 1.x 클라이언트도 받아 줍니다. 임시 서버로 직접 확인했습니다(아래 5번).
 
@@ -141,13 +141,13 @@ uv pip check
 
 ## 5. 실행 방법
 
-에이전트는 MCP 서버가 **먼저 떠 있어야** 도구를 불러올 수 있습니다. 서버는 `mcp-server/` 폴더에서 별도 터미널로 띄웁니다(`mcp-server/README.md` 5번 참고).
+에이전트는 MCP 서버가 **먼저 떠 있어야** 도구를 불러올 수 있습니다. 서버는 `business-mcp/` 폴더에서 별도 터미널로 띄웁니다(`business-mcp/README.md` 5번 참고).
 
 **에이전트가 붙을 주소: `http://127.0.0.1:8000/mcp`**
 
 - mcp 2.3.0 서버의 기본 주소이며, 임시 서버를 실제로 띄워 확인했습니다.
 - 그 임시 서버에 이 환경(mcp 1.30.0)의 `MultiServerMCPClient`가 `streamable_http`로 접속해 도구 목록 조회에 성공했습니다.
-- 실제 도구는 `mcp-server/server.py`가 제공하는 3개(`create_issue`, `list_issues`, `search_issues`)입니다.
+- 실제 도구는 `business-mcp/server.py`가 제공하는 3개(`create_issue`, `list_issues`, `search_issues`)입니다.
 
 접속 코드는 아래 형태입니다. 주소는 `.env`의 `MCP_SERVER_URL`에서 읽습니다.
 
@@ -220,7 +220,7 @@ LLM 제공사를 바꾸면(예: OpenAI에서 다른 회사로) `requirements.in`
 ## 8. 자주 나는 문제
 
 **mcp 버전 충돌 (서버 패키지를 이 환경에 설치했을 때)**
-mcp 2.x가 필요한 서버 환경의 패키지를 이 폴더 환경에 설치하면 `mcp<2` 요구와 부딪혀 설치가 실패하거나 한쪽이 망가집니다. 서버 패키지는 `mcp-server/` 환경에서만 설치합니다. 이미 설치했다면 환경을 지우고 다시 만듭니다.
+mcp 2.x가 필요한 서버 환경의 패키지를 이 폴더 환경에 설치하면 `mcp<2` 요구와 부딪혀 설치가 실패하거나 한쪽이 망가집니다. 서버 패키지는 `business-mcp/` 환경에서만 설치합니다. 이미 설치했다면 환경을 지우고 다시 만듭니다.
 
 macOS, Linux:
 
@@ -253,7 +253,7 @@ uv pip sync requirements-dev.txt
 Windows에서는 `.venv\Scripts\python.exe -m pytest`입니다.
 
 **다른 폴더의 가상환경을 켠 채 실행한 경우**
-`mcp-server/` 환경을 켠 채 에이전트를 실행하면 `langgraph`를 찾지 못하는 오류가 납니다. 프롬프트가 `(mcp-server)`로 되어 있지 않은지 보고, 끈 뒤 이 폴더의 환경을 켭니다. 지금 어떤 환경인지는 아래로 확인합니다.
+`business-mcp/` 환경을 켠 채 에이전트를 실행하면 `langgraph`를 찾지 못하는 오류가 납니다. 프롬프트가 `(business-mcp)`로 되어 있지 않은지 보고, 끈 뒤 이 폴더의 환경을 켭니다. 지금 어떤 환경인지는 아래로 확인합니다.
 
 ```bash
 python -c "import sys; print(sys.prefix)"
@@ -281,7 +281,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 - `requirements.txt`, `requirements-dev.txt`를 손으로 수정하지 않는다. 고치려면 `.in`을 수정하고 compile한다.
 - `pip install`이나 `uv pip install`로 패키지를 하나씩 설치하고 그대로 두지 않는다. `.txt`에 없으면 다음 `uv pip sync` 때 지워지고, 다른 팀원 환경에는 아예 없다.
 - `.venv/`를 커밋하지 않는다.
-- `agent/`와 `mcp-server/` 환경을 하나로 합치지 않는다. mcp 버전이 충돌한다.
+- `agent/`와 `business-mcp/` 환경을 하나로 합치지 않는다. mcp 버전이 충돌한다.
 - `.env`와 실제 API 키를 커밋하거나 메신저, 이슈에 붙여넣지 않는다.
 - 패키지 추가와 compile을 환경 담당이 아닌 사람이 임의로 하지 않는다.
 
@@ -411,7 +411,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | 요소 | 구현 | 값·설정 |
 |---|---|---|
 | Instructions | 프롬프트 md 분리, 구조화 출력, 작업별 모델·추론 설정 | `prompts/*.md`, `PROMPT_VERSION`, 위 "모델" 표 |
-| Tools | MCP 서버 2개(mcp-server, rag-mcp) 연결, 모델용 조회 도구 3개(저장소 고정, 결과 길이 제한, 오류는 `[코드] 메시지`로 모델에게 전달), 쓰기 도구는 코드만 호출 | `MCP_SERVER_URL`, `RAG_MCP_URL`, `TOOL_RESULT_MAX_CHARS` |
+| Tools | MCP 서버 2개(business-mcp, rag-mcp) 연결, 모델용 조회 도구 3개(저장소 고정, 결과 길이 제한, 오류는 `[코드] 메시지`로 모델에게 전달), 쓰기 도구는 코드만 호출 | `MCP_SERVER_URL`, `RAG_MCP_URL`, `TOOL_RESULT_MAX_CHARS` |
 | Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → dedupe → publish → finish), 중복 판단은 티켓마다 model ⇄ tools 루프(모델이 도구 선택), 작업 마감, LLM 호출 시간 한도 | 보완 `MAX_REVISIONS`=2, recursion 50, `TASK_DEADLINE_SECONDS`=600, `LLM_TIMEOUT_SECONDS`=120, 판단 `DEDUPE_MAX_TOOL_CALLS`=4·`DEDUPE_MAX_SAME_TOOL`=3·`DEDUPE_TIMEOUT_SECONDS`=30·`DEDUPE_CONCURRENCY`=4 |
 | Context | 원문과 코드가 정리한 표만 전달, 검수에 제외·보류 목록 주입, 원문 길이 한도 | `MAX_SOURCE_CHARS`=40000, `DRAFT_BATCH_SIZE`·`REVIEW_BATCH_SIZE`=10 |
 | State·Memory | 노드가 끝날 때마다 상태 저장(checkpointer, thread id = taskId), 발행한 taskId 재요청은 저장된 결과로 응답, 실행 중 같은 taskId는 409, `GET /runs/{id}/history` | 메모리 저장 (재시작 시 사라짐) |
@@ -431,7 +431,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 - 평가 자료의 권장 작업 시간은 120초다. 60분 회의(24건)는 초안·검수를 10건씩 3번 나눠 호출하고, 추론 모델(gpt-5.4-mini) 응답이 느릴 수 있어 600초로 두었다. 실제 실행 시간을 보고 줄인다.
 - 마감은 "다음 단계에 들어가지 않는다"는 기준이다. 이미 시작한 노드와 발행은 끝까지 한다(발행을 중간에 끊으면 만들어진 이슈가 결과에서 빠질 수 있다). 그래서 끝나는 시각은 마감보다 늦을 수 있다.
   - 진행 중인 노드 1개: 배치 1번에 최대 약 6분 (120초 × 3회 + 재시도 대기 4.5초)
-  - 발행: 이슈마다 mcp-server의 GitHub 호출 한도 20초
+  - 발행: 이슈마다 business-mcp의 GitHub 호출 한도 20초
 - LLM 재시도는 Agent(`llm.py`)에서만 한다. OpenAI 클라이언트의 자체 재시도는 꺼서 재시도가 겹치지 않게 했다(전에는 최대 9번 호출될 수 있었다).
 
 ### LLM 오류 처리
@@ -456,7 +456,7 @@ python cli.py samples/10min_1_summary.md --dry-run
 ### 2) 실제 GitHub 발행까지
 
 1. `samples/members.json`의 `github_name`에 팀원 GitHub 아이디를 채운다 (비우면 담당자 없이 발행)
-2. 다른 터미널에서 MCP 서버 실행: `cd ../mcp-server && python server.py`
+2. 다른 터미널에서 MCP 서버 실행: `cd ../business-mcp && python server.py`
 3. 실행:
 
 ```bash
@@ -533,16 +533,16 @@ python mcp_check.py --owner MCP-Capstone --repo mcp-capstone --rag "CSV 빈 결�
 
 ### 중복 판단용 도구 (rag-mcp)
 
-`RAG_ENABLED=true`면 mcp-server(8000)와 함께 rag-mcp(8002)에도 연결한다. 도구 명세는 이슈 #83에 있다.
+`RAG_ENABLED=true`면 business-mcp(8000)와 함께 rag-mcp(8002)에도 연결한다. 도구 명세는 이슈 #83에 있다.
 
 | 도구 | 서버 | 누가 부르나 | 하는 일 |
 |---|---|---|---|
 | `search_similar_issues` | rag-mcp | 모델 | 의미가 비슷한 기존 이슈 찾기 (k 최대 10) |
-| `search_issues` | mcp-server | 모델 | 이슈 키(예: AUTH-112)나 정확한 단어로 찾기 |
+| `search_issues` | business-mcp | 모델 | 이슈 키(예: AUTH-112)나 정확한 단어로 찾기 |
 | `read_issue` | rag-mcp Resource `issue://{owner}/{repo}/{number}` | 모델 | 후보 이슈 원문 읽기 (모델은 Tool만 부를 수 있어 Agent가 Resource를 도구로 감쌈) |
 | `sync_issues` | rag-mcp | 코드 | 실행마다 1회, 바뀐 이슈만 다시 색인 (`RAG_SYNC_TIMEOUT_SECONDS` 안에 안 끝나면 건너뜀) |
 | `index_issue` | rag-mcp | 코드 | 새로 발행한 이슈를 색인에 추가 |
-| `create_issue` | mcp-server | 코드 | 이슈 발행 (모델에게 주지 않음) |
+| `create_issue` | business-mcp | 코드 | 이슈 발행 (모델에게 주지 않음) |
 
 - 저장소(owner/repo)는 백엔드 요청 값으로 고정한다. 모델용 도구에는 저장소 인자가 없어서 모델이 바꿀 수 없다.
 - 도구 결과는 `TOOL_RESULT_MAX_CHARS`(2000자)로 자르고, 오류는 예외 대신 `[코드] 메시지`로 모델에게 돌려준다. `INDEX_EMPTY`(색인 없음)는 "후보 없음"으로 준다.

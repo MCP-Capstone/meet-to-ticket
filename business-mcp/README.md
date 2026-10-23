@@ -1,6 +1,6 @@
-# mcp-server 개발환경 가이드
+# business-mcp 개발환경 가이드
 
-GitHub 이슈 도구를 제공하는 MCP 서버의 **파이썬 환경 설정** 문서입니다. 이 문서는 `mcp-server/` 폴더만 다룹니다.
+GitHub 이슈 도구를 제공하는 MCP 서버의 **파이썬 환경 설정** 문서입니다. 이 문서는 `business-mcp/` 폴더만 다룹니다.
 `backend/`, `frontend/` 환경과 `agent/` 환경은 범위 밖입니다. 에이전트 쪽은 `agent/README.md`를 보세요.
 
 이 폴더는 **mcp 2.x** 환경입니다. 확인된 버전(2026-10-20 기준)은 아래와 같습니다.
@@ -32,7 +32,7 @@ GitHub 이슈 도구를 제공하는 MCP 서버의 **파이썬 환경 설정** �
 ## 2. 왜 가상환경이 2개인가
 
 에이전트가 쓰는 `langchain-mcp-adapters`는 `mcp>=1.24.0,<2.0.0`을 요구합니다. 반면 이 서버는 mcp 2.x의 `MCPServer`를 씁니다.
-그래서 두 프로그램을 한 환경에 설치할 수 없고, `agent/`와 `mcp-server/`에 가상환경을 하나씩 둡니다.
+그래서 두 프로그램을 한 환경에 설치할 수 없고, `agent/`와 `business-mcp/`에 가상환경을 하나씩 둡니다.
 두 프로그램은 HTTP(Streamable HTTP)로 통신하므로 같은 환경에 있을 필요가 없습니다.
 mcp 2.x 서버는 HTTP에서 mcp 1.x 클라이언트도 받아 줍니다. 임시 서버로 직접 확인했습니다(아래 5번).
 
@@ -80,10 +80,10 @@ uv --version
 
 ```bash
 git clone git@github.com:MCP-Capstone/meet-to-ticket.git
-cd meet-to-ticket/mcp-server
+cd meet-to-ticket/business-mcp
 ```
 
-**3) 가상환경 만들고 패키지 설치** (`mcp-server/` 폴더 안에서)
+**3) 가상환경 만들고 패키지 설치** (`business-mcp/` 폴더 안에서)
 
 ```bash
 uv venv --python 3.12
@@ -106,7 +106,7 @@ Windows (PowerShell):
 .venv\Scripts\Activate.ps1
 ```
 
-프롬프트 앞에 `(mcp-server)`가 보이면 켜진 것입니다. 끌 때는 `deactivate`입니다.
+프롬프트 앞에 `(business-mcp)`가 보이면 켜진 것입니다. 끌 때는 `deactivate`입니다.
 
 **5) `.env` 만들기**
 
@@ -137,7 +137,7 @@ uv pip check
 
 ## 5. 실행 방법
 
-서버를 HTTP로 띄웁니다. `mcp-server/` 폴더에서 가상환경을 켠 뒤 실행합니다.
+서버를 HTTP로 띄웁니다. `business-mcp/` 폴더에서 가상환경을 켠 뒤 실행합니다.
 
 ```bash
 python server.py
@@ -156,7 +156,7 @@ python server.py
 MCP_PORT=8010
 ```
 
-`server.py`는 시작할 때 `python-dotenv`로 `mcp-server/.env`를 읽습니다. 터미널에 같은 이름의 환경 변수가 있어도 `.env` 값이 우선합니다.
+`server.py`는 시작할 때 `python-dotenv`로 `business-mcp/.env`를 읽습니다. 터미널에 같은 이름의 환경 변수가 있어도 `.env` 값이 우선합니다.
 
 테스트 실행은 아래와 같습니다.
 
@@ -229,7 +229,7 @@ uv pip sync requirements-dev.txt
 `python --version`이 3.12가 아니면 위의 "환경을 지우고 다시 만들기"를 하고, 반드시 `--python 3.12`를 붙입니다.
 
 **가상환경을 안 켜고 실행한 경우**
-`ModuleNotFoundError: No module named 'mcp'` 같은 오류가 납니다. 프롬프트 앞에 `(mcp-server)`가 있는지 확인하고 4번의 활성화 명령을 실행합니다. 켜지 않고 바로 실행하려면 환경의 파이썬을 직접 지정할 수도 있습니다.
+`ModuleNotFoundError: No module named 'mcp'` 같은 오류가 납니다. 프롬프트 앞에 `(business-mcp)`가 있는지 확인하고 4번의 활성화 명령을 실행합니다. 켜지 않고 바로 실행하려면 환경의 파이썬을 직접 지정할 수도 있습니다.
 
 ```bash
 .venv/bin/python server.py
@@ -244,7 +244,7 @@ Windows에서는 `.venv\Scripts\python.exe server.py`입니다.
 python -c "import sys; print(sys.prefix)"
 ```
 
-경로 끝이 `mcp-server/.venv`여야 합니다.
+경로 끝이 `business-mcp/.venv`여야 합니다.
 
 **Windows PowerShell에서 activate가 막힐 때**
 "이 시스템에서 스크립트를 실행할 수 없으므로..."라는 오류가 나면 실행 정책 때문입니다. 현재 사용자에게만 허용합니다.
@@ -263,7 +263,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 - `requirements.txt`, `requirements-dev.txt`를 손으로 수정하지 않는다. 고치려면 `.in`을 수정하고 compile한다.
 - `pip install`이나 `uv pip install`로 패키지를 하나씩 설치하고 그대로 두지 않는다. `.txt`에 없으면 다음 `uv pip sync` 때 지워지고, 다른 팀원 환경에는 아예 없다.
 - `.venv/`를 커밋하지 않는다.
-- `agent/`와 `mcp-server/` 환경을 하나로 합치지 않는다. mcp 버전이 충돌한다.
+- `agent/`와 `business-mcp/` 환경을 하나로 합치지 않는다. mcp 버전이 충돌한다.
 - `.env`와 실제 토큰을 커밋하거나 메신저, 이슈에 붙여넣지 않는다.
 - 패키지 추가와 compile을 환경 담당이 아닌 사람이 임의로 하지 않는다.
 
@@ -319,13 +319,13 @@ uv pip sync requirements-dev.txt
 **1) 이미지 빌드**
 
 ```bash
-docker build -t meet-to-ticket-mcp ./mcp-server
+docker build -t meet-to-ticket-mcp ./business-mcp
 ```
 
 **2) 실행**
 
 ```bash
-docker run --rm -p 127.0.0.1:8000:8000 --env-file mcp-server/.env meet-to-ticket-mcp
+docker run --rm -p 127.0.0.1:8000:8000 --env-file business-mcp/.env meet-to-ticket-mcp
 ```
 
 - 주소는 로컬 실행과 같은 `http://127.0.0.1:8000/mcp`입니다. 에이전트의 `MCP_SERVER_URL`은 바꾸지 않아도 됩니다.
@@ -346,6 +346,6 @@ docker run --rm -p 127.0.0.1:8000:8000 --env-file mcp-server/.env meet-to-ticket
 **주의**
 
 - `.env`(GitHub 토큰)는 이미지에 들어가지 않습니다(`.dockerignore`). 실행할 때 `--env-file`로 넣습니다.
-- `mcp-server/.env`에 `MCP_HOST=127.0.0.1`을 적어 두면 컨테이너 밖에서 접속할 수 없습니다. 컨테이너로 실행할 때는 `.env`에 `MCP_HOST`를 적지 않습니다.
+- `business-mcp/.env`에 `MCP_HOST=127.0.0.1`을 적어 두면 컨테이너 밖에서 접속할 수 없습니다. 컨테이너로 실행할 때는 `.env`에 `MCP_HOST`를 적지 않습니다.
 - `requirements.txt`나 소스를 바꾸면 이미지를 다시 빌드해야 반영됩니다.
-- 다른 서비스와 함께 띄우는 `docker-compose.yml` 설정은 이 폴더 범위 밖입니다. compose에서는 서비스 이름으로 접속합니다(예: 에이전트에서 `http://mcp-server:8000/mcp`).
+- 다른 서비스와 함께 띄우는 `docker-compose.yml` 설정은 이 폴더 범위 밖입니다. compose에서는 서비스 이름으로 접속합니다(예: 에이전트에서 `http://business-mcp:8000/mcp`).

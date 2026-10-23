@@ -4,7 +4,7 @@
 
 | 서버 | 역할 |
 |---|---|
-| `mcp-server/` (8000) | GitHub 이슈 생성·조회 (business mcp) |
+| `business-mcp/` (8000) | GitHub 이슈 생성·조회 (business mcp) |
 | `rag-mcp/` (8002) | 기존 이슈 색인과 의미 검색 (rag mcp) |
 
 강의안 레퍼런스 아키텍처의 rag mcp 구조를 따릅니다. 문서(이슈)는 질문과 별개로 미리 색인하고, 검색은 Vector DB에서 합니다.
@@ -32,13 +32,13 @@
 | `chroma-data/` | Vector DB 저장 폴더. 색인하면 생긴다 | **안 올림** |
 | `Dockerfile`, `.dockerignore` | 컨테이너 이미지 설정 (9번) | 올림 |
 
-## 2. 왜 mcp-server와 환경을 따로 두나
+## 2. 왜 business-mcp와 환경을 따로 두나
 
-같은 mcp 2.x를 쓰지만, 이 서버는 Vector DB(chromadb)와 임베딩(openai) 패키지가 추가로 필요합니다. chromadb는 함께 설치되는 패키지가 많아(약 100개), mcp-server 환경에 섞지 않고 폴더와 가상환경을 따로 둡니다. agent(mcp 1.x) 환경과도 합치지 않습니다.
+같은 mcp 2.x를 쓰지만, 이 서버는 Vector DB(chromadb)와 임베딩(openai) 패키지가 추가로 필요합니다. chromadb는 함께 설치되는 패키지가 많아(약 100개), business-mcp 환경에 섞지 않고 폴더와 가상환경을 따로 둡니다. agent(mcp 1.x) 환경과도 합치지 않습니다.
 
 ## 3. 처음 세팅
 
-`rag-mcp/` 폴더 안에서 실행합니다. uv 설치 방법은 `mcp-server/README.md` 4절과 같습니다.
+`rag-mcp/` 폴더 안에서 실행합니다. uv 설치 방법은 `business-mcp/README.md` 4절과 같습니다.
 
 ```bash
 uv venv --python 3.12
@@ -173,7 +173,7 @@ docker run --rm -p 127.0.0.1:8002:8002 --env-file rag-mcp/.env -v meet-to-ticket
 
 ## 10. 패키지 추가 규칙
 
-`mcp-server/README.md` 6절과 같습니다. 패키지 추가와 compile은 환경 담당이 하며, 이 폴더에서 아래 두 줄로 `.txt`를 만듭니다.
+`business-mcp/README.md` 6절과 같습니다. 패키지 추가와 compile은 환경 담당이 하며, 이 폴더에서 아래 두 줄로 `.txt`를 만듭니다.
 
 ```bash
 uv pip compile requirements.in --universal -o requirements.txt

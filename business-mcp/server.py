@@ -19,7 +19,7 @@ from mcp.types import ToolAnnotations
 
 import github
 
-# 터미널에 같은 이름의 환경 변수가 있어도 mcp-server/.env 값이 우선한다
+# 터미널에 같은 이름의 환경 변수가 있어도 business-mcp/.env 값이 우선한다
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 # 에이전트가 http://<MCP_HOST>:<MCP_PORT>/mcp 로 연결해 아래 도구를 부른다

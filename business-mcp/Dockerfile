@@ -1,6 +1,6 @@
 # meet-to-ticket MCP 서버 이미지
-# 빌드: docker build -t meet-to-ticket-mcp ./mcp-server
-# 실행: docker run --rm -p 127.0.0.1:8000:8000 --env-file mcp-server/.env meet-to-ticket-mcp
+# 빌드: docker build -t meet-to-ticket-mcp ./business-mcp
+# 실행: docker run --rm -p 127.0.0.1:8000:8000 --env-file business-mcp/.env meet-to-ticket-mcp
 # GitHub 토큰은 이미지에 넣지 않고, 실행할 때 --env-file(compose에서는 env_file)로 넣는다.
 
 FROM python:3.12-slim
