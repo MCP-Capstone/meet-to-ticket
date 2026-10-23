@@ -1076,3 +1076,8 @@ button.danger { color: var(--danger); border: 1px solid var(--danger); }
 .publication-backlog summary { cursor: pointer; }
 .publication-backlog > div { margin-top: 12px; }
 @media (max-width: 560px) { .publication-preview-panel { padding: 12px; } }
+
+/* 발행 설정 수정 (#247) */
+.ticket-publication-fields { border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 16px 0; min-width: 0; }
+.ticket-publication-fields legend { font-weight: 600; padding: 0 4px; }
+.ticket-publication-fields p { overflow-wrap: anywhere; }

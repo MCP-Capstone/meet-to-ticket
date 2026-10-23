@@ -348,6 +348,10 @@ export interface MyTicketList {
   counts: { pendingReview: number; confirmed: number; rejected: number; failed: number }
   tickets: MyTicket[]
 }
+export interface TicketPublicationRequest {
+  publishTarget: PublishTarget
+  processingType: ProcessingType
+}
 export interface TicketEditRequest {
   description?: string
   assigneeMemberId?: number

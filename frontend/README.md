@@ -361,3 +361,13 @@ const res = await fetch('/api/meetings')
 GitHub 신규 이슈, 연결 댓글, 갱신 추가 섹션·알림 댓글을 구분한다. Agent의 현재 발행 본문 생성 함수를 공유하지만 발행 직전 재대조로 유형·대상이 달라질 수 있고, GitHub에서 허용되지 않는 라벨·담당자가 제외될 수 있다. 이미 발행한 티켓도 **현재 저장값 기준**으로 보여주며 과거 발행 원문을 복원하는 화면은 아니다. Slack·Notion은 상세 백로그만 표시한다. MOCK에서는 모의 문안임을 표시한다. 상세 작업·완료 조건은 이번 작업에서 조회만 지원한다.
 
 검증: `npm run test:preview`, 기존 `test:progress`·`test:publish`·`test:dedupe`, `npm run build`, `npm run lint`. 추가 의존성은 없다.
+
+### 내 티켓 발행 설정 수정 (#247)
+
+검토 대기 카드의 **발행 설정 수정**에서 GitHub / Notion / Slack과 처리 유형을 선택한다. GitHub의 연결·갱신은 목록 API가 제공한 열린 기존 이슈만 대상으로 하며, 다른 이슈 번호를 직접 지정하지 않는다. 닫혔거나 정보가 없는 이슈는 선택할 수 없다. Notion·Slack은 신규 생성으로 고정하며, 현재 실제 일괄 발행은 GitHub만 지원한다는 안내를 표시한다.
+
+**발행 설정 저장**은 `PATCH /api/tickets/{ticketId}/publication`에 `{publishTarget, processingType}`를 전송한다. 서버 응답으로 카드와 열린 본문 미리보기를 갱신하고 승인·발행은 수행하지 않는다. 본문·담당자·기한 수정은 별도의 저장이며, 두 편집 화면을 동시에 열지 않는다. 수정 중 확인·거절을 숨기고, 미저장 변경이 있으면 발행을 막으며 화면 이동·취소 시 확인한다.
+
+오류 시 선택값을 보존한다. 403/404/409는 최신 목록을 확인한 후 다시 편집하며, 저장 성공 후 목록 조회만 실패한 경우 PATCH를 재전송하지 않는다. 모의 API에도 동일한 선택·상태 제한을 적용한다.
+
+검증: `npm run test:publication`, 기존 `test:preview`·`test:progress`·`test:publish`·`test:dedupe`, `npm run build`, `npm run lint`. 의존성·백엔드·Agent 변경 없음.
