@@ -45,7 +45,7 @@ public class ProjectController {
         return new ProjectList(service.list(userId), executionSettings.mode());
     }
 
-    @Operation(operationId = "createProject", summary = "프로젝트 등록", description = "등록한 사용자는 관리자이자 멤버가 된다. 저장소 권한과 도구 연결 확인은 아직 하지 않아 null로 응답한다 (TASK-006).")
+    @Operation(operationId = "createProject", summary = "프로젝트 등록", description = "등록한 사용자는 관리자이자 멤버가 된다. 입력하지 않은 Notion·Slack 연결은 NOT_CONNECTED, 입력한 연결은 Agent 확인 전까지 null로 응답한다. Slack 이메일은 멤버별로 함께 저장한다.")
     @ApiResponse(responseCode = "201", description = "등록 완료", content = @Content(schema = @Schema(implementation = ProjectDetail.class),
                     examples = @ExampleObject(value = ApiExamples.PROJECT_DETAIL)))
     @ApiResponse(responseCode = "400", description = "입력값 오류 (VALIDATION_FAILED) 또는 가입하지 않은 멤버 (MEMBER_USER_NOT_FOUND)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
@@ -75,7 +75,7 @@ public class ProjectController {
         return service.detail(projectId, userId);
     }
 
-    @Operation(operationId = "updateProject", summary = "프로젝트 편집", description = "관리자만 할 수 있다. memberUserIds는 변경 후 전체 멤버 목록이고, 관리자는 목록에 없어도 남는다.")
+    @Operation(operationId = "updateProject", summary = "프로젝트 편집", description = "관리자만 할 수 있다. memberUserIds는 변경 후 전체 멤버 목록이고, 관리자는 목록에 없어도 남는다. memberSlackEmails는 프로젝트 멤버의 Slack 이메일을 사용자 계정에 저장한다.")
     @ApiResponse(responseCode = "200", description = "저장 완료", content = @Content(schema = @Schema(implementation = ProjectDetail.class),
                     examples = @ExampleObject(value = ApiExamples.PROJECT_DETAIL)))
     @ApiResponse(responseCode = "400", description = "입력값 오류 (VALIDATION_FAILED) 또는 가입하지 않은 멤버 (MEMBER_USER_NOT_FOUND)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),

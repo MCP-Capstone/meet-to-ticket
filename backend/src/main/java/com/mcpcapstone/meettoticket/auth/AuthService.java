@@ -31,8 +31,12 @@ public class AuthService {
 			throw new BusinessException(ErrorCode.DUPLICATE_LOGIN_ID);
 		}
 		User user = new User(request.loginId(), passwordEncoder.encode(request.password()), request.name().trim(),
-				githubName);
+				githubName, blankToNull(request.slackEmail()));
 		return userRepository.save(user);
+	}
+
+	private static String blankToNull(String value) {
+		return value == null || value.isBlank() ? null : value.trim();
 	}
 
 	// 빈 값은 입력하지 않은 것으로 본다. GitHub에 없는 계정이면 가입을 막는다.
