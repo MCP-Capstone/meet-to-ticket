@@ -21,6 +21,11 @@ function App() {
   // undefined: 로그인 상태 확인 중, null: 로그인 안 함
   const [user, setUser] = useState<User | null | undefined>(undefined)
   const [authNotice, setAuthNotice] = useState<string | null>(null)
+  const [authCheckError, setAuthCheckError] = useState<string | null>(null)
+  const [authCheckAttempt, setAuthCheckAttempt] = useState(0)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const logoutPending = useRef(false)
   // 401 처리기 안에서 최신 로그인 상태를 보려고 ref에도 둔다.
   const loggedIn = useRef(false)
   const [page, setPage] = useState<'workflow' | 'project-editor'>('workflow')
@@ -49,11 +54,22 @@ function App() {
 
   // 새로고침해도 세션이 남아 있으면 로그인 상태를 이어간다.
   useEffect(() => {
+    let cancelled = false
     api
       .me()
-      .then(setUser)
-      .catch(() => setUser(null))
-  }, [])
+      .then((currentUser) => {
+        if (!cancelled) setUser(currentUser)
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        if (e instanceof ApiRequestError && e.status === 401) {
+          setUser(null)
+        } else {
+          setAuthCheckError('로그인 상태를 확인하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.')
+        }
+      })
+    return () => { cancelled = true }
+  }, [authCheckAttempt])
 
   // 로그인하면 프로젝트와 팀원을 불러온다.
   useEffect(() => {
@@ -135,6 +151,7 @@ function App() {
   useEffect(() => {
     onUnauthorized(() => {
       if (loggedIn.current) setAuthNotice('로그인이 만료되었습니다. 다시 로그인해 주세요.')
+      setLogoutError(null)
       reset()
       setProject(null)
       setProjects([])
@@ -154,14 +171,28 @@ function App() {
   }
 
   const handleLogout = async () => {
-    await api.logout().catch(() => undefined)
-    reset()
-    setProject(null)
-    setProjects([])
-    setPage('workflow')
-    setProjectSavedMessage(null)
-    setMembers([])
-    setUser(null)
+    if (logoutPending.current) return
+    logoutPending.current = true
+    setLoggingOut(true)
+    setLogoutError(null)
+    try {
+      await api.logout()
+      reset()
+      setProject(null)
+      setProjects([])
+      setPage('workflow')
+      setProjectSavedMessage(null)
+      setMembers([])
+      setUser(null)
+    } catch (e) {
+      // 세션 만료는 기존 공통 처리기가 로그인 화면으로 전환한다.
+      if (!isUnauthorized(e)) {
+        setLogoutError('로그아웃하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.')
+      }
+    } finally {
+      logoutPending.current = false
+      setLoggingOut(false)
+    }
   }
 
   const handleProjectSaved = (detail: ProjectDetail) => {
@@ -197,15 +228,34 @@ function App() {
           {user && (
             <>
               <span className="user-name">{user.name}님</span>
-              <button className="link" onClick={handleLogout} disabled={projectSaving}>
-                로그아웃
+              <button className="link" onClick={handleLogout} disabled={projectSaving || loggingOut}>
+                {loggingOut ? '로그아웃 중...' : '로그아웃'}
               </button>
             </>
           )}
         </div>
       </header>
 
-      {user === undefined && (
+      {user && logoutError && (
+        <div role="alert">
+          <p className="error">{logoutError}</p>
+          <button type="button" className="link" onClick={handleLogout} disabled={loggingOut || projectSaving}>
+            로그아웃 다시 시도
+          </button>
+        </div>
+      )}
+
+      {user === undefined && authCheckError && (
+        <div role="alert">
+          <p className="error">{authCheckError}</p>
+          <button type="button" className="primary" onClick={() => {
+            setAuthCheckError(null)
+            setAuthCheckAttempt((attempt) => attempt + 1)
+          }}>다시 시도</button>
+        </div>
+      )}
+
+      {user === undefined && !authCheckError && (
         <p className="loading">
           <Spinner size="sm" label="로그인 확인 중" /> 로그인 상태를 확인하고 있습니다...
         </p>
