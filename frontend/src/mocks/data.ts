@@ -96,4 +96,23 @@ export const mockItems: Omit<TaskItem, 'itemId'>[] = [
     githubIssueUrl: issueUrl(12),
     errorMessage: null,
   },
+  {
+    // 기획_v16: 회의록 처리는 발행하지 않고 담당자 확인 대기 초안으로 끝난다
+    workKey: 'CSV-10',
+    title: '빈 결과 CSV 회귀 테스트 추가',
+    contentJson: {
+      description: '0건 / 1건 결과에 대한 회귀 테스트를 추가한다.',
+      assignees: { names: ['허민규'], github: ['minkyu-huh'], unresolved: [] },
+      due: { date: '2026-10-24', time: null, text: '모레' },
+      review: { revisions: 2, notes: ["[4] '전체 회귀 테스트': 원문에 없는 범위 → 0건 / 1건으로 좁힌다"] },
+      warnings: ['조건부 처리로 표기되어 확인 필요 (조건부 기존 이슈 갱신 (CSV-08))', '자동 검수 지적 1개가 남아 확인 필요'],
+    },
+    action: 'CREATE',
+    reason: null,
+    reviewStatus: 'PENDING',
+    publishStatus: 'DRAFT',
+    githubIssueNumber: null,
+    githubIssueUrl: null,
+    errorMessage: null,
+  },
 ]

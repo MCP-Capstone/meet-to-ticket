@@ -4,7 +4,7 @@
 - POST /runs            : 접수 후 백그라운드 처리 (202)
 - POST /runs?wait=true  : 끝날 때까지 기다렸다가 결과 반환 (로컬 테스트용)
 - GET  /runs/{task_id}  : 이 프로세스에서 처리한 작업의 상태·결과
-                          처리 중이면 {"taskId", "status": "RUNNING", "stage"}, 끝나면 결과 전체
+                          처리 중이면 {"taskId", "status": "RUNNING", "stage", "progress"}, 끝나면 결과 전체
 - GET  /runs/{task_id}/history : 노드별 실행 기록 (checkpointer)
 - GET  /health
 
@@ -64,11 +64,13 @@ class JobReporter:
     def __init__(self, inner: Any):
         self.inner = inner
 
-    async def progress(self, task_id: str, status: str, stage: str) -> None:
+    async def progress(self, task_id: str, status: str, stage: str, progress: dict[str, Any] | None = None) -> None:
         job = _jobs.get(task_id)
         if job is not None and job.get("status") == "RUNNING":
             job["stage"] = stage
-        await self.inner.progress(task_id, status, stage)
+            if progress is not None:
+                job["progress"] = progress
+        await self.inner.progress(task_id, status, stage, progress)
 
     async def result(self, task_id: str, payload: dict[str, Any]) -> bool:
         return await self.inner.result(task_id, payload)

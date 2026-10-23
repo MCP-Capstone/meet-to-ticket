@@ -62,7 +62,8 @@ async def history(task_id: str) -> list[dict[str, Any]] | None:
     """노드가 끝날 때마다 저장된 상태를 시간 순서로 요약한다. 기록이 없으면 None."""
     from graph import build_graph
 
-    app = build_graph(AgentNodes(None, None, None, Settings()), checkpointer())  # 상태 조회만 하고 실행하지 않음
+    # 상태 조회만 하고 실행하지 않는다. 발행 노드가 있는 그래프로 읽어야 PUBLISH_ON_RUN 실행 기록도 노드 이름이 맞다
+    app = build_graph(AgentNodes(None, None, None, Settings(publish_on_run=True)), checkpointer())
     snapshots = [s async for s in app.aget_state_history(_thread(task_id))]
     if not snapshots:
         return None

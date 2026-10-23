@@ -61,6 +61,9 @@ class Settings:
     draft_batch_size: int = 10          # 한 번에 작성할 티켓 수
     conditional_as_needs_check: bool = True  # "조건부 기존 이슈 갱신"을 확인 필요로 둘지
     dry_run: bool = False               # True면 GitHub에 발행하지 않는다
+    # True면 Phase 1처럼 검수를 통과한 티켓을 바로 발행한다 (baseline 재현용).
+    # 기본은 초안 저장에서 멈추고, 담당자가 확인한 티켓만 일괄 발행한다 (기획_v16, TASK-012)
+    publish_on_run: bool = False
     fallback_publish: bool = True       # 보완 한도 초과 시 기본 초안으로 발행할지 (False면 NEEDS_CHECK)
 
 
@@ -99,5 +102,6 @@ def load_settings() -> Settings:
         draft_batch_size=_int("DRAFT_BATCH_SIZE", 10),
         conditional_as_needs_check=_bool("CONDITIONAL_AS_NEEDS_CHECK", True),
         dry_run=_bool("DRY_RUN", False),
+        publish_on_run=_bool("PUBLISH_ON_RUN", False),
         fallback_publish=_bool("FALLBACK_PUBLISH", True),
     )

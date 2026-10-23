@@ -297,7 +297,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | `permissions.py` | 프로젝트 저장 시 멤버별 저장소 권한 확인. LLM 없이 MCP `check_member_permissions`를 호출 |
 | `cli.py` | 백엔드 없이 회의 요약 파일로 바로 실행 |
 | `runner.py` | 요청 1건 실행 (MCP 연결, 그래프 실행) |
-| `graph.py` | LangGraph 그래프 (prepare → draft → review ⇄ draft → dedupe → publish → finish) |
+| `graph.py` | LangGraph 그래프 (prepare → draft → review ⇄ draft → dedupe → finish). `PUBLISH_ON_RUN`이면 dedupe 뒤에 publish |
 | `nodes.py` | 노드 구현, 검수 판정 규칙 |
 | `parsing.py` | 회의 요약 마크다운 해석 (액션 아이템 표 등) |
 | `extraction.py` | 추출 결과 조립 (표·LLM 추출을 같은 형태로, 근거 인용 원문 대조) |
@@ -424,10 +424,10 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 |---|---|---|
 | Instructions | 프롬프트 md 분리, 구조화 출력, 작업별 모델·추론 설정 | `prompts/*.md`, `PROMPT_VERSION`, 위 "모델" 표 |
 | Tools | MCP 서버 2개(business-mcp, rag-mcp) 연결, 모델용 조회 도구 3개(저장소 고정, 결과 길이 제한, 오류는 `[코드] 메시지`로 모델에게 전달), 쓰기 도구는 코드만 호출 | `MCP_SERVER_URL`, `RAG_MCP_URL`, `TOOL_RESULT_MAX_CHARS` |
-| Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → dedupe → publish → finish), 중복 판단은 티켓마다 model ⇄ tools 루프(모델이 도구 선택), 작업 마감, LLM 호출 시간 한도 | 보완 `MAX_REVISIONS`=2, recursion 50, `TASK_DEADLINE_SECONDS`=600, `LLM_TIMEOUT_SECONDS`=120, 판단 `DEDUPE_MAX_TOOL_CALLS`=4·`DEDUPE_MAX_SAME_TOOL`=3·`DEDUPE_TIMEOUT_SECONDS`=30·`DEDUPE_CONCURRENCY`=4 |
+| Agent Loop | LangGraph StateGraph (prepare → draft ⇄ review → dedupe → finish, `PUBLISH_ON_RUN`이면 dedupe → publish → finish), 중복 판단은 티켓마다 model ⇄ tools 루프(모델이 도구 선택), 작업 마감, LLM 호출 시간 한도 | 보완 `MAX_REVISIONS`=2, recursion 50, `TASK_DEADLINE_SECONDS`=600, `LLM_TIMEOUT_SECONDS`=120, 판단 `DEDUPE_MAX_TOOL_CALLS`=4·`DEDUPE_MAX_SAME_TOOL`=3·`DEDUPE_TIMEOUT_SECONDS`=30·`DEDUPE_CONCURRENCY`=4 |
 | Context | 원문과 코드가 정리한 표만 전달, 초안에 추출 결과(할 일별 근거, 결정 사항, 미결 질문) 주입, 검수에 제외·보류 목록 주입, 원문 길이 한도 | `MAX_SOURCE_CHARS`=40000, `DRAFT_BATCH_SIZE`·`REVIEW_BATCH_SIZE`=10 |
 | State·Memory | 노드가 끝날 때마다 상태 저장(checkpointer, thread id = taskId), 발행한 taskId 재요청은 저장된 결과로 응답, 실행 중 같은 taskId는 409, `GET /runs/{id}/history` | 메모리 저장 (재시작 시 사라짐) |
-| Guardrails | 자동 검수(아래 "검수 판정"), 허용 저장소, APPROVED만 발행, 중복 판단 도구 호출 수·같은 도구 수·시간 한도, 도구 결과에서 본 이슈 번호만 인정, 기존 이슈는 연결만 하고 수정·닫기·댓글 안 함 | `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
+| Guardrails | 자동 검수(아래 "검수 판정"), 회의록 처리는 발행하지 않음(초안 저장), 허용 저장소, APPROVED만 발행(`PUBLISH_ON_RUN`), 중복 판단 도구 호출 수·같은 도구 수·시간 한도, 도구 결과에서 본 이슈 번호만 인정, 기존 이슈는 연결만 하고 수정·닫기·댓글 안 함 | `PUBLISH_ON_RUN`, `CONDITIONAL_AS_NEEDS_CHECK`, `FALLBACK_PUBLISH`, `DRY_RUN` |
 | Recovery | LLM 오류를 종류별로 처리(아래 "LLM 오류 처리"), 대체 모델, 발행 타임아웃은 UNKNOWN, 치명 오류 시 남은 발행 중단, 검수 보완 한도 초과 시 기본 초안, 중복 판단·색인 추가가 실패해도 새로 발행 | `LLM_RETRIES`=2, `OPENAI_FALLBACK_MODEL` |
 | Observability | LangSmith trace(작업 1건 = trace 1개), 결과의 `traceId`·`metrics`, `GET /runs/{id}` 진행 단계, 항목별 검수 이력 JSON, task·trace id가 붙은 로그 | `LANGSMITH_TRACING`, `LANGSMITH_PROJECT`, `BACKEND_BASE_URL` |
 
@@ -498,7 +498,8 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 
 결과(응답·백엔드 보고)도 camelCase: `taskId`, `status`, `stage`, `errorCode`, `errorMessage`, `summary`, `items[].{taskItemId, workKey, title, contentJson, action, reason, reviewStatus, publishStatus, githubIssueNumber, githubIssueUrl, errorMessage}`, `traceId`, `metrics`
 
-- `publishStatus`: `SUCCEEDED`(발행, 또는 같은 작업의 열린 기존 이슈로 연결 — 아래 "중복 판단"), `FAILED`(실패), `UNKNOWN`(응답 불명), `BLOCKED`(검수 미통과로 발행 안 함), `SKIPPED`(DRY_RUN이라 발행 생략, 이슈 번호 없음)
+- 기본(초안 저장 모드): 모든 항목이 `reviewStatus: PENDING`(담당자 확인 대기), `publishStatus: DRAFT`(발행 전 초안)다. 검수 지적은 `contentJson.warnings`와 `contentJson.review.notes`에 남고, `summary.drafts`에 초안 수가 들어간다. 발행은 담당자가 확인한 뒤 일괄 발행(TASK-034)이 한다.
+- `PUBLISH_ON_RUN=true`(Phase 1 baseline)일 때 `publishStatus`: `SUCCEEDED`(발행, 또는 같은 작업의 열린 기존 이슈로 연결 — 아래 "중복 판단"), `FAILED`(실패), `UNKNOWN`(응답 불명), `BLOCKED`(검수 미통과로 발행 안 함), `SKIPPED`(DRY_RUN이라 발행 생략, 이슈 번호 없음)
 
 - `traceId`: LangSmith run id. 성공·실패 모두 들어 있어 실패한 작업의 trace를 바로 찾을 수 있다.
 - `metrics`: `durationMs`, `promptVersion`, `model`, `reviewModel`, `tracing`(trace 수집 여부), `llmCalls`, `llmRetries`, `fallbackUsed`(대체 모델 사용 수), `errors`(오류 종류별 수: transient·request·auth), `droppedSettings`(모델이 거부해 뺀 설정)
@@ -506,10 +507,25 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 `?wait=true` 없이 보내면 202로 접수하고 백그라운드에서 처리한다. 처리 중에 `GET /runs/{taskId}`를 부르면 지금 단계를 돌려준다.
 
 ```json
-{"taskId": "…", "status": "RUNNING", "stage": "REVIEWING"}
+{"taskId": "…", "status": "RUNNING", "stage": "REVIEWING",
+ "progress": {"step": "DEDUPING",
+              "context": {"members": 6, "issues": null, "notionDocs": null},
+              "extraction": {"todos": 8, "decisions": 6, "openQuestions": 2},
+              "dedupe": {"done": 5, "total": 7, "linked": 1}}}
 ```
 
-단계는 `EXTRACTING`(할 일 추출) → `NORMALIZING`(담당자·기한 정리, 초안 작성) → `REVIEWING`(검수, 보완 포함) → `PUBLISHING`(발행) 순서다. 끝나면 결과 전체가 나온다. `BACKEND_BASE_URL`이 있으면 같은 단계와 결과를 백엔드에도 보고한다(`/internal/tasks/{id}/progress`, `/result`).
+`stage`는 백엔드 `TaskStage` 값이다: `EXTRACTING`(할 일 추출) → `NORMALIZING`(담당자·기한 정리, 초안 작성) → `REVIEWING`(검수, 보완, 중복 판단 포함) → `PUBLISHING`(발행, `PUBLISH_ON_RUN`일 때만) 순서다.
+
+`progress`는 진행 화면(기획_v16 REQ-007, UI 플로우 5쪽)용 세부 정보다. 앞 단계의 값은 다음 단계에도 남는다.
+
+| `step` | 화면 단계 | 함께 오는 값 |
+|---|---|---|
+| `CONTEXT` | 맥락 파악 | `context.members`. `issues`, `notionDocs`는 맥락 파악(TASK-019)이 생기기 전까지 `null` |
+| `EXTRACTING` | 티켓 추출 (초안 작성·검수 포함) | `extraction.{todos, decisions, openQuestions}` |
+| `DEDUPING` | 중복 검수 | `dedupe.{done, total, linked}`. 티켓 하나를 판단할 때마다 보고한다. 중복 판단이 꺼져 있으면 이 단계는 오지 않는다 (기획 3.1) |
+| `DISPATCHING` | 담당자에게 전송 | 결과를 보내기 직전에 보고한다 (초안 저장 모드만) |
+
+끝나면 결과 전체가 나온다. `BACKEND_BASE_URL`이 있으면 같은 단계·세부 정보와 결과를 백엔드에도 보고한다(`/internal/tasks/{id}/progress`, `/result`).
 
 ### 같은 taskId를 다시 보낼 때
 
@@ -670,7 +686,11 @@ for t in out["tickets"]:
   - 지적 문구(`quote`)가 초안에 실제로 있어야 한다
   - 4번은 그 문구가 원문에 있으면 무시한다
   - 2번은 회의에 제외·보류 항목이 없으면 무시한다
-- 근거 인용 중 원문에 없는 것은 초안 단계에서 뺀다 (모두 없으면 액션 아이템 문구로 대체).
+- 근거 인용 중 원문에 없는 것은 초안 단계에서 뺀다 (모두 없으면 추출 단계의 근거를 그대로 둔다).
+- 기본(초안 저장 모드)에서는 검수가 티켓을 막지 않는다. 승인·반려는 담당자가 내 티켓에서 한다 (기획 1.6).
+  - 보완은 최대 `MAX_REVISIONS`(기본 2)회. 넘어도 남은 지적, 보완으로 고칠 수 없는 1번 지적은 `contentJson.review.notes`와 카드 경고("자동 검수 지적 N개가 남아 확인 필요")로 남기고 마지막 초안을 그대로 넘긴다 (기본 초안으로 바꾸지 않음)
+  - "발행 보류", "조건부 기존 이슈 갱신" 표기는 카드 경고로 남기고 다른 초안처럼 검수한다
+- 아래는 `PUBLISH_ON_RUN=true`(Phase 1 baseline)일 때의 판정이다.
 - 보완은 최대 `MAX_REVISIONS`(기본 2)회. 넘어도 지적이 남으면
   - 액션 아이템 표에서 온 티켓 → 원문 기반 기본 초안으로 승인 (`FALLBACK_PUBLISH=true`, 본문에 검수 메모)
   - 표 없이 LLM이 뽑은 티켓에 2·3번 지적이 남음 → `NEEDS_CHECK`

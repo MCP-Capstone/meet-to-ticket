@@ -116,7 +116,7 @@ DB는 `users / projects / project_members / meetings / analysis_tasks / task_ite
 - MOCK 실행 상태는 메모리에만 보관하므로 서버 재시작 후 진행 중 작업은 `AGENT_TASK_UNAVAILABLE`로 FAILED 처리된다. 이미 DB에 저장된 종료 결과는 유지된다.
 - Agent를 호출하지 않고 **고정 모의 응답**을 반환한다. 실제 LLM 추출·검수·GitHub 발행이 아니다.
 - `executionMode=MOCK`이며 모의 승인 항목은 `SKIPPED`, 이슈 번호·URL은 NULL이다. 가짜 GitHub 성공/링크를 만들지 않는다. 화면은 이를 모의 실행으로 표시해야 한다.
-- `AGENT_MOCK_SCENARIO=approved`(기본), `empty`, `rejected`, `failed`, `partial`로 저장·상태 시나리오를 확인한다. `approved`는 모의 승인 뒤 실제 발행 생략이며 SUCCEEDED가 아니다.
+- `AGENT_MOCK_SCENARIO=draft`(기본), `approved`, `empty`, `rejected`, `failed`, `partial`로 저장·상태 시나리오를 확인한다. `draft`는 발행 전 초안(`reviewStatus: PENDING`, `publishStatus: DRAFT`)으로 끝나는 기획_v16 흐름이고, 진행 중 상태 조회에 `progress` 예시가 들어간다. `approved`는 Phase 1 흐름(모의 승인 뒤 실제 발행 생략)이며 SUCCEEDED가 아니다.
 - 보완·반려 횟수는 Agent 결과로 받는다. Spring이 LLM 검수 루프를 구현하지 않는다.
 
 서버 실행 후 다른 터미널의 `backend/`에서:

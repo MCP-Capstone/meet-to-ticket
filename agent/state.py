@@ -11,6 +11,15 @@ STAGE_REVIEWING = "REVIEWING"
 STAGE_PUBLISHING = "PUBLISHING"
 STAGE_DONE = "DONE"
 
+# 진행 화면 단계 (기획_v16 REQ-007). stage는 백엔드 TaskStage 값을 그대로 두고, 화면 단계와 세부 정보는 progress에 담는다
+STEP_CONTEXT = "CONTEXT"          # 맥락 파악
+STEP_EXTRACTING = "EXTRACTING"    # 티켓 추출 (초안 작성·검수 포함)
+STEP_DEDUPING = "DEDUPING"        # 중복 검수
+STEP_DISPATCHING = "DISPATCHING"  # 담당자에게 전송 (결과 보고)
+
+# 회의록 처리는 발행하지 않고 초안으로 끝난다. 담당자가 확인한 티켓만 일괄 발행한다 (TASK-034)
+PUBLISH_DRAFT = "DRAFT"
+
 # 작업 상태 (ANALYSIS_TASKS.status)
 STATUS_RUNNING = "RUNNING"
 STATUS_SUCCEEDED = "SUCCEEDED"
@@ -78,6 +87,7 @@ class AgentState(TypedDict, total=False):
     # 비어 있으면 설정 ISSUE_LABELS를 쓴다
     label_candidates: list[str]
     background: str
+    progress: dict[str, Any]    # 진행 화면용 세부 정보 (step, context, extraction, dedupe)
     decisions: list[dict[str, Any]]  # 결정 사항 (schemas.ExtractedDecision)
     open_questions: list[str]
     excluded: list[str]

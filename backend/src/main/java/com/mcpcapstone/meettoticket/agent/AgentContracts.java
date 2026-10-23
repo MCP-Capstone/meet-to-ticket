@@ -47,7 +47,9 @@ public final class AgentContracts {
             OffsetDateTime finishedAt,
             List<Item> items,
             Summary summary,
-            AgentError error) {}
+            AgentError error,
+            // 진행 화면용 세부 정보 (단계, 단계별 건수). Agent가 주지 않으면 null
+            JsonNode progress) {}
 
     public record Item(
             @Schema(description = "항목 UUID. Agent taskItemId를 변환한 값", requiredMode = Schema.RequiredMode.REQUIRED, example = "3c510e28-c776-43ce-85cc-6c90693d31f5")
@@ -62,9 +64,9 @@ public final class AgentContracts {
             String action,
             @Schema(description = "업무 처리 사유. 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
             String reason,
-            @Schema(description = "Spring에서 정규화한 검수 결과", requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"APPROVED", "REJECTED"}, example = "APPROVED")
+            @Schema(description = "Spring에서 정규화한 검수 결과. PENDING은 발행 전 초안(담당자 확인 대기)", requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"APPROVED", "REJECTED", "PENDING"}, example = "PENDING")
             String reviewStatus,
-            @Schema(description = "생성 성공·실패·결과 불명·반려 제외·발행 생략 상태", requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"SUCCEEDED", "FAILED", "UNKNOWN", "BLOCKED", "SKIPPED"}, example = "SKIPPED")
+            @Schema(description = "생성 성공·실패·결과 불명·반려 제외·발행 생략·발행 전 초안 상태", requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"SUCCEEDED", "FAILED", "UNKNOWN", "BLOCKED", "SKIPPED", "DRAFT"}, example = "DRAFT")
             String publishStatus,
             @Schema(description = "실제 생성된 이슈 번호. 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
             Integer githubIssueNumber,
@@ -87,7 +89,9 @@ public final class AgentContracts {
             @Schema(description = "이슈 생성 여부 확인 불가 수", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")
             int unknown,
             @Schema(description = "발행 생략 수. 기본 demo에서 사용", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")
-            int skipped) {}
+            int skipped,
+            @Schema(description = "발행 전 초안 수. 담당자가 확인한 뒤 일괄 발행한다", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")
+            int drafts) {}
 
     public record AgentError(String code, String message) {}
 }

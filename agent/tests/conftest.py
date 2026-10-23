@@ -182,10 +182,12 @@ class FakePublisher:
 class FakeReporter:
     def __init__(self):
         self.progress_calls: list[tuple[str, str, str]] = []
+        self.progress_details: list[dict[str, Any] | None] = []  # progress_calls와 같은 순서
         self.results: list[dict[str, Any]] = []
 
-    async def progress(self, task_id: str, status: str, stage: str) -> None:
+    async def progress(self, task_id: str, status: str, stage: str, progress: dict[str, Any] | None = None) -> None:
         self.progress_calls.append((task_id, status, stage))
+        self.progress_details.append(progress)
 
     async def result(self, task_id: str, payload: dict[str, Any]) -> bool:
         self.results.append(payload)
@@ -194,6 +196,13 @@ class FakeReporter:
 
 @pytest.fixture
 def settings() -> Settings:
+    # 기존 테스트는 Phase 1 흐름(검수 후 바로 발행)을 검증한다. 초안 저장 모드는 draft_settings로 본다
+    return Settings(max_revisions=2, publish_on_run=True)
+
+
+@pytest.fixture
+def draft_settings() -> Settings:
+    """기본 설정과 같은 초안 저장 모드 (기획_v16, TASK-012)."""
     return Settings(max_revisions=2)
 
 
