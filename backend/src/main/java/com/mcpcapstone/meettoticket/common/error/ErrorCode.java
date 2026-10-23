@@ -43,7 +43,8 @@ public enum ErrorCode {
 	NO_CONFIRMED_TICKETS(HttpStatus.CONFLICT, "발행할 확인된 티켓이 없습니다."),
 	PUBLISH_BATCH_NOT_FOUND(HttpStatus.NOT_FOUND, "발행 요청을 찾을 수 없습니다."),
 	PROCESSING_TYPE_TARGET_MISMATCH(HttpStatus.BAD_REQUEST, "GitHub 이외 대상은 신규 발행만 할 수 있습니다."),
-	EXISTING_ISSUE_REQUIRED(HttpStatus.BAD_REQUEST, "연결이나 갱신할 열린 기존 이슈가 없습니다. 신규 발행으로 바꿔 주세요.");
+	EXISTING_ISSUE_REQUIRED(HttpStatus.BAD_REQUEST, "연결이나 갱신할 열린 기존 이슈가 없습니다. 신규 발행으로 바꿔 주세요."),
+	PUBLISH_TARGET_LOCKED(HttpStatus.CONFLICT, "결과를 모르는 발행이 있어 발행 대상을 바꿀 수 없습니다. 먼저 결과를 확인하세요.");
 
 	private final HttpStatus status;
 	private final String message;

@@ -43,6 +43,23 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # MigrationSchemaTest가 Flyway 마이그레이션과 엔티티 스키마의 일치를 실제 PostgreSQL에서 검증한다.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: meettoticket
+          POSTGRES_PASSWORD: meettoticket
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U meettoticket"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MIGRATION_TEST_DB_URL: jdbc:postgresql://localhost:5432/postgres
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

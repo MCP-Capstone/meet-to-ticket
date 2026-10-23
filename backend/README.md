@@ -11,6 +11,8 @@ Java 21 + Spring Boot 4.1 + Gradle + Spring Data JPA + PostgreSQL
 ./gradlew bootRun
 ```
 
+`bootRun`은 기본으로 `local` 프로파일을 사용한다(기본 DB/RabbitMQ 자격증명 허용). demo/local/test가 아닌 프로파일(미지정 포함)로 jar를 실행하면 `BACKEND_INTERNAL_TOKEN`, `DB_PASSWORD`, `RABBITMQ_PASSWORD`가 비어 있거나 기본값일 때 기동을 거부한다.
+
 http://localhost:8080/api/health 에서 `{"status":"UP"}`가 나오면 정상이다.
 
 ## API 명세 (Swagger)
@@ -50,7 +52,7 @@ Windows는 `gradlew.bat`을 사용한다.
 - 모든 API는 `/api`로 시작한다. 프론트의 Vite 프록시가 `/api`만 백엔드로 전달한다.
 - 패키지 기준: `com.mcpcapstone.meettoticket`
 - DB 접속 정보는 `application.yml`의 기본값을 쓰고, 다르면 환경 변수(`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`)로 덮어쓴다.
-- 테이블은 `ddl-auto: update`로 엔티티 기준 자동 생성된다.
+- 스키마는 Flyway 마이그레이션(`src/main/resources/db/migration`)이 만들고, Hibernate는 `ddl-auto: validate`로 엔티티와 일치하는지만 검증한다. 절차는 `scripts/db/README.md` 참고.
 
 ## 로그인 (세션)
 

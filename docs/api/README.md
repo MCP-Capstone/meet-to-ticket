@@ -41,6 +41,7 @@
 | POST | /api/tickets/publish | 202 | 확인한 N건 발행 (`projectId`·`meetingId` 필터, 회의 지정 시 `ticketIds` 필수). 확인 상태 티켓만 발행 중으로 바꿔 Agent `POST /publish`로 보냄 |
 | GET | /api/publish-batches/{batchId} | 200 | 발행 결과: 건수 요약, 티켓별 이슈 링크/실패 사유 (요청한 사용자만) |
 | POST | /api/tickets/{ticketId}/retry | 202 | 실패한 티켓 다시 시도. 담당자만(403), 실패 상태가 아니면 409. 결과는 `batchId`로 조회 |
+| POST | /api/tickets/{ticketId}/resolve-outcome | 200 | Notion/Slack 결과 모름 실패를 확인 결과(`applied`, 선택 `url`)로 정리. 담당자만(403), `resolution=MANUAL_CHECK` 실패가 아니면 409 |
 | POST | /api/projects/{projectId}/analysis-tasks | 202 | 회의록 처리 요청 (회의 저장 + 분석 접수, 기획_v16) |
 | POST | /api/projects/{projectId}/meetings | 201 | multipart file 업로드·회의 저장 |
 | GET | /api/meetings/{meetingId} | 200 | 본문을 제외한 회의 메타데이터 |
@@ -123,6 +124,17 @@ Agent는 결과를 `POST /internal/publish-batches/{batchId}/result`(내부 토�
 `GET /api/tickets/me`의 티켓은 실패(`FAILED`) 상태일 때만 `publishFailure`(`errorCode`, `errorMessage`, `failureCategory`, `retryable`, `outcomeUnknown`)를 담고 그 밖에는 null이다. `outcomeUnknown`에는 이전 시도의 결과 모름도 포함되며, 화면은 이때 GitHub 확인 단계를 거친 뒤 다시 시도하게 한다.
 `POST /api/tickets/{ticketId}/revise`는 실패(`FAILED`) 티켓을 검토 대기(`PENDING_REVIEW`)로 되돌려 고친 뒤 다시 확인할 수 있게 한다. 담당자만 할 수 있고 실패 상태가 아니면 409 `TICKET_STATUS_CONFLICT`이다. 티켓의 지난 발행 결과(오류 코드, 재시도 가능 여부, 결과 모름, 이슈 번호/URL)는 비운다. 지난 묶음의 `GET /api/publish-batches/{batchId}`는 묶음이 끝날 때 저장한 티켓별 기록을 보여 주므로, 이후 티켓을 다시 시도하거나 수정으로 되돌려도 바뀌지 않는다.
 지난 발행이 결과 모름(`outcomeUnknown=true`)이었던 티켓은 수정을 거쳐도 표시가 남고, 다시 발행할 때 Agent에 `previousOutcomeUnknown=true`로 보낸다. Agent는 담당자가 처리 유형을 직접 바꿨더라도 발행 직전 재대조를 하고, 이미 반영된 것이 있으면 다시 쓰지 않는다. 신규 발행은 같은 `work_key`의 열린 이슈(제목 일치)를 그 티켓의 결과(`PUBLISHED`)로 보고, 연결은 같은 회의의 연결 댓글이, 갱신은 같은 회의의 `회의 변경 사항` 섹션이 이미 있으면 다시 달거나 덧붙이지 않는다. 댓글이 너무 많아 끝까지 확인하지 못하면 쓰지 않고 `MARKER_CHECK_INCOMPLETE`로 실패시킨다. 확실한 성공이 오면 표시는 풀린다.
+
+실패를 푸는 방법은 `publishFailure.resolution`으로 내려준다(#280). 대상별 차이는 백엔드 `PublishTarget`의 재대조 가능 여부 하나로 정하고, 화면은 이 값만 보고 버튼을 고른다.
+
+| resolution | 언제 | 화면 |
+|---|---|---|
+| `RETRY` | 일반 실패, GitHub 결과 모름 (다시 시도하면 Agent가 재대조) | 다시 시도 (결과 모름이면 확인 체크 후) |
+| `MANUAL_CHECK` | Notion/Slack 결과 모름 (이미 반영됐는지 찾는 도구가 없음) | 이미 반영됨 / 반영되지 않음 |
+
+Notion 페이지와 Slack 공지는 결과 모름 뒤 재발행을 Agent가 보내지 않고 `NOTION_VERIFY_REQUIRED`/`SLACK_VERIFY_REQUIRED`(재시도 불가)로 실패시킨다. 담당자는 대상 도구에서 직접 확인한 결과를 `POST /api/tickets/{ticketId}/resolve-outcome`으로 남긴다. `{"applied": true, "url": "..."}`이면 `PUBLISHED`로 끝내고 `url`(선택)을 결과 링크로 저장한다. 링크는 Notion이면 `notion.so`/`notion.site`, Slack이면 `slack.com`의 https 링크여야 하고, 아니면 400 `VALIDATION_FAILED`다. `{"applied": false}`면 결과 모름 표시를 풀고 `VERIFIED_NOT_APPLIED`(재시도 가능) 실패로 바꿔, 다시 시도하면 차단 없이 발행한다(`url`은 검사하지 않고 버린다). GitHub 티켓이나 `MANUAL_CHECK`가 아닌 실패는 409 `TICKET_STATUS_CONFLICT`다. GitHub는 잘못 누르면 자동 재대조가 꺼져 이슈가 중복될 수 있어 받지 않는다. `MANUAL_CHECK` 실패의 `POST /retry`와 `POST /revise`도 409다. 확인 결과는 실패 상태에서만 남길 수 있어서, 먼저 되돌리면 확인할 길 없이 대상만 잠기기 때문이다. `{"applied": false}`는 지금 실패가 결과 모름 자체(타임아웃, `*_VERIFY_REQUIRED`)일 때만 사유를 `VERIFIED_NOT_APPLIED`로 바꾸고, 결과 모름 뒤 재발행이 설정 오류(예: `NOTION_ROOT_MISSING`)로 끝났다면 그 사유를 남긴다. 결과 모름 실패의 `publishFailure.checkUrl`은 반영 여부를 확인하러 갈 곳(저장소 이슈 목록, Notion 기획 페이지, Slack 채널)이다.
+
+결과 모름이 남은 티켓은 수정으로 되돌려도 발행 대상을 바꿀 수 없다(`publishTargetLocked=true`, `PATCH /publication`은 409 `PUBLISH_TARGET_LOCKED`, #280). 결과 모름은 이미 기록됐을 수 있다는 뜻이라, 다른 대상으로 보내면 같은 업무가 두 곳에 생길 수 있기 때문이다. 그 대상에서 결론을 내면(GitHub는 다시 시도의 재대조, Notion/Slack은 확인 결과) 잠금이 풀린다. 본문 수정은 잠그지 않고, 결과 모름이 아닌 확실한 실패는 대상을 바꿀 수 있다.
 
 ### 전송 결과와 대표 담당 지정 (#213)
 
