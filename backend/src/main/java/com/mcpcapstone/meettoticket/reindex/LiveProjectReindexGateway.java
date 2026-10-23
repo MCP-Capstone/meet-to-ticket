@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -59,6 +60,8 @@ public class LiveProjectReindexGateway implements ProjectReindexGateway {
                     body.path("progress").path("message").asText(null),
                     nullableInt(result, "indexed"), nullableInt(result, "skipped"), nullableInt(result, "total"),
                     nullableInt(result, "indexCount"), parseInstant(result.path("lastSyncedAt").asText(null)));
+        } catch (HttpClientErrorException.NotFound e) {
+            throw new JobNotFoundException(jobId);
         } catch (IllegalArgumentException | RestClientException e) {
             throw new AgentException(true);
         }
