@@ -16,6 +16,58 @@ public final class ApiExamples {
             }
             """;
 
+    public static final String PROJECT_DETAIL = """
+            {
+              "projectId": 1,
+              "name": "CSV 내보내기",
+              "description": "관리자 사용자 목록 내보내기",
+              "githubOwner": "MCP-Capstone",
+              "githubRepo": "mcp-capstone",
+              "notionPageUrl": null,
+              "slackChannelId": null,
+              "members": [
+                {
+                  "userId": 1,
+                  "name": "함주헌",
+                  "githubName": "juhun-ham",
+                  "admin": true,
+                  "repositoryPermission": null
+                },
+                {
+                  "userId": 2,
+                  "name": "허민규",
+                  "githubName": null,
+                  "admin": false,
+                  "repositoryPermission": "NO_ACCOUNT"
+                }
+              ],
+              "connections": { "github": null, "notion": "NOT_CONNECTED", "slack": "NOT_CONNECTED" },
+              "canEdit": true
+            }
+            """;
+
+    public static final String USERS = """
+            {
+              "users": [
+                { "userId": 1, "name": "함주헌", "githubName": "juhun-ham" }
+              ]
+            }
+            """;
+
+    public static final String ERROR_PROJECT_ADMIN_REQUIRED = """
+            {
+              "code": "PROJECT_ADMIN_REQUIRED",
+              "message": "프로젝트 관리자만 편집할 수 있습니다."
+            }
+            """;
+
+    public static final String ERROR_DUPLICATE_PROJECT_REPOSITORY = """
+            {
+              "code": "DUPLICATE_PROJECT_REPOSITORY",
+              "message": "이미 다른 프로젝트에 등록된 GitHub 저장소입니다."
+            }
+            """;
+
     public static final String ERROR_UNAUTHORIZED = """
             {
               "code": "UNAUTHORIZED",

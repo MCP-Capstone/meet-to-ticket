@@ -59,5 +59,7 @@ public class DemoDataInitializer implements CommandLineRunner {
                         new ProjectMember(
                                 project, names[i].equals("함주헌") ? user : null, names[i], account));
             }
+        // 데모 로그인 사용자가 프로젝트를 편집할 수 있게 관리자로 둔다 (이전 데모 DB도 맞춘다).
+        members.findByProjectIdAndUserId(project.getId(), user.getId()).ifPresent(ProjectMember::makeAdmin);
     }
 }
