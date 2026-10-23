@@ -67,6 +67,18 @@ public class LiveProjectReindexGateway implements ProjectReindexGateway {
         }
     }
 
+    @Override
+    public void dropIndex(String githubOwner, String githubRepo) {
+        try {
+            client.post().uri("/projects/drop-index")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("githubOwner", githubOwner, "githubRepo", githubRepo))
+                    .retrieve().toBodilessEntity();
+        } catch (RestClientException e) {
+            throw new AgentException(true);
+        }
+    }
+
     private static Integer nullableInt(JsonNode node, String field) {
         return node.hasNonNull(field) ? node.path(field).asInt() : null;
     }
