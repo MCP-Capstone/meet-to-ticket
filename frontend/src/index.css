@@ -1044,3 +1044,12 @@ button.secondary {
 
 button.danger { color: var(--danger); border: 1px solid var(--danger); }
 .project-delete-actions button[type="submit"] { color: white; background: var(--danger); }
+
+/* TASK-048·050: 내 티켓 실패 안내 */
+.ticket-failure-banner { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px; border: 1px solid var(--danger); border-radius: var(--radius); background: var(--danger-soft); }
+.ticket-failure-banner p, .ticket-settings-feedback { overflow-wrap: anywhere; }
+.ticket-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ticket-list-heading h3 { margin: 0; }
+.ticket-list-heading h3:focus { outline: 2px solid var(--accent); outline-offset: 4px; }
+.ticket-settings-feedback { margin: 0; }
+@media (max-width: 560px) { .ticket-list-heading { align-items: flex-start; flex-wrap: wrap; } }
