@@ -28,6 +28,10 @@
 | GET | /api/analysis-tasks/{taskId} | 200 | 상태·오류 조회 |
 | GET | /api/analysis-tasks/{taskId}/items | 200 | 종료 항목·집계 조회 |
 
+가입의 `githubName`(GitHub 로그인명)은 선택이다. 미입력이나 공백만 있으면 확인 없이 가입한다.
+입력하면 GitHub `GET /users/{login}`으로 사용자 계정인지 확인하고 GitHub 기준 표기로 저장한다. 없는 계정이나 조직 계정은 400 `INVALID_GITHUB_ACCOUNT`이다.
+호출 한도(토큰 없이 IP당 시간당 60회)나 장애로 확인하지 못하면 입력값 그대로 저장하고 가입한다.
+
 로그인·가입·로그아웃·health 외에는 JSESSIONID 세션이 필요하다. Swagger에서 먼저 로그인하면 같은 출처 요청에 쿠키가 적용된다.
 Authorize에 쿠키를 직접 넣기보다 login API를 실행한다. 세션 사용자 ID는 입력값으로 노출하지 않는다.
 업무 오류는 `{code, message}`. 400(파일/형식/참여자/계정), 401(미로그인), 403(프로젝트 권한),
