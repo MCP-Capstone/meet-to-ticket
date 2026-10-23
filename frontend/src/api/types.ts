@@ -276,8 +276,7 @@ export interface ApiError {
   message: string
 }
 
-// TASK-026·028·029 서버 계약. 분석 결과의 reviewStatus와 구분한다.
-export type TicketStatus = 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'REJECTED' | 'PUBLISHING' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'FAILED'
+// TASK-026·028·029 서버 계약. 티켓 상태(TicketStatus)는 분석 결과의 reviewStatus와 구분한다.
 export type TicketAction = 'confirm' | 'reject' | 'reopen' | 'restore' | 'revise'
 export interface TicketDue { text: string | null; date: string | null; time: string | null }
 // 발행에 실패한 티켓의 사유. outcomeUnknown이면 GitHub에 이미 반영됐을 수 있다.
