@@ -615,11 +615,15 @@ class AgentNodes:
 
     @staticmethod
     def unconfirmed_reason(t: dict[str, Any]) -> str | None:
-        """자동 발행을 막을 사유. 사람이 확정하지 않은 항목은 PUBLISH_ON_RUN이어도 외부에 쓰지 않는다."""
-        if t["review_status"] != REVIEW_APPROVED or t.get("action") == "NEEDS_CHECK":
-            return "확인 필요: 검수를 통과하지 못해 자동 발행하지 않음"
+        """GitHub에 쓰기 전 담당자 확정 여부. 사람이 확정하지 않은 항목은 PUBLISH_ON_RUN이어도 쓰지 않는다.
+
+        담당자 없음도 미확정이다: 제품 흐름에서 담당자 없는 티켓은 ASSIGNEE_REQUIRED(담당 지정 필요)이고,
+        담당자가 지정해야 확인(CONFIRMED)과 발행으로 넘어간다.
+        """
         if t.get("unresolved_assignees"):
             return "담당자 미확정: " + ", ".join(t["unresolved_assignees"]) + " (자동 발행하지 않음)"
+        if not t.get("assignees"):
+            return "담당자 미확정: 지정된 담당자가 없어 자동 발행하지 않음"
         return None
 
     async def publish(self, state: AgentState) -> dict[str, Any]:
@@ -628,15 +632,8 @@ class AgentNodes:
         fatal: str | None = None
         fatal_message: str | None = None
         for t in tickets:
-            blocked = self.unconfirmed_reason(t)
-            if blocked:
+            if t["review_status"] != REVIEW_APPROVED:
                 t["publish_status"] = "BLOCKED"
-                if t["review_status"] == REVIEW_APPROVED:
-                    # 백엔드가 APPROVED 항목을 발행된 것으로 오해하지 않게 확인 필요로 내린다
-                    t["review_status"] = REVIEW_NEEDS_CHECK
-                    t["action"] = "NEEDS_CHECK"
-                    t["reason"] = blocked
-                    t["warnings"].append(blocked)
                 continue
             existing = _open_same_issue(t)
             if existing:
@@ -646,6 +643,15 @@ class AgentNodes:
                 t["github_issue_url"] = f"https://github.com/{state['owner']}/{state['repo']}/issues/{existing}"
                 t["reason"] = f"기존 이슈 #{existing}과 같은 작업이라 새로 만들지 않음"
                 t["dedupe"] = {**t["dedupe"], "linked_existing": True}
+                continue
+            blocked = self.unconfirmed_reason(t)  # 연결만 하는 티켓은 쓰기가 없어 위에서 끝난다. 생성 경로만 막는다
+            if blocked:
+                # 백엔드가 APPROVED 항목을 발행된 것으로 오해하지 않게 확인 필요로 내린다. 기존 사유는 보존한다
+                t["publish_status"] = "BLOCKED"
+                t["review_status"] = REVIEW_NEEDS_CHECK
+                t["action"] = "NEEDS_CHECK"
+                t["reason"] = f"{t['reason']}; {blocked}" if t.get("reason") else blocked
+                t["warnings"].append(blocked)
                 continue
             if fatal:
                 t["publish_status"] = "FAILED"

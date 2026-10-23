@@ -48,21 +48,60 @@ async def test_needs_check_stays_blocked(settings):
 
 
 def test_unconfirmed_reason_rules():
-    ok = {"review_status": "APPROVED", "action": "CREATE", "unresolved_assignees": [], "assignees": ["a"]}
+    ok = {"unresolved_assignees": [], "assignees": ["a"]}
     assert AgentNodes.unconfirmed_reason(ok) is None
     assert "담당자 미확정" in AgentNodes.unconfirmed_reason({**ok, "unresolved_assignees": ["홍길동"]})
-    assert "확인 필요" in AgentNodes.unconfirmed_reason({**ok, "review_status": "NEEDS_CHECK"})
-    assert "확인 필요" in AgentNodes.unconfirmed_reason({**ok, "action": "NEEDS_CHECK"})
+    assert "담당자 미확정" in AgentNodes.unconfirmed_reason({**ok, "assignees": []})  # 담당자 없음
 
 
-@pytest.mark.parametrize("env", ["prod", "PRODUCTION"])
-def test_production_rejects_auto_publish_without_approval(env):
+def _ticket(**kw):
+    t = {"review_status": "APPROVED", "action": "CREATE", "reason": None, "warnings": [], "unresolved_assignees": [],
+         "assignees": ["a"], "title": "t", "labels": [], "dedupe": None, "publish_status": "NOT_STARTED",
+         "github_issue_number": None, "github_issue_url": None, "error_message": None, "action_text": "t"}
+    t.update(kw)
+    return t
+
+
+async def _publish(settings, tickets):
+    pub = FakePublisher()
+    nodes = AgentNodes(FakeLLM(), pub, FakeReporter(), settings)
+    state = {"task_id": "x", "meeting_id": "m", "owner": "o", "repo": "r", "tickets": tickets}
+    out = await nodes.publish(state)
+    return out["tickets"], pub
+
+
+async def test_no_assignee_ticket_is_blocked(settings):
+    tickets, pub = await _publish(settings, [_ticket(assignees=[])])
+    assert tickets[0]["publish_status"] == "BLOCKED" and not pub.calls
+
+
+async def test_blocked_keeps_existing_reason(settings):
+    tickets, _ = await _publish(settings, [_ticket(unresolved_assignees=["홍길동"], assignees=[], reason="보완 한도 초과")])
+    assert tickets[0]["reason"].startswith("보완 한도 초과; 담당자 미확정")
+
+
+async def test_link_only_ticket_is_not_blocked(settings):
+    same = {"relation": "SAME", "issue_state": "open", "issue_number": 12}
+    tickets, pub = await _publish(settings, [_ticket(unresolved_assignees=["홍길동"], assignees=[], dedupe=same)])
+    t = tickets[0]
+    assert t["publish_status"] == "SUCCEEDED" and t["github_issue_number"] == 12 and t["review_status"] == "APPROVED"
+    assert not pub.calls  # 쓰기 없이 연결만
+
+
+def test_auto_publish_requires_approval_in_any_environment(monkeypatch):
+    from config import load_settings
+
+    monkeypatch.setenv("PUBLISH_ON_RUN", "true")
+    monkeypatch.setenv("DRY_RUN", "false")
+    monkeypatch.delenv("ALLOW_AUTO_PUBLISH", raising=False)
     with pytest.raises(SettingsError):
-        validate_settings(Settings(publish_on_run=True, app_env=env))
+        load_settings()
+    monkeypatch.setenv("ALLOW_AUTO_PUBLISH", "true")
+    assert load_settings().publish_on_run is True
 
 
-def test_production_allows_approved_auto_publish_and_other_cases():
-    validate_settings(Settings(publish_on_run=True, app_env="prod", allow_auto_publish=True))
-    validate_settings(Settings(publish_on_run=False, app_env="prod"))
-    validate_settings(Settings(publish_on_run=True, app_env="dev"))
-    validate_settings(Settings(publish_on_run=True))
+def test_dry_run_does_not_need_approval():
+    validate_settings(Settings(publish_on_run=True, dry_run=True))
+    validate_settings(Settings(publish_on_run=False))
+    with pytest.raises(SettingsError):
+        validate_settings(Settings(publish_on_run=True))
