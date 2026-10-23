@@ -208,10 +208,26 @@ public final class ApiExamples {
             }
             """;
 
+    public static final String ERROR_PROCESSING_TYPE_TARGET_MISMATCH = """
+            {
+              "code": "PROCESSING_TYPE_TARGET_MISMATCH",
+              "message": "GitHub 이외 대상은 신규 발행만 할 수 있습니다."
+            }
+            """;
+
+    public static final String ERROR_EXISTING_ISSUE_REQUIRED = """
+            {
+              "code": "EXISTING_ISSUE_REQUIRED",
+              "message": "연결이나 갱신할 열린 기존 이슈가 없습니다. 신규 발행으로 바꿔 주세요."
+            }
+            """;
+
     public static final String MY_TICKETS = """
             {"counts":{"pendingReview":1,"confirmed":0,"rejected":0,"failed":0},
              "tickets":[{"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정",
-               "status":"PENDING_REVIEW","processingType":"CREATE","projectId":1,"projectName":"CSV 내보내기",
+               "status":"PENDING_REVIEW","processingType":"CREATE","publishTarget":"GITHUB",
+               "dedupe":{"judged":true,"skipped":null,"relation":"RELATED","issue":{"number":12,"title":"CSV 빈 결과 오류 수정","state":"open","url":"https://github.com/MCP-Capstone/mcp-capstone/issues/12"},"overlap":true,"reason":"같은 CSV 화면이지만 빈 결과 처리를 더 요구함","before":null,"after":null,"changedByRecheck":false},
+               "projectId":1,"projectName":"CSV 내보내기",
                "meetingId":2,"meetingTitle":"CSV 중간 점검","taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81",
                "createdAt":"2026-10-22T10:31:00+09:00",
                "description":"CSV 내보내기에서 결과가 비면 오류가 난다.","due":{"text":"내일 오후 6시","date":"2026-10-23","time":"18:00"},
@@ -246,7 +262,9 @@ public final class ApiExamples {
 
     public static final String TICKET = """
             {"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정",
-             "status":"CONFIRMED","processingType":"CREATE","projectId":1,"projectName":"CSV 내보내기",
+             "status":"CONFIRMED","processingType":"CREATE","publishTarget":"GITHUB",
+             "dedupe":{"judged":false,"skipped":"timeout","relation":null,"issue":null,"overlap":false,"reason":null,"before":null,"after":null,"changedByRecheck":false},
+             "projectId":1,"projectName":"CSV 내보내기",
              "meetingId":2,"meetingTitle":"CSV 중간 점검","taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81",
              "createdAt":"2026-10-22T10:31:00+09:00",
              "description":"CSV 내보내기에서 결과가 비면 오류가 난다.","due":{"text":"내일 오후 6시","date":"2026-10-23","time":"18:00"},

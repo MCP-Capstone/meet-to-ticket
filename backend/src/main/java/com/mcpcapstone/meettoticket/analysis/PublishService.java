@@ -43,7 +43,10 @@ public class PublishService {
             List<TaskItem> picked = new ArrayList<>();
             for (UUID id : items.findIdsAssignedTo(userId, TicketStatus.CONFIRMED, projectId)) {
                 // 잠근 뒤 다시 확인해야 그 사이 발행 중으로 바뀐 티켓을 걸러낸다.
-                items.findForUpdate(id).filter(i -> i.getTicketStatus() == TicketStatus.CONFIRMED).ifPresent(picked::add);
+                // Agent 일괄 발행은 GitHub만 처리한다. Slack, Notion 대상은 확인 상태로 두고 해당 발행 기능(TASK-051, 052)이 맡는다.
+                items.findForUpdate(id)
+                        .filter(i -> i.getTicketStatus() == TicketStatus.CONFIRMED && i.getPublishTarget() == PublishTarget.GITHUB)
+                        .ifPresent(picked::add);
             }
             if (picked.isEmpty()) throw new BusinessException(ErrorCode.NO_CONFIRMED_TICKETS);
             PublishBatch batch = batches.save(new PublishBatch(users.getReferenceById(userId), gateway.mode()));

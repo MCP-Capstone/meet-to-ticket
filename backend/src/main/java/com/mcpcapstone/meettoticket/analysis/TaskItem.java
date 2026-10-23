@@ -88,6 +88,11 @@ public class TaskItem {
     @Column(name = "publish_outcome_unknown", nullable = false)
     private boolean publishOutcomeUnknown;
 
+    @Enumerated(EnumType.STRING)
+    @ColumnDefault("'GITHUB'")
+    @Column(name = "publish_target", nullable = false, length = 10)
+    private PublishTarget publishTarget = PublishTarget.GITHUB;
+
     public TaskItem(
             AnalysisTask task,
             com.mcpcapstone.meettoticket.agent.AgentContracts.Item item,
@@ -104,7 +109,7 @@ public class TaskItem {
         this.githubIssueNumber = item.githubIssueNumber();
         this.githubIssueUrl = item.githubIssueUrl();
         this.errorMessage = item.errorMessage();
-        this.processingType = ProcessingType.fromAgentAction(item.action());
+        this.processingType = ProcessingType.from(item.action(), item.contentJson());
     }
 
     // 담당 멤버가 정해지면 검토 대기, 아니면 담당 지정 필요.
@@ -117,6 +122,12 @@ public class TaskItem {
     public void edit(ProjectMember newAssignee, String contentJson) {
         if (newAssignee != null) this.assignee = newAssignee;
         this.contentJson = contentJson;
+    }
+
+    // 담당자가 카드에서 발행 대상과 처리 유형을 바꾼다 (REQ-015). 규칙 검사는 TicketService가 한다.
+    public void changePublication(PublishTarget target, ProcessingType type) {
+        this.publishTarget = target;
+        this.processingType = type;
     }
 
     public void moveTo(TicketStatus status) {

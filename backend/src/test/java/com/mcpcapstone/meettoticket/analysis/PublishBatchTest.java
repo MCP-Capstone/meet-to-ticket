@@ -22,6 +22,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.mcpcapstone.meettoticket.agent.AgentContracts;
@@ -154,6 +155,24 @@ class PublishBatchTest {
 		mvc.perform(post("/api/tickets/publish").session(session))
 				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("NO_CONFIRMED_TICKETS"));
 		verify(gateway, times(1)).submit(any());
+	}
+
+	@Test
+	void GitHub_이외_발행_대상은_보내지_않고_확인_상태로_둔다() throws Exception {
+		TaskItem github = confirmed(project, "GitHub");
+		TaskItem slack = confirmed(project, "Slack 공지");
+		var slackItem = items.findById(slack.getId()).orElseThrow();
+		ReflectionTestUtils.setField(slackItem, "publishTarget", PublishTarget.SLACK);
+		items.save(slackItem);
+
+		publish(null);
+
+		var captor = ArgumentCaptor.forClass(PublishGateway.Request.class);
+		verify(gateway).submit(captor.capture());
+		assertThat(captor.getValue().tickets()).extracting(PublishGateway.Ticket::ticketId).containsExactly(github.getId().toString());
+		assertThat(stateOf(slack)).isEqualTo(TicketStatus.CONFIRMED);
+		// GitHub 티켓이 없으면 담을 것이 없다
+		mvc.perform(post("/api/tickets/publish").session(session)).andExpect(status().isConflict());
 	}
 
 	@Test
