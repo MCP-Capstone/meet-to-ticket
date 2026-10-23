@@ -7,6 +7,7 @@ import type {
   MemberList,
   ProjectList,
   ProjectDetail,
+  ProjectReindex,
   ProjectSaveRequest,
   ProjectRole,
   DirectoryUser,
@@ -41,6 +42,12 @@ export const realApi = {
 
   updateProject: (projectId: number, body: ProjectSaveRequest) =>
     request<ProjectDetail>(`/projects/${projectId}`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  requestProjectReindex: (projectId: number) =>
+    request<ProjectReindex>(`/projects/${projectId}/reindex`, { method: 'POST' }),
+
+  getProjectReindex: (projectId: number) =>
+    request<ProjectReindex>(`/projects/${projectId}/reindex`),
 
   changeProjectMemberRole: (projectId: number, memberUserId: number, role: ProjectRole) =>
     request<ProjectDetail>(`/projects/${projectId}/members/${memberUserId}/role`, {

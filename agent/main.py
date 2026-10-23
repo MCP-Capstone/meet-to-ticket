@@ -6,6 +6,8 @@
 - GET  /runs/{task_id}  : 이 프로세스에서 처리한 작업의 상태·결과
                           처리 중이면 {"taskId", "status": "RUNNING", "stage", "progress"}, 끝나면 결과 전체
 - GET  /runs/{task_id}/history : 노드별 실행 기록 (checkpointer)
+- POST /projects/reindex      : GitHub 이슈 전체 RAG 재색인 접수
+- GET  /projects/reindex/{job_id} : 재색인 진행·결과 조회
 - GET  /health
 
 이슈를 발행한 taskId를 다시 POST하면 다시 실행하지 않고 저장된 결과를 돌려준다 (runner.stored_result).
@@ -26,8 +28,17 @@ load_env()
 from reporter import BackendReporter  # noqa: E402
 from runner import history, run, run_publish_batch, stored_result  # noqa: E402
 from permissions import check_members  # noqa: E402
+from project_connections import check_project_connections  # noqa: E402
+from reindex import create_router  # noqa: E402
 from publisher import ToolCallError  # noqa: E402
-from schemas import CheckMembersRequest, CheckMembersResponse, PublishBatchRequest, RunRequest  # noqa: E402
+from schemas import (  # noqa: E402
+    CheckMembersRequest,
+    CheckMembersResponse,
+    ProjectConnectionsRequest,
+    ProjectConnectionsResponse,
+    PublishBatchRequest,
+    RunRequest,
+)
 from state import STAGE_EXTRACTING  # noqa: E402
 from api_docs import (  # noqa: E402
     CHECK_MEMBERS_EXAMPLE, CHECK_MEMBERS_RESPONSES, DESCRIPTION, HEALTH_RESPONSES, HISTORY_RESPONSES, JOB_RESPONSES, REQUEST_EXAMPLE, RUN_RESPONSES,
@@ -53,6 +64,10 @@ _tasks: set[asyncio.Task] = set()
 
 def _settings():
     return app.state.overrides.get("settings") or load_settings()
+
+
+# RAG 색인 관리 API는 분석 실행 경로와 상태를 분리한다. 테스트 override도 기존 app.state를 그대로 쓴다.
+app.include_router(create_router(_settings, lambda: app.state.overrides))
 
 
 def _running(task_id: str) -> dict[str, Any]:
@@ -173,6 +188,16 @@ async def check_project_members(
         return await check_members(_settings(), req, app.state.overrides.get("mcp_tools"))
     except ToolCallError as exc:
         return JSONResponse(status_code=502, content={"errorCode": exc.code, "errorMessage": exc.message})
+
+
+@app.post(
+    "/projects/check-connections", tags=["프로젝트"], operation_id="checkProjectConnections",
+    summary="Notion·Slack 프로젝트 연결과 멤버 Slack ID 확인", response_model=ProjectConnectionsResponse,
+    description="프로젝트 저장 때 Spring이 호출한다. LLM 없이 business-mcp의 Notion·Slack 읽기 도구를 호출한다. "
+                "한 연동 오류가 다른 확인 결과나 프로젝트 저장을 막지 않도록 ERROR 상태로 반환한다.",
+)
+async def check_connections(req: ProjectConnectionsRequest):
+    return await check_project_connections(_settings(), req, app.state.overrides.get("mcp_tools"))
 
 
 @app.get(

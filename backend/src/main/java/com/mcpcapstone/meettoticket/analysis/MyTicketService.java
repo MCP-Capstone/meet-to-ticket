@@ -55,7 +55,9 @@ public class MyTicketService {
                 i.getTask().getCreatedAt(),
                 content.path("description").asText(null),
                 new Due(blankToNull(due.path("text").asText(null)), date(due.path("date").asText(null)), blankToNull(due.path("time").asText(null))),
-                assignee == null ? null : new Assignee(assignee.getId(), assignee.getName()));
+                assignee == null ? null : new Assignee(assignee.getId(), assignee.getName()),
+                i.getNotionPageId(),
+                i.getNotionPageUrl());
     }
 
     // 카드가 그릴 중복 판단 결과 (REQ-026). 판단하지 않았거나 건너뛰었으면 judged=false.
@@ -114,7 +116,9 @@ public class MyTicketService {
             @Schema(description = "분석 접수 시각", requiredMode = Schema.RequiredMode.REQUIRED, example = "2026-10-22T10:31:00+09:00") OffsetDateTime createdAt,
             @Schema(description = "티켓 본문(작업 내용). 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "CSV 내보내기에서 결과가 비면 오류가 난다.") String description,
             @Schema(description = "기한", requiredMode = Schema.RequiredMode.REQUIRED) Due due,
-            @Schema(description = "담당 멤버. 담당 지정 필요 상태면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) Assignee assignee) {}
+            @Schema(description = "담당 멤버. 담당 지정 필요 상태면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) Assignee assignee,
+            @Schema(description = "실제 생성된 Notion 페이지 ID. Notion 발행 전 또는 GitHub 대상이면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) String notionPageId,
+            @Schema(description = "실제 생성된 Notion 페이지 URL. Notion 발행 전 또는 GitHub 대상이면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) String notionPageUrl) {}
 
     public record Dedupe(
             @Schema(description = "중복 판단을 했는지. false면 카드에 \"중복 판단 안 됨\"을 표시", requiredMode = Schema.RequiredMode.REQUIRED, example = "true") boolean judged,

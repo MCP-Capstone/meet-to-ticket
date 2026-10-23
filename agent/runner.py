@@ -13,6 +13,7 @@ import prompts
 from config import Settings
 from issue_tools import IssueTools
 from nodes import AgentNodes, run_metrics
+from project_context import ProjectContextTools
 from publisher import DryRunPublisher, McpPublisher
 from reporter import BackendReporter
 from schemas import PublishBatchRequest, PublishBatchResult, RunRequest, RunResult
@@ -103,6 +104,7 @@ def initial_state(req: RunRequest, trace_id: str | None = None, deadline_seconds
         "original_content": m.original_content,
         "owner": req.project.github_owner,
         "repo": req.project.github_repo,
+        "notion_page_url": req.project.notion_page_url,
         "members": [pm.model_dump() for pm in req.project_members],
         "tickets": [],
         "stage": STAGE_EXTRACTING,
@@ -126,7 +128,10 @@ async def github_tools(settings: Settings) -> dict[str, Any]:
 def make_mcp_publisher(tools: dict[str, Any]) -> McpPublisher:
     if "create_issue" not in tools:
         raise RuntimeError(f"create_issue 도구를 찾지 못함: {sorted(tools)}")
-    return McpPublisher(tools["create_issue"], tools.get("add_comment"), tools.get("update_issue"), tools.get("post_message"))
+    return McpPublisher(
+        tools["create_issue"], tools.get("add_comment"), tools.get("update_issue"),
+        tools.get("post_message"), tools.get("create_page"),
+    )
 
 
 async def make_issue_tools(
@@ -162,6 +167,16 @@ async def make_issue_tools(
         max_chars=settings.tool_result_max_chars,
     )
     return tools, "ready"
+
+
+def make_project_context_tools(tools: dict[str, Any] | None, settings: Settings) -> ProjectContextTools | None:
+    """business-mcp의 읽기 도구를 분석 맥락 수집용으로 묶는다."""
+    if tools is None:
+        return None
+    return ProjectContextTools(
+        tools.get("list_issues"), tools.get("list_pages"), tools.get("read_page"),
+        max_chars=settings.tool_result_max_chars,
+    )
 
 
 async def sync_index(tools: IssueTools, settings: Settings) -> dict[str, Any] | None:
@@ -245,6 +260,7 @@ async def run(
     publisher: Any | None = None,
     reporter: Any | None = None,
     issue_tools: IssueTools | None = None,
+    context_tools: ProjectContextTools | None = None,
 ) -> RunResult:
     """요청 1건을 하나의 trace로 실행한다.
 
@@ -278,7 +294,7 @@ async def run(
         tags=["meet-to-ticket"],
     ) as run_tree:
         result = await _run(req, settings, trace_id, metadata, llm=llm, publisher=publisher, reporter=reporter,
-                            issue_tools=issue_tools)
+                            issue_tools=issue_tools, context_tools=context_tools)
         run_tree.end(outputs={"status": result.status, "errorCode": result.error_code, "summary": result.summary})
     log.info("작업 끝 task=%s trace=%s status=%s error=%s %sms", req.task_id, trace_id,
              result.status, result.error_code, result.metrics.get("durationMs"))
@@ -295,6 +311,7 @@ async def _run(
     publisher: Any | None,
     reporter: Any | None,
     issue_tools: IssueTools | None = None,
+    context_tools: ProjectContextTools | None = None,
 ) -> RunResult:
     state = initial_state(req, trace_id, settings.task_deadline_seconds)
     publisher_was_injected = publisher is not None  # 테스트에서 가짜 발행 도구를 넣은 경우
@@ -321,13 +338,14 @@ async def _run(
                 await reporter.result(req.task_id, result.model_dump(by_alias=True, mode="json"))
                 return result
 
+    # 맥락 수집과 RAG 키워드 검색은 같은 business-mcp 연결을 쓴다. dry-run이어도 읽기 도구는 필요하다.
+    if github is None and not publisher_was_injected:
+        try:
+            github = await github_tools(settings)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("business-mcp 맥락 조회 도구를 쓰지 못함: %s", exc)
+
     if issue_tools is None:
-        if settings.rag_enabled and github is None and not publisher_was_injected:
-            # dry run이어도 조회 도구(search_issues)는 쓸 수 있게 github 서버에 붙어 본다
-            try:
-                github = await github_tools(settings)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("business-mcp 조회 도구를 쓰지 못함 (키워드 검색 없이 진행): %s", exc)
         issue_tools, rag_status = await make_issue_tools(
             settings, req.project.github_owner, req.project.github_repo, github)
     else:
@@ -336,7 +354,11 @@ async def _run(
 
     from graph import build_graph
 
-    nodes = AgentNodes(llm=llm, publisher=publisher, reporter=reporter, settings=settings, issue_tools=issue_tools)
+    context_tools = context_tools or make_project_context_tools(github, settings)
+    nodes = AgentNodes(
+        llm=llm, publisher=publisher, reporter=reporter, settings=settings,
+        issue_tools=issue_tools, context_tools=context_tools,
+    )
     app = build_graph(nodes, checkpointer())
     config = {"recursion_limit": 50, "run_name": "agent-graph", "tags": ["meet-to-ticket"], "metadata": metadata,
               **_thread(req.task_id)}

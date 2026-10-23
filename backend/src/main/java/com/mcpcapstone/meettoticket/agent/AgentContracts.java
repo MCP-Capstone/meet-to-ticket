@@ -27,9 +27,28 @@ public final class AgentContracts {
             String originalFilename,
             String originalContent) {}
 
-    public record ProjectData(Long projectId, String name, String githubOwner, String githubRepo) {}
+    public record ProjectData(
+            Long projectId, String name, String githubOwner, String githubRepo, String notionPageUrl) {
+        // 저장된 기존 작업 요청과 테스트의 4개 인자 생성자를 호환한다.
+        public ProjectData(Long projectId, String name, String githubOwner, String githubRepo) {
+            this(projectId, name, githubOwner, githubRepo, null);
+        }
+    }
 
-    public record MemberData(Long projectMemberId, Long userId, String name, String githubName) {}
+    public record MemberData(
+            Long projectMemberId,
+            Long userId,
+            String name,
+            String githubName,
+            String slackEmail,
+            String slackUserId,
+            String role,
+            String repositoryPermission) {
+        // 이전 Agent 요청은 이름·GitHub 계정까지만 보냈으므로 역직렬화/테스트 호환성을 유지한다.
+        public MemberData(Long projectMemberId, Long userId, String name, String githubName) {
+            this(projectMemberId, userId, name, githubName, null, null, null, null);
+        }
+    }
 
     public record Accepted(
             UUID taskId,
@@ -94,4 +113,32 @@ public final class AgentContracts {
             int drafts) {}
 
     public record AgentError(String code, String message) {}
+
+    // 확인된 카드의 실제 발행 요청/결과 계약. 분석 Run 계약과 분리해 Agent의 /publish와 맞춘다.
+    public record PublishBatchRequest(UUID batchId, List<PublishTicket> tickets) {}
+
+    public record PublishTicket(
+            UUID ticketId,
+            PublishProject project,
+            Long meetingId,
+            String meetingTitle,
+            LocalDate meetingDate,
+            String title,
+            JsonNode contentJson,
+            String processingType,
+            Integer targetIssueNumber,
+            boolean processingTypeEdited,
+            String publishTarget,
+            List<SlackMember> slackMembers,
+            String reviewStatus) {}
+
+    public record PublishProject(
+            Long projectId,
+            String name,
+            String githubOwner,
+            String githubRepo,
+            String notionPageUrl,
+            String slackChannelId) {}
+
+    public record SlackMember(String name, String slackUserId) {}
 }

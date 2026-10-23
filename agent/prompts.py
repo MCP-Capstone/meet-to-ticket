@@ -32,8 +32,8 @@ PROMPT_VERSION = prompt_version(TEXTS)
 
 EXTRACT_SYSTEM = TEXTS["extract_system"]  # 표가 없을 때 할 일·결정·미결 질문·제외 항목 추출
 DRAFT_SYSTEM = TEXTS["draft_system"]    # 이슈 초안 작성
-DRAFT_USER = TEXTS["draft_user"]        # format: summary, decisions, open_questions, labels, items
+DRAFT_USER = TEXTS["draft_user"]        # format: summary, decisions, open_questions, project_context, labels, items
 REVIEW_SYSTEM = TEXTS["review_system"]  # 검수
-REVIEW_USER = TEXTS["review_user"]      # format: summary, source_note, excluded, drafts
+REVIEW_USER = TEXTS["review_user"]      # format: summary, source_note, excluded, project_context, drafts
 DEDUPE_SYSTEM = TEXTS["dedupe_system"]  # 중복 판단 (도구 고르기)
 DEDUPE_USER = TEXTS["dedupe_user"]      # format: title, action, evidence, keys, expected

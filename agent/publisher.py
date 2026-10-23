@@ -70,14 +70,15 @@ def error_from_exception(exc: Exception, default_code: str = PUBLISH_FAILED) -> 
 
 
 class McpPublisher:
-    """GitHub 쓰기 MCP 도구를 감싼다. 도구 오류는 공통 ToolCallError로 바꾼다."""
+    """외부 발행 MCP 도구를 감싼다. 도구 오류는 공통 ToolCallError로 바꾼다."""
 
     def __init__(self, create_issue_tool: Any, add_comment_tool: Any | None = None, update_issue_tool: Any | None = None,
-                 post_message_tool: Any | None = None):
+                 post_message_tool: Any | None = None, create_page_tool: Any | None = None):
         self.create_tool = create_issue_tool
         self.comment_tool = add_comment_tool
         self.update_tool = update_issue_tool
         self.message_tool = post_message_tool
+        self.page_tool = create_page_tool
 
     async def _call(self, tool: Any | None, args: dict[str, Any], name: str) -> dict[str, Any]:
         if tool is None:
@@ -100,6 +101,9 @@ class McpPublisher:
     async def post_message(self, **args: Any) -> dict[str, Any]:
         return await self._call(self.message_tool, args, "post_message")
 
+    async def create_page(self, **args: Any) -> dict[str, Any]:
+        return await self._call(self.page_tool, args, "create_page")
+
 
 class DryRunPublisher:
     """GitHub에 발행하지 않고 호출 내용만 기록한다."""
@@ -119,6 +123,14 @@ class DryRunPublisher:
     async def update_issue(self, **args: Any) -> dict[str, Any]:
         self.calls.append(args)
         return {"status": "dry_run", "number": args.get("number"), "url": None, "dropped_labels": []}
+
+    async def post_message(self, **args: Any) -> dict[str, Any]:
+        self.calls.append(args)
+        return {"status": "dry_run", "url": None}
+
+    async def create_page(self, **args: Any) -> dict[str, Any]:
+        self.calls.append(args)
+        return {"status": "dry_run", "page_id": None, "url": None}
 
 
 # ---------------------------------------------------------------- 이슈 본문

@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import ANY
 
 from batch_publish import publish_batch
 from runner import run_publish_batch
@@ -24,6 +25,10 @@ class BatchPublisher:
     async def post_message(self, **args):
         self.calls.append(("message", args))
         return {"url": "slack-url"}
+
+    async def create_page(self, **args):
+        self.calls.append(("notion", args))
+        return {"page_id": "notion-page-id", "url": "https://www.notion.so/notion-page-id"}
 
 
 def ticket(ticket_id, kind, number=None):
@@ -70,6 +75,40 @@ async def test_slack_notice_posts_once_and_mentions_only_connected_reviewers():
 
     assert out.items[0].status == "POSTED" and out.items[0].message_url == "slack-url"
     assert publisher.calls == [("message", {"channel_id": "C123", "text": "@박서연 확인 부탁", "mentions": [{"name": "박서연", "slack_user_id": "U123"}]})]
+
+
+@pytest.mark.anyio
+async def test_notion_ticket_creates_a_page_under_the_project_root():
+    publisher = BatchPublisher()
+    notion = ticket("notion", "CREATE")
+    notion.project = Project(github_owner="o", github_repo="r", notion_page_url="https://www.notion.so/root-page")
+    notion.publish_target = "NOTION"
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[notion]), publisher)
+
+    item = out.items[0]
+    assert item.status == "PUBLISHED"
+    assert item.notion_page_id == "notion-page-id"
+    assert item.notion_page_url == "https://www.notion.so/notion-page-id"
+    assert publisher.calls == [("notion", {
+        "root_page_url_or_id": "https://www.notion.so/root-page",
+        "title": "CSV 개선",
+        "markdown": ANY,
+    })]
+    assert "## 작업 내용" in publisher.calls[0][1]["markdown"]
+
+
+@pytest.mark.anyio
+async def test_notion_ticket_requires_a_project_root_page():
+    publisher = BatchPublisher()
+    notion = ticket("notion", "CREATE")
+    notion.publish_target = "NOTION"
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[notion]), publisher)
+
+    assert out.status == "FAILED"
+    assert out.items[0].error_code == "INVALID_ARGUMENT"
+    assert publisher.calls == []
 
 
 @pytest.mark.anyio

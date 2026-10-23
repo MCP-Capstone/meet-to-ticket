@@ -160,12 +160,14 @@ def new_ticket(todo: ExtractedTodo, members: list[ProjectMember], meeting_date: 
 
 
 class AgentNodes:
-    def __init__(self, llm: Any, publisher: Any, reporter: Any, settings: Settings, issue_tools: Any | None = None):
+    def __init__(self, llm: Any, publisher: Any, reporter: Any, settings: Settings, issue_tools: Any | None = None,
+                 context_tools: Any | None = None):
         self.llm = llm
         self.publisher = publisher
         self.reporter = reporter
         self.settings = settings
         self.issue_tools = issue_tools  # 중복 판단용 조회 도구 (issue_tools.IssueTools). 없으면 중복 확인 없이 발행
+        self.context_tools = context_tools  # 분석 전에 기존 이슈·Notion 문서를 읽는 business-mcp 도구
 
     async def _progress(self, state: AgentState, stage: str, progress: dict[str, Any] | None = None) -> None:
         """진행 단계를 보고한다. progress를 주면 화면 단계와 세부 정보도 함께 보낸다 (기획_v16 REQ-007)."""
@@ -198,9 +200,18 @@ class AgentNodes:
         return {"error_code": TASK_TIMEOUT, "error_message": f"작업 마감 시간({limit}초)을 넘겨 중단함"}
 
     async def prepare(self, state: AgentState) -> dict[str, Any]:
-        # 맥락 파악: 지금은 프로젝트 멤버만 받는다. 기존 이슈·Notion 문서 수는 맥락 파악(TASK-019)이 생기면 채운다
-        context = self._step(state, STEP_CONTEXT,
-                             context={"members": len(state.get("members", [])), "issues": None, "notionDocs": None})
+        project_context = {"issues": [], "notionDocs": [], "warnings": []}
+        if self.context_tools is not None:
+            project_context = await self.context_tools.collect(
+                state["owner"], state["repo"], state.get("notion_page_url"))
+        elif state.get("notion_page_url"):
+            project_context["warnings"].append("프로젝트 맥락 조회 도구를 사용할 수 없음")
+        context = self._step(state, STEP_CONTEXT, context={
+            "members": len(state.get("members", [])),
+            "issues": len(project_context["issues"]),
+            "notionDocs": len(project_context["notionDocs"]),
+            "warnings": project_context["warnings"],
+        })
         await self._progress(state, STAGE_EXTRACTING, context)
         await self._progress(state, STAGE_EXTRACTING, {**context, "step": STEP_EXTRACTING})
         limit = self.settings.max_source_chars
@@ -239,6 +250,7 @@ class AgentNodes:
             "open_questions": extraction.open_questions,
             "excluded": extraction.excluded,
             "progress": progress,
+            "project_context": project_context,
             "meeting_date": meeting_date.isoformat() if meeting_date else None,
             # 이후 초안 작성은 NORMALIZING 단계로 본다 (초안에서 실패하면 이 단계로 보고)
             "stage": STAGE_NORMALIZING if tickets else STAGE_EXTRACTING,
@@ -257,6 +269,7 @@ class AgentNodes:
         context = {
             "decisions": [d["content"] for d in state.get("decisions", [])],
             "open_questions": state.get("open_questions", []),
+            "project_context": state.get("project_context", {}),
         }
         targets = [
             t for t in tickets
@@ -506,6 +519,7 @@ class AgentNodes:
                 "source_note": "아래 초안은 모두 회의록 '액션 아이템' 표(회의에서 합의된 할 일)에서 만들었다"
                 if all(t.get("source") == "table" for t in batch) else "일부 초안은 표 없이 본문에서 뽑았다",
                 "excluded_or_held": state.get("excluded", []),
+                "project_context": state.get("project_context", {}),
             }
             try:
                 reviews = await self.llm.review(source, drafts, context)
@@ -738,6 +752,11 @@ class AgentNodes:
             "items": items,
             "trace_id": state.get("trace_id"),
             "metrics": {**run_metrics(self.settings, self.llm, state.get("started_at"), state.get("rag")),
+                        "context": {
+                            "issues": len((state.get("project_context") or {}).get("issues", [])),
+                            "notionDocs": len((state.get("project_context") or {}).get("notionDocs", [])),
+                            "warnings": (state.get("project_context") or {}).get("warnings", []),
+                        },
                         **_dedupe_metrics(tickets)},
         }
 

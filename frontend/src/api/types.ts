@@ -81,6 +81,23 @@ export interface ProjectList {
   executionMode: ExecutionMode
 }
 
+export type ReindexStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED'
+
+// 프로젝트 GitHub 이슈 RAG 색인 실행 상태. status가 null이면 아직 실행한 적이 없다.
+export interface ProjectReindex {
+  projectId: number
+  status: ReindexStatus | null
+  requestedAt: string | null
+  finishedAt: string | null
+  errorMessage: string | null
+  progressMessage: string | null
+  indexed: number | null
+  skipped: number | null
+  total: number | null
+  indexCount: number | null
+  lastSyncedAt: string | null
+}
+
 export interface ProjectMember {
   projectMemberId: number
   userId: number | null

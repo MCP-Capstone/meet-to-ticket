@@ -22,6 +22,10 @@ class ProjectMember(CamelModel):
     user_id: int | None = Field(None, description="서비스 사용자 ID. 미가입이면 null")
     name: str = Field(description="프로젝트 또는 팀원 이름")
     github_name: str | None = Field(None, description="실제 GitHub 로그인명. 미연결은 null")
+    slack_email: str | None = Field(None, description="Slack 사용자 조회에 쓰는 이메일. 미입력은 null")
+    slack_user_id: str | None = Field(None, description="연결 완료된 Slack 사용자 ID. 미확인은 null")
+    role: str | None = Field(None, description="프로젝트 역할(ADMIN 또는 MEMBER). 기존 요청은 null 허용")
+    repository_permission: str | None = Field(None, description="GitHub 담당자 지정 권한. 확인 전은 null")
 
 
 class Project(CamelModel):
@@ -29,6 +33,7 @@ class Project(CamelModel):
     name: str = Field("", description="프로젝트 또는 팀원 이름")
     github_owner: str = Field(description="GitHub 소유자 또는 조직")
     github_repo: str = Field(description="GitHub 저장소명")
+    notion_page_url: str | None = Field(None, description="분석 맥락 문서를 읽을 Notion 루트 페이지 URL")
     slack_channel_id: str | None = Field(None, description="프로젝트 Slack 공지 채널 ID")
 
 
@@ -62,6 +67,40 @@ class MemberPermissionOut(CamelModel):
 
 class CheckMembersResponse(CamelModel):
     members: list[MemberPermissionOut]
+
+
+class SlackUserCheckRequest(CamelModel):
+    """Backend가 저장 직후 Slack 계정을 확인할 가입 사용자."""
+
+    user_id: int = Field(description="서비스 사용자 ID. 응답을 같은 사용자에게 적용하는 키")
+    email: str = Field(description="조회할 Slack 이메일")
+
+
+class ProjectConnectionsRequest(CamelModel):
+    """프로젝트 저장 시 LLM 없이 외부 도구 연결을 확인하는 요청."""
+
+    notion_page_url: str | None = Field(None, description="Notion 기획 페이지 URL 또는 ID")
+    slack_channel_id: str | None = Field(None, description="Slack 채널 ID 또는 이름")
+    members: list[SlackUserCheckRequest] = Field(default_factory=list, description="Slack 이메일을 확인할 멤버")
+
+
+class ConnectionCheckOut(CamelModel):
+    # ERROR에는 MCP 자체 오류, NOT_FOUND/NOT_CONNECTED 같은 외부 확인 실패가 모두 포함된다.
+    status: Literal["CONNECTED", "NOT_CONNECTED", "ERROR"]
+    value: str | None = Field(None, description="성공 시 정규화된 Notion URL 또는 Slack 채널 ID")
+
+
+class SlackUserCheckOut(CamelModel):
+    user_id: int
+    email: str
+    status: Literal["CONNECTED", "NOT_CONNECTED", "ERROR"]
+    slack_user_id: str | None = None
+
+
+class ProjectConnectionsResponse(CamelModel):
+    notion: ConnectionCheckOut
+    slack: ConnectionCheckOut
+    members: list[SlackUserCheckOut]
 
 
 # ---------------------------------------------------------------- 일괄 발행 API (TASK-034)
@@ -101,6 +140,8 @@ class PublishItemResult(CamelModel):
     github_issue_url: str | None = None
     comment_url: str | None = Field(None, description="LINK 댓글 또는 UPDATE 알림 댓글 URL")
     message_url: str | None = Field(None, description="Slack 공지 메시지 링크")
+    notion_page_id: str | None = Field(None, description="Notion 발행 페이지 ID")
+    notion_page_url: str | None = Field(None, description="Notion 발행 페이지 URL")
     dropped_labels: list[str] = Field(default_factory=list)
     error_code: str | None = None
     error_message: str | None = None

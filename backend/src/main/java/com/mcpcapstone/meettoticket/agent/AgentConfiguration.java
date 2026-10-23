@@ -21,6 +21,18 @@ public class AgentConfiguration {
         return new LiveRepositoryPermissionGateway(agentClient(properties));
     }
 
+    @Bean
+    @ConditionalOnProperty(name = "agent.mode", havingValue = "live", matchIfMissing = true)
+    public ProjectConnectionGateway liveProjectConnectionGateway(AgentProperties properties) {
+        return new LiveProjectConnectionGateway(agentClient(properties));
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agent.mode", havingValue = "live", matchIfMissing = true)
+    public PublishGateway livePublishGateway(AgentProperties properties) {
+        return new LivePublishGateway(agentClient(properties));
+    }
+
     private static RestClient agentClient(AgentProperties properties) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(properties.getConnectTimeout());

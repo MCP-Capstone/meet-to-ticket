@@ -24,4 +24,9 @@ public interface TaskItemRepository extends JpaRepository<TaskItem, UUID> {
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select i from TaskItem i where i.id = :id")
     Optional<TaskItem> findForUpdate(UUID id);
+
+    // 일괄 발행 시작 시 행 잠금을 잡아 두 요청이 같은 CONFIRMED 티켓을 동시에 가져가지 못하게 한다.
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select i from TaskItem i join fetch i.task t join fetch t.meeting m join fetch m.project p left join fetch i.assignee a left join fetch a.user where i.assignee.user.id = :userId and i.ticketStatus = :status order by t.createdAt, i.id")
+    List<TaskItem> lockByAssigneeUserIdAndTicketStatus(Long userId, TicketStatus status);
 }

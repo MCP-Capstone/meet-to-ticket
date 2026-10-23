@@ -108,4 +108,16 @@ public class Project {
 	public void updateSlackConnectionStatus(ConnectionStatus status) {
 		this.slackConnectionStatus = slackChannelId == null ? ConnectionStatus.NOT_CONNECTED : status;
 	}
+
+	// check_slack_channel은 채널명도 실제 채널 ID로 정규화한다. 성공한 ID를 다음 발행에 사용한다.
+	public void recordSlackConnection(ConnectionStatus status, String normalizedChannelId) {
+		if (slackChannelId == null) {
+			this.slackConnectionStatus = ConnectionStatus.NOT_CONNECTED;
+			return;
+		}
+		if (status == ConnectionStatus.CONNECTED && normalizedChannelId != null && !normalizedChannelId.isBlank()) {
+			this.slackChannelId = normalizedChannelId;
+		}
+		this.slackConnectionStatus = status;
+	}
 }

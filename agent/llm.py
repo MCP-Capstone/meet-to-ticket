@@ -24,6 +24,16 @@ def _bullet_list(items: list[str]) -> str:
     return "\n".join(f"- {x}" for x in items) or "- 없음"
 
 
+def _project_context(context: dict[str, Any]) -> str:
+    """프로젝트 참고 자료는 증거가 아니라 맥락으로만 LLM에 전달한다."""
+    value = context.get("project_context") or {}
+    return json.dumps({
+        "existingIssues": value.get("issues", []),
+        "notionDocuments": value.get("notionDocs", []),
+        "warnings": value.get("warnings", []),
+    }, ensure_ascii=False, indent=2)
+
+
 def _status_code(exc: Exception) -> int | None:
     status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
     if isinstance(status, int):
@@ -179,6 +189,7 @@ class OpenAILLM:
             summary=summary,
             decisions=_bullet_list(context.get("decisions", [])),
             open_questions=_bullet_list(context.get("open_questions", [])),
+            project_context=_project_context(context),
             labels=_bullet_list(labels or []),
             items=json.dumps(items, ensure_ascii=False, indent=2),
         )
@@ -191,6 +202,7 @@ class OpenAILLM:
             summary=summary,
             source_note=context.get("source_note", ""),
             excluded=_bullet_list(context.get("excluded_or_held", [])),
+            project_context=_project_context(context),
             drafts=json.dumps(drafts, ensure_ascii=False, indent=2),
         )
         out = await self._call("review", [("system", prompts.REVIEW_SYSTEM), ("user", user)], "검수")

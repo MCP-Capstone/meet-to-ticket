@@ -13,6 +13,7 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import com.mcpcapstone.meettoticket.project.dto.ProjectDetail.ConnectionStatus;
 
 // PostgreSQL에서 user는 예약어라 테이블 이름을 users로 쓴다.
 @Entity
@@ -47,6 +48,11 @@ public class User {
 	@Column(name = "slack_user_id", length = 30)
 	private String slackUserId;
 
+	// 이메일을 저장한 뒤 Agent가 실제 Slack 사용자를 확인한 상태. null은 아직 확인 전이다.
+	@jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+	@Column(name = "slack_connection_status", length = 20)
+	private ConnectionStatus slackConnectionStatus;
+
 	@CreationTimestamp
 	@Column(nullable = false, updatable = false)
 	private OffsetDateTime createdAt;
@@ -72,10 +78,27 @@ public class User {
 			this.slackEmail = slackEmail;
 			// 이메일이 바뀌면 이전 워크스페이스 사용자 ID를 재사용하면 안 된다.
 			this.slackUserId = null;
+			this.slackConnectionStatus = slackEmail == null ? ConnectionStatus.NOT_CONNECTED : null;
 		}
 	}
 
 	public void updateSlackUserId(String slackUserId) {
 		this.slackUserId = slackUserId;
+	}
+
+	public ConnectionStatus slackConnectionStatus() {
+		return slackEmail == null ? ConnectionStatus.NOT_CONNECTED : slackConnectionStatus;
+	}
+
+	// NOT_CONNECTED는 명시적으로 없는 사용자라 ID를 비운다. ERROR는 일시적인 MCP 오류일 수 있어 기존 확인 ID는 보존한다.
+	public void recordSlackConnection(ConnectionStatus status, String slackUserId) {
+		if (slackEmail == null) {
+			this.slackConnectionStatus = ConnectionStatus.NOT_CONNECTED;
+			this.slackUserId = null;
+			return;
+		}
+		this.slackConnectionStatus = status;
+		if (status == ConnectionStatus.CONNECTED) this.slackUserId = slackUserId;
+		else if (status == ConnectionStatus.NOT_CONNECTED) this.slackUserId = null;
 	}
 }

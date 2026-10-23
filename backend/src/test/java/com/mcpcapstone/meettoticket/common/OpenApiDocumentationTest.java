@@ -28,7 +28,7 @@ class OpenApiDocumentationTest {
     @Test
     void 공개_API와_세션인증을_문서화하고_내부_서버_API를_섞지_않는다() throws Exception {
         JsonNode doc = document();
-        assertThat(doc.path("paths").size()).isEqualTo(23);
+        assertThat(doc.path("paths").size()).isEqualTo(25);
         for (var entry : doc.path("paths").properties()) {
             assertThat(entry.getKey()).startsWith("/api/");
             for (var operation : entry.getValue().properties()) {
@@ -46,6 +46,7 @@ class OpenApiDocumentationTest {
         JsonNode projectSecurity = doc.at("/paths/~1api~1projects/get").has("security")
                 ? doc.at("/paths/~1api~1projects/get/security") : doc.path("security");
         assertThat(projectSecurity.path(0).path("sessionCookie").isArray()).isTrue();
+        assertThat(doc.at("/paths/~1api~1tickets~1publish/post/responses").has("202")).isTrue();
     }
 
     @Test

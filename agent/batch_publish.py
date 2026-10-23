@@ -7,7 +7,7 @@ from collections import Counter
 from typing import Any
 
 from handling import change_note, change_section, link_comment
-from publisher import ToolCallError, build_issue_body
+from publisher import ToolCallError, build_issue_body, build_notion_page
 from schemas import PublishBatchRequest, PublishBatchResult, PublishItemResult, PublishTicket
 from state import PUBLISH_FAILED
 
@@ -62,6 +62,23 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             out = await publisher.post_message(channel_id=channel_id, text=text, mentions=mentions)
             return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="POSTED",
                                      message_url=out.get("url"))
+        if source.publish_target == "NOTION":
+            root_page_url_or_id = source.project.notion_page_url
+            if not root_page_url_or_id:
+                raise ToolCallError("INVALID_ARGUMENT", "Notion 발행에는 프로젝트 notion_page_url이 필요합니다")
+            page = build_notion_page(ticket, str(source.meeting_id), ticket.get("background", ""))
+            if not page["title"].strip():
+                raise ToolCallError("INVALID_ARGUMENT", "Notion 페이지 제목이 비어 있습니다")
+            sent = True
+            out = await publisher.create_page(
+                root_page_url_or_id=root_page_url_or_id,
+                title=page["title"],
+                markdown=page["markdown"],
+            )
+            return PublishItemResult(
+                ticket_id=source.ticket_id, processing_type="CREATE", status="PUBLISHED",
+                notion_page_id=out.get("page_id"), notion_page_url=out.get("url"),
+            )
         if kind == "LINK":
             if not number:
                 raise ToolCallError("INVALID_ARGUMENT", "LINK 처리에는 target_issue_number가 필요합니다")

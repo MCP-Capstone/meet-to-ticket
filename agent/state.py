@@ -87,7 +87,9 @@ class AgentState(TypedDict, total=False):
     original_content: str
     owner: str
     repo: str
+    notion_page_url: str | None
     members: list[dict[str, Any]]
+    project_context: dict[str, Any]  # {issues, notionDocs, warnings}; 조회 실패도 경고로 보존
     # 초안 라벨 후보. Agent가 MCP list_labels로 저장소 라벨을 받아 채운다 (도구가 생기면 prepare에서).
     # 비어 있으면 설정 ISSUE_LABELS를 쓴다
     label_candidates: list[str]

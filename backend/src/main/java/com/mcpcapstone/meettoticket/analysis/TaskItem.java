@@ -52,6 +52,12 @@ public class TaskItem {
     @Column(name = "github_issue_url", length = 2048)
     private String githubIssueUrl;
 
+    @Column(name = "notion_page_id", length = 100)
+    private String notionPageId;
+
+    @Column(name = "notion_page_url", length = 2048)
+    private String notionPageUrl;
+
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
@@ -119,5 +125,58 @@ public class TaskItem {
 
     public void moveTo(TicketStatus status) {
         this.ticketStatus = status;
+    }
+
+    // 발행 요청을 DB에 먼저 기록해 동시 클릭이 같은 티켓을 두 번 Agent에 보내지 못하게 한다.
+    public void beginPublication() {
+        if (ticketStatus != TicketStatus.CONFIRMED) throw new IllegalStateException("확인된 티켓만 발행할 수 있습니다.");
+        this.ticketStatus = TicketStatus.PUBLISHING;
+        this.publishStatus = "PENDING";
+        this.errorMessage = null;
+    }
+
+    public void restoreConfirmedAfterRejectedPublishRequest() {
+        if (ticketStatus == TicketStatus.PUBLISHING) {
+            this.ticketStatus = TicketStatus.CONFIRMED;
+            this.publishStatus = "DRAFT";
+        }
+    }
+
+    public void recordPublication(
+            String resultStatus,
+            Integer issueNumber,
+            String issueUrl,
+            String notionPageId,
+            String notionPageUrl,
+            String errorMessage) {
+        this.githubIssueNumber = issueNumber;
+        this.githubIssueUrl = issueUrl;
+        this.notionPageId = notionPageId;
+        this.notionPageUrl = notionPageUrl;
+        this.errorMessage = errorMessage;
+        switch (resultStatus) {
+            case "PUBLISHED", "POSTED" -> {
+                this.ticketStatus = TicketStatus.PUBLISHED;
+                this.publishStatus = "SUCCEEDED";
+            }
+            case "LINKED" -> {
+                this.ticketStatus = TicketStatus.LINKED;
+                this.publishStatus = "SUCCEEDED";
+            }
+            case "UPDATED" -> {
+                this.ticketStatus = TicketStatus.UPDATED;
+                this.publishStatus = "SUCCEEDED";
+            }
+            case "FAILED" -> {
+                this.ticketStatus = TicketStatus.FAILED;
+                this.publishStatus = "FAILED";
+            }
+            case "UNKNOWN" -> {
+                // 외부 쓰기 후 응답 유실일 수 있어 자동 재발행하지 않는다. 재시도 정책은 별도 작업에서 다룬다.
+                this.ticketStatus = TicketStatus.PUBLISHING;
+                this.publishStatus = "UNKNOWN";
+            }
+            default -> throw new IllegalArgumentException("알 수 없는 발행 결과 상태입니다.");
+        }
     }
 }

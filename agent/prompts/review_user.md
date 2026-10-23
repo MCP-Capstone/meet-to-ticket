@@ -7,5 +7,8 @@
 [이번 범위에서 제외·보류된 항목]
 {excluded}
 
+[프로젝트 참고 자료]
+{project_context}
+
 [이슈 초안]
 {drafts}

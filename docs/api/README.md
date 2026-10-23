@@ -31,6 +31,7 @@
 | GET | /api/tickets/me | 200 | 내 티켓 (담당자별, `projectId` 필터, 상태별 건수) |
 | PATCH | /api/tickets/{ticketId} | 200 | 티켓 카드 수정: 본문, 담당 멤버, 기한 (담당자만, 검토 대기에서만) |
 | PATCH | /api/tickets/{ticketId}/publication | 200 | 발행 대상과 처리 유형 변경 (담당자만, 검토 대기에서만) |
+| POST | /api/tickets/publish | 202 | 로그인 사용자가 담당인 확인(CONFIRMED) 티켓 일괄 발행 접수 |
 | POST | /api/tickets/{ticketId}/confirm | 200 | 확인: 검토 대기 -> 확인 |
 | POST | /api/tickets/{ticketId}/reject | 200 | 거절: 검토 대기 -> 거절 |
 | POST | /api/tickets/{ticketId}/reopen | 200 | 다시 열기: 확인 -> 검토 대기 |

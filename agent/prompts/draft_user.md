@@ -7,6 +7,9 @@
 [미결 질문]
 {open_questions}
 
+[프로젝트 참고 자료]
+{project_context}
+
 [라벨 후보]
 {labels}
 

@@ -58,7 +58,8 @@ public class AnalysisStore {
                                 project.getId(),
                                 project.getName(),
                                 project.getGithubOwner(),
-                                project.getGithubRepo()),
+                                project.getGithubRepo(),
+                                project.getNotionPageUrl()),
                         all.stream()
                                 .map(
                                         x ->
@@ -68,7 +69,13 @@ public class AnalysisStore {
                                                                 ? null
                                                                 : x.getUser().getId(),
                                                         x.getName(),
-                                                        x.getGithubName()))
+                                                        x.getGithubName(),
+                                                        x.getUser() == null ? null : x.getUser().getSlackEmail(),
+                                                        x.getUser() == null ? null : x.getUser().getSlackUserId(),
+                                                        x.getRole().name(),
+                                                        x.getRepositoryPermission() == null
+                                                                ? null
+                                                                : x.getRepositoryPermission().name()))
                                 .toList());
         tasks.save(
                 new AnalysisTask(

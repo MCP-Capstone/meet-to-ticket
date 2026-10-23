@@ -29,6 +29,7 @@ class LiveAgentGatewayTest {
 				.andExpect(jsonPath("$.taskId").value(id.toString()))
 				.andExpect(jsonPath("$.meeting.originalContent").value("본문"))
 				.andExpect(jsonPath("$.project.githubRepo").value("repo"))
+				.andExpect(jsonPath("$.project.notionPageUrl").value("https://notion.so/project"))
 				.andRespond(withStatus(HttpStatus.ACCEPTED)
 						.contentType(MediaType.APPLICATION_JSON)
 						.body("{\"taskId\":\"" + id + "\",\"status\":\"ACCEPTED\"}"));
@@ -38,7 +39,7 @@ class LiveAgentGatewayTest {
 		var request = new AgentContracts.StartRequest(
 				id,
 				new AgentContracts.MeetingData(1L, "회의", LocalDate.of(2026, 10, 22), "Asia/Seoul", List.of(), "a.txt", "본문"),
-				new AgentContracts.ProjectData(1L, "시연", "owner", "repo"),
+				new AgentContracts.ProjectData(1L, "시연", "owner", "repo", "https://notion.so/project"),
 				List.of());
 
 		assertThat(gateway.submit(request).status()).isEqualTo(TaskStatus.QUEUED);
