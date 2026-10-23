@@ -1,0 +1,18 @@
+{
+  "decision_record": "docs/evaluation.md 의 결정 기록 표와 같은 숫자. 바꾸면 문서와 설계서 성공 지표도 함께 바꾼다.",
+  "metrics": [
+    {"id": "precision", "group": "extract", "field": "precision", "label": "추출 정밀도", "role": "주 지표 1", "op": ">=", "target": 0.80},
+    {"id": "judgment", "group": "dedupe", "field": "judgment_accuracy", "label": "중복 판단 정확도 (판정+대상)", "role": "주 지표 2", "op": ">=", "target": 0.90},
+    {"id": "due_accuracy", "group": "extract", "field": "due_accuracy", "label": "기한 정확도", "role": "보조", "op": ">=", "target": 0.90},
+    {"id": "owner_error", "group": "extract", "field": "owner_error_rate", "label": "담당자 오류율", "role": "보조", "op": "<=", "target": 0.05},
+    {"id": "due_error", "group": "extract", "field": "due_error_rate", "label": "기한 오류율", "role": "보조", "op": "<=", "target": 0.05},
+    {"id": "handling", "group": "dedupe", "field": "handling_rate", "label": "중복 처리 충족률", "role": "보조", "op": ">=", "target": 0.90},
+    {"id": "recall", "group": "extract", "field": "recall", "label": "업무 재현율", "role": "지키는 선", "op": ">=", "target": 0.90},
+    {"id": "time_extract", "group": "extract", "field": "avg_ms", "label": "처리 시간 (추출)", "role": "지키는 선", "op": "<=x", "target": 1.5},
+    {"id": "time_dedupe", "group": "dedupe", "field": "avg_ms", "label": "처리 시간 (중복 판단)", "role": "지키는 선", "op": "<=x", "target": 1.5}
+  ],
+  "operational": [
+    {"label": "중복 발행률", "role": "운영", "target": "1% 미만", "note": "실제 발행 이력으로만 측정. 평가셋 dry-run으로는 재지 않는다"},
+    {"label": "오발행률", "role": "운영", "target": "3% 이하 (초과 시 자동 발행 수동 복귀)", "note": "실제 발행 이력으로만 측정. 평가셋 dry-run으로는 재지 않는다"}
+  ]
+}
