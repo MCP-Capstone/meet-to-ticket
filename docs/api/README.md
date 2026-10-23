@@ -136,7 +136,7 @@ Agent 환경에서 `uvicorn main:app --port 8001`로 실행한다. 설치는 [Ag
 문서 조회만으로 LLM·MCP를 호출하지 않는다. POST는 실제 업무를 실행하므로 단독 테스트는
 `agent/.env`의 `DRY_RUN=true`, `BACKEND_BASE_URL=` 설정으로 발행·콜백을 끈다. 설정 로더는 .env를 환경변수보다 우선한다.
 
-`POST /publish`는 백엔드가 `batchId`와 `reviewStatus: CONFIRMED` 티켓만 보내는 내부 API다. 티켓마다 프로젝트 저장소와 확정한 `processingType`(`CREATE`/`LINK`/`UPDATE`), 기존 이슈 번호(연결·갱신 때), 편집된 `contentJson`을 포함한다. Agent는 저장소별 `sync_issues(full=false)`와 재대조를 실행한 뒤 실제 처리 유형으로 GitHub를 호출한다. 최종 결과는 `POST /internal/publish-batches/{batchId}/result`에 `PUBLISHED`/`LINKED`/`UPDATED`/`FAILED`/`UNKNOWN`, 이슈 링크·댓글 링크·누락 라벨·재시도 가능 여부와 함께 보고한다. 같은 `batchId` 재요청은 중복 발행하지 않는다.
+`POST /publish`는 백엔드가 `batchId`와 `reviewStatus: CONFIRMED` 티켓만 보내는 내부 API다. GitHub 티켓에는 프로젝트 저장소와 확정한 `processingType`(`CREATE`/`LINK`/`UPDATE`), 기존 이슈 번호(연결·갱신 때), 편집된 `contentJson`을 포함한다. Slack 공지 티켓에는 `publishTarget: SLACK`, 프로젝트 `slackChannelId`, 공지의 `contentJson.slack.text`·`reviewers`, 연결된 `slackMembers[{name, slackUserId}]`를 함께 보낸다. Agent는 GitHub 티켓을 저장소별 재대조하고, Slack 공지는 한 번 `post_message`로 게시한다. 최종 결과는 `POST /internal/publish-batches/{batchId}/result`에 GitHub의 `PUBLISHED`/`LINKED`/`UPDATED`, Slack의 `POSTED`, 실패·결과 모름과 이슈·댓글·메시지 링크를 함께 보고한다. 같은 `batchId` 재요청은 중복 발행하지 않는다.
 DRY_RUN도 실제 추출·검수 LLM 호출과 모델 API 키가 필요하다. 키는 Swagger 요청 JSON에 넣지 않는다.
 현재 Agent dry-run은 승인 항목을 SKIPPED(발행 생략)로 반환한다. 이를 실제 GitHub 생성 거절로 해석하지 않는다.
 가짜 LLM·MCP로 확인하려면 Agent의 자동 테스트를 실행한다.

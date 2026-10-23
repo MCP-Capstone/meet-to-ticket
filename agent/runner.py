@@ -127,7 +127,7 @@ async def github_tools(settings: Settings) -> dict[str, Any]:
 def make_mcp_publisher(tools: dict[str, Any]) -> McpPublisher:
     if "create_issue" not in tools:
         raise RuntimeError(f"create_issue 도구를 찾지 못함: {sorted(tools)}")
-    return McpPublisher(tools["create_issue"], tools.get("add_comment"), tools.get("update_issue"))
+    return McpPublisher(tools["create_issue"], tools.get("add_comment"), tools.get("update_issue"), tools.get("post_message"))
 
 
 async def make_issue_tools(
