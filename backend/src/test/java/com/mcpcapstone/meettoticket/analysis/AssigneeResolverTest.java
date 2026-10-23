@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.mcpcapstone.meettoticket.project.ProjectMember;
+import com.mcpcapstone.meettoticket.user.User;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -56,5 +57,26 @@ class AssigneeResolverTest {
 	void 배열_형식은_projectMemberId로_연결한다() {
 		assertThat(resolve("{\"assignees\":[{\"projectMemberId\":4,\"mentionedName\":\"이도윤\"}]}", kim, lee)).isSameAs(lee);
 		assertThat(resolve("{\"assignees\":[{\"projectMemberId\":99}]}", kim, lee)).isNull();
+	}
+
+	@Test
+	void Slack_공지와_Notion_티켓은_업로더에게_보낸다() {
+		User uploader = new User("uploader", "hash", "함주헌");
+		ReflectionTestUtils.setField(uploader, "id", 10L);
+		ProjectMember ham = new ProjectMember(null, uploader, "함주헌", "juhun-ham");
+		ReflectionTestUtils.setField(ham, "id", 5L);
+		String slack = "{\"publish_target\":\"SLACK\",\"assignees\":{\"names\":[]}}";
+		String notion = "{\"publish_target\":\"NOTION\",\"assignees\":{\"names\":[\"김민준\"]}}";
+
+		assertThat(AssigneeResolver.resolve(mapper.readTree(slack), List.of(kim, ham), uploader)).containsSame(ham);
+		// 회의록 담당자가 있어도 Notion 티켓은 업로더가 받는다 (REQ-010)
+		assertThat(AssigneeResolver.resolve(mapper.readTree(notion), List.of(kim, ham), uploader)).containsSame(ham);
+		// 업로더가 프로젝트 멤버가 아니면 담당 지정 필요로 남는다
+		assertThat(AssigneeResolver.resolve(mapper.readTree(slack), List.of(kim), uploader)).isEmpty();
+		// GitHub 티켓은 지금처럼 회의록 담당자 이름으로 정한다
+		String github = "{\"publish_target\":\"GITHUB\",\"assignees\":{\"names\":[\"김민준\"]}}";
+		assertThat(AssigneeResolver.resolve(mapper.readTree(github), List.of(kim, ham), uploader)).containsSame(kim);
+		assertThat(AssigneeResolver.resolve(mapper.readTree("{\"assignees\":{\"names\":[\"김민준\"]}}"), List.of(kim, ham), uploader))
+				.containsSame(kim);
 	}
 }

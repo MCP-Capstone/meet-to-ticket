@@ -213,3 +213,64 @@ def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str) -
 
     lines += ["---", f"회의: {meeting_id} · work_key: {ticket.get('work_key') or '-'} · 회의 후속조치 Agent가 작성"]
     return "\n".join(lines).strip() + "\n"
+
+
+def build_notion_page(ticket: dict[str, Any], meeting_id: str, background: str) -> dict[str, str]:
+    """Notion 페이지 출력문 (기획_v16 REQ-023, TASK-021). create_page(root, title, markdown)에 그대로 넘긴다.
+
+    GitHub 이슈 본문과 같은 순서지만 GitHub 전용 칸(라벨, 관련 이슈, 상위 이슈, @계정)은 넣지 않는다.
+    """
+    lines: list[str] = ["## 작업 내용", ticket.get("description") or ticket.get("action_text", ""), ""]
+    tasks = ticket.get("tasks") or []
+    if tasks:
+        lines += ["## 상세 작업", *[f"- [ ] {x}" for x in tasks], ""]
+    criteria = ticket.get("acceptance_criteria") or []
+    if criteria:
+        lines += ["## 완료 조건", *[f"- {c}" for c in criteria], ""]
+    quotes = ticket.get("evidence_quotes") or []
+    if quotes:
+        lines += ["## 근거", *[f"> {q}" for q in quotes], ""]
+    names = ticket.get("assignee_names") or []
+    lines += ["## 담당", ", ".join(names) if names else "없음", ""]
+    due = Due(**(ticket.get("due") or {"text": ""}))
+    lines += ["## 기한", due.display(), ""]
+    questions = ticket.get("open_questions") or []
+    if questions:
+        lines += ["## 확인 필요", *[f"- {q}" for q in questions], ""]
+    if background:
+        lines += ["## 회의 배경", _shorten(background, 700), ""]
+    lines += ["---", f"회의: {meeting_id} · work_key: {ticket.get('work_key') or '-'} · 회의 후속조치 Agent가 작성"]
+    return {"title": ticket.get("title") or ticket.get("action_text", ""), "markdown": "\n".join(lines).strip() + "\n"}
+
+
+def build_slack_notice(meeting_title: str, meeting_date: str | None, decisions: list[str],
+                       tickets: list[dict[str, Any]], linked: int) -> dict[str, Any]:
+    """회의 결과 공지 출력문 (기획_v16 REQ-022, TASK-021). 회의 하나당 하나다.
+
+    담당자 검토 요청은 "@이름"으로 쓴다. 게시할 때 Slack 연결이 확인된 담당자만 post_message의
+    mentions로 넘겨 멘션이 되고, 나머지는 이름 텍스트로 남는다 (#151).
+    reviewers는 멘션 대상을 고를 수 있게 이름과 티켓 수를 담는다.
+    """
+    head = f"*[회의 결과] {meeting_title or '회의'}*" + (f" ({meeting_date})" if meeting_date else "")
+    lines = [head, ""]
+    if decisions:
+        lines += ["*결정 사항*", *[f"• {d}" for d in decisions], ""]
+    github = sum(1 for t in tickets if t.get("publish_target") != "NOTION")
+    notion = len(tickets) - github
+    lines += ["*후속 작업*", f"• 새 작업 {len(tickets) - linked}건 (GitHub 이슈 {github - linked}, Notion 페이지 {notion})"]
+    if linked:
+        lines.append(f"• 기존 이슈 연결 {linked}건")
+    counts: dict[str, int] = {}
+    unassigned = 0
+    for t in tickets:
+        names = t.get("assignee_names") or []
+        if len(names) != 1:
+            unassigned += 1  # 여러 명이거나 정해지지 않으면 업로더가 대표 담당을 지정한다 (REQ-011)
+            continue
+        counts[names[0]] = counts.get(names[0], 0) + 1
+    if counts or unassigned:
+        lines += ["", "*검토 요청*", *[f"• @{name} {n}건" for name, n in counts.items()]]
+        if unassigned:
+            lines.append(f"• 담당 지정 필요 {unassigned}건")
+    lines += ["", "각자 내 티켓에서 확인한 뒤 발행해 주세요."]
+    return {"text": "\n".join(lines), "reviewers": [{"name": k, "tickets": v} for k, v in counts.items()]}

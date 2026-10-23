@@ -59,7 +59,7 @@ Authorize에 쿠키를 직접 넣기보다 login API를 실행한다. 세션 사
 
 ### 담당자별 티켓과 내 티켓 (#166)
 
-Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤버와 연결한다(REQ-010). 멤버 정확히 1명과 연결되면 `PENDING_REVIEW`(검토 대기), 담당자가 없거나 여러 명이거나 멤버와 연결되지 않으면 `ASSIGNEE_REQUIRED`(담당 지정 필요)이다. GitHub 계정이 없는 멤버도 담당자로 연결하며, 이름만 보고 GitHub 로그인명을 추정하지 않는다. 처리 유형은 상태와 별도로 `CREATE`/`LINK`/`UPDATE`이다.
+Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤버와 연결한다(REQ-010). 단, 발행 대상(`contentJson.publish_target`)이 `SLACK`(회의 결과 공지)이나 `NOTION`인 티켓은 업로더에게 보낸다(업로더가 프로젝트 멤버가 아니면 담당 지정 필요). 멤버 정확히 1명과 연결되면 `PENDING_REVIEW`(검토 대기), 담당자가 없거나 여러 명이거나 멤버와 연결되지 않으면 `ASSIGNEE_REQUIRED`(담당 지정 필요)이다. GitHub 계정이 없는 멤버도 담당자로 연결하며, 이름만 보고 GitHub 로그인명을 추정하지 않는다. 처리 유형은 상태와 별도로 `CREATE`/`LINK`/`UPDATE`이다.
 `GET /api/tickets/me`는 로그인 사용자가 담당인 티켓만 반환한다. `projectId`로 거르면 `counts`(`pendingReview`, `confirmed`, `rejected`)도 같은 범위로 센다. 기존 결과 조회 API(`/api/analysis-tasks/{id}/items`)는 바뀌지 않는다.
 
 담당자는 카드에서 본문, 담당 멤버(같은 프로젝트 멤버), 기한을 고치고 확인/거절한다(REQ-014, #167). 수정은 검토 대기 상태에서만 되고 보낸 항목만 바뀐다. 담당 멤버를 바꾸면 그 멤버의 내 티켓으로 옮겨 간다. 기획 4.2 표 밖의 전이와 발행 이후 상태의 수정은 409 `TICKET_STATUS_CONFLICT`, 담당자가 아니면 403 `TICKET_ASSIGNEE_REQUIRED`, 티켓이 없으면 404 `TICKET_NOT_FOUND`이다. 수정한 내용은 `contentJson`의 `description`, `due`, `assignees`에 반영하며, 발행 본문(`issue_body`)은 다시 만들지 않는다.

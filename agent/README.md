@@ -416,6 +416,26 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 결과의 `content_json.issue_body`에는 발행할 때와 같은 방법으로 조립한 이슈 본문이 들어간다. 발행 전에 초안을 저장하거나 미리보기를 보여줄 때 쓴다. 본문에는 회의록 원문(근거, 배경)과 `<details>` HTML이 들어 있으므로, 미리보기에서 HTML로 그릴 때는 반드시 sanitize한다 (스크립트, 이벤트 속성 제거).
 
+### 발행 대상 분류와 Slack·Notion 출력문 (TASK-020, TASK-021)
+
+초안 작성 LLM이 할 일마다 발행 대상과 한 줄 사유를 함께 낸다 (LLM 호출 추가 없음, 기획 1.7.1).
+
+- 코드 변경이 한 부분이라도 필요한 업무(구현, 버그 수정, 리팩터링, 배포, 테스트 코드 작성) → `GITHUB`
+- 코드 변경이 필요 없는 업무(디자인, 기획, 문서 작성, 조사) → `NOTION`. 라벨은 쓰지 않는다
+- 담당자의 직군은 기준으로 쓰지 않는다. 분류는 제안이고 담당자가 카드에서 바꿀 수 있다 (TASK-031)
+- 중복 판단은 `GITHUB` 티켓만 한다 (기획 1.7.2)
+- `PUBLISH_ON_RUN=true`(Phase 1 baseline)는 분류와 상관없이 GitHub로만 발행하고 공지를 만들지 않는다
+
+결과 `contentJson`에는 `publish_target`(`GITHUB`/`NOTION`/`SLACK`)과 `target_reason`이 들어가고, 대상별 출력문이 붙는다.
+
+| 대상 | 출력문 | 만드는 곳 |
+|---|---|---|
+| `GITHUB` | `issue_body` (위 "이슈 출력문") | `publisher.build_issue_body` |
+| `NOTION` | `notion_page.{title, markdown}`. `create_page(root, title, markdown)`에 그대로 넘긴다. GitHub 전용 칸(라벨, 관련·상위 이슈, @계정)은 없다 | `publisher.build_notion_page` |
+| `SLACK` | 회의 하나당 공지 티켓 하나(`work_key`: `<회의 ID>-notice`). `slack.text`와 `slack.reviewers` | `publisher.build_slack_notice` |
+
+Slack 공지는 코드가 만든다 (LLM 없음). 결정 사항, 새 작업 수(GitHub 이슈·Notion 페이지)와 기존 이슈 연결 수, 담당자별 검토 요청("@이름 N건"), 담당 지정 필요 건수를 담는다. 게시할 때(#151) Slack 연결이 확인된 담당자만 `post_message`의 `mentions`로 넘겨 멘션되고, 나머지는 이름 텍스트로 남는다. 할 일이 없어도 결정 사항이 있으면 공지를 만든다. 백엔드는 Slack 공지와 Notion 티켓을 업로더의 내 티켓으로 보낸다 (REQ-010).
+
 ### Harness 명세
 
 모델이 제안만 하고 실행·한도·기록·복구는 Agent 코드가 맡는다. 요소별 구현과 값은 아래와 같다. 값을 바꾸면 이 표도 고친다.

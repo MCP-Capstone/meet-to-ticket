@@ -26,9 +26,10 @@ async def test_run_ends_with_drafts_without_publishing(draft_settings):
     pub, rep = FakePublisher(), FakeReporter()
     result = await run_draft(draft_settings, publisher=pub, reporter=rep)
     assert pub.calls == []  # GitHub에 아무것도 쓰지 않는다
-    assert result.status == "SUCCEEDED" and len(result.items) == 8
+    # 할 일 8건과 회의 결과 Slack 공지 1건 (TASK-021)
+    assert result.status == "SUCCEEDED" and len(result.items) == 9
     assert all(i.review_status == "PENDING" and i.publish_status == "DRAFT" for i in result.items)
-    assert result.summary["drafts"] == 8 and result.summary["published"] == 0
+    assert result.summary["drafts"] == 9 and result.summary["published"] == 0
     # 결과 보고에도 초안 상태로 나간다
     assert {i["publishStatus"] for i in rep.results[-1]["items"]} == {"DRAFT"}
     steps = await history(result.task_id)
