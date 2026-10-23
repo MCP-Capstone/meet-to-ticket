@@ -1,5 +1,7 @@
 package com.mcpcapstone.meettoticket.project;
 
+import com.mcpcapstone.meettoticket.project.dto.ProjectDetail;
+
 import jakarta.persistence.*;
 
 import lombok.*;
@@ -34,6 +36,11 @@ public class Project {
     @Column(name = "slack_channel_id", length = 30)
     private String slackChannelId;
 
+    // 멤버 저장소 권한 확인 결과. 확인 전이면 null.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "github_connection", length = 20)
+    private ProjectDetail.ConnectionStatus githubConnection;
+
     public Project(String name, String owner, String repo) {
         this.name = name;
         this.githubOwner = owner;
@@ -53,5 +60,9 @@ public class Project {
         this.githubRepo = repo;
         this.notionPageUrl = notionPageUrl;
         this.slackChannelId = slackChannelId;
+    }
+
+    public void recordGithubConnection(ProjectDetail.ConnectionStatus status) {
+        this.githubConnection = status;
     }
 }

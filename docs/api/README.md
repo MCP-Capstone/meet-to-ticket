@@ -40,6 +40,7 @@
 
 프로젝트를 등록한 사용자는 관리자(ADMIN)이자 멤버가 되고, 편집(PUT)은 관리자만 한다(아니면 403 `PROJECT_ADMIN_REQUIRED`).
 `memberUserIds`는 변경 후 전체 멤버 목록이며, 관리자는 목록에 없어도 남는다. 관리자 지정/해제는 role API(`{"role": "ADMIN" | "MEMBER"}`)로 하고, 마지막 관리자를 해제하면 409 `LAST_PROJECT_ADMIN`이다. 같은 GitHub 저장소는 대소문자가 달라도 409 `DUPLICATE_PROJECT_REPOSITORY`이다.
+저장(POST/PUT)할 때마다 GitHub 계정이 있는 멤버의 저장소 권한을 Agent `POST /projects/check-members`로 확인한다(이전 결과는 먼저 초기화). 멤버별 `repositoryPermission`은 GRANTED/DENIED, 계정이 없으면 NO_ACCOUNT(호출 제외)이다. 멤버 ERROR나 Agent/MCP 전체 실패는 저장을 막지 않고 해당 멤버 `repositoryPermission=null`, `connections.github=ERROR`로 응답한다(전부 성공이면 CONNECTED, 확인할 멤버가 없으면 null). `GET /api/projects/{projectId}`는 외부 호출 없이 저장된 값을 반환한다.
 멤버 저장소 권한과 도구 연결은 TASK-006 전까지 확인하지 않는다. GitHub 계정이 없는 멤버만 `NO_ACCOUNT`이고, 확인 전 값은 `null`이다.
 
 로그인·가입·로그아웃·health 외에는 JSESSIONID 세션이 필요하다. Swagger에서 먼저 로그인하면 같은 출처 요청에 쿠키가 적용된다.

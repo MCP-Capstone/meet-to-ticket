@@ -45,7 +45,7 @@ public class ProjectController {
         return new ProjectList(service.list(userId), executionSettings.mode());
     }
 
-    @Operation(operationId = "createProject", summary = "프로젝트 등록", description = "등록한 사용자는 관리자이자 멤버가 된다. 저장소 권한과 도구 연결 확인은 아직 하지 않아 null로 응답한다 (TASK-006).")
+    @Operation(operationId = "createProject", summary = "프로젝트 등록", description = "등록한 사용자는 관리자이자 멤버가 된다. GitHub 계정이 있는 멤버의 저장소 권한을 Agent로 확인해 함께 저장하고 응답한다. 확인 실패는 저장을 막지 않고 멤버 권한 null, connections.github=ERROR로 응답한다.")
     @ApiResponse(responseCode = "201", description = "등록 완료", content = @Content(schema = @Schema(implementation = ProjectDetail.class),
                     examples = @ExampleObject(value = ApiExamples.PROJECT_DETAIL)))
     @ApiResponse(responseCode = "400", description = "입력값 오류 (VALIDATION_FAILED) 또는 가입하지 않은 멤버 (MEMBER_USER_NOT_FOUND)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
@@ -75,7 +75,7 @@ public class ProjectController {
         return service.detail(projectId, userId);
     }
 
-    @Operation(operationId = "updateProject", summary = "프로젝트 편집", description = "관리자만 할 수 있다. memberUserIds는 변경 후 전체 멤버 목록이고, 관리자는 목록에 없어도 남는다.")
+    @Operation(operationId = "updateProject", summary = "프로젝트 편집", description = "관리자만 할 수 있다. memberUserIds는 변경 후 전체 멤버 목록이고, 관리자는 목록에 없어도 남는다. 저장할 때마다 멤버 저장소 권한을 다시 확인한다.")
     @ApiResponse(responseCode = "200", description = "저장 완료", content = @Content(schema = @Schema(implementation = ProjectDetail.class),
                     examples = @ExampleObject(value = ApiExamples.PROJECT_DETAIL)))
     @ApiResponse(responseCode = "400", description = "입력값 오류 (VALIDATION_FAILED) 또는 가입하지 않은 멤버 (MEMBER_USER_NOT_FOUND)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
