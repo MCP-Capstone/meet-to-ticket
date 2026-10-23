@@ -176,6 +176,13 @@ public final class ApiExamples {
             }
             """;
 
+    public static final String MY_TICKETS = """
+            {"counts":{"pendingReview":1,"confirmed":0,"rejected":0},
+             "tickets":[{"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정",
+               "status":"PENDING_REVIEW","processingType":"CREATE","projectId":1,"projectName":"CSV 내보내기",
+               "meetingId":2,"meetingTitle":"CSV 중간 점검","taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81",
+               "createdAt":"2026-10-22T10:31:00+09:00"}]}""";
+
     public static final String STATUS_RUNNING = """
             {
               "taskId": "9b12ec5a-1423-4b71-8e20-f8f28d306c81",
