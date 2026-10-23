@@ -28,7 +28,7 @@ class OpenApiDocumentationTest {
     @Test
     void 공개_API와_세션인증을_문서화하고_내부_서버_API를_섞지_않는다() throws Exception {
         JsonNode doc = document();
-        assertThat(doc.path("paths").size()).isEqualTo(12);
+        assertThat(doc.path("paths").size()).isEqualTo(31);
         for (var entry : doc.path("paths").properties()) {
             assertThat(entry.getKey()).startsWith("/api/");
             for (var operation : entry.getValue().properties()) {
@@ -43,9 +43,15 @@ class OpenApiDocumentationTest {
                 .path("name").asText()).isEqualTo("JSESSIONID");
         assertThat(doc.at("/paths/~1api~1auth~1login/post/security").size()).isZero();
         assertThat(doc.at("/paths/~1api~1auth~1me/get/security/0/sessionCookie").isArray()).isTrue();
+        // 전송 결과 예시는 문자열이 아니라 JSON 객체로 들어가야 한다 (본문 줄바꿈 이스케이프)
+        assertThat(doc.at("/paths/~1api~1analysis-tasks~1{taskId}~1tickets/get/responses/200/content/application~1json/example/tickets/0/preview/body").asText())
+                .startsWith("## 작업 내용\n");
         JsonNode projectSecurity = doc.at("/paths/~1api~1projects/get").has("security")
                 ? doc.at("/paths/~1api~1projects/get/security") : doc.path("security");
         assertThat(projectSecurity.path(0).path("sessionCookie").isArray()).isTrue();
+        JsonNode projectExample = doc.at("/paths/~1api~1projects/get/responses/200/content/application~1json/example/projects/0");
+        assertThat(projectExample.path("memberCount").asInt()).isEqualTo(6);
+        assertThat(projectExample.path("connections").path("github").asText()).isEqualTo("CONNECTED");
     }
 
     @Test
@@ -54,6 +60,10 @@ class OpenApiDocumentationTest {
         JsonNode upload = doc.at("/paths/~1api~1projects~1{projectId}~1meetings/post");
         assertThat(upload.path("requestBody").path("content").has("multipart/form-data")).isTrue();
         assertThat(upload.path("responses").has("201")).isTrue();
+        JsonNode request = doc.at("/paths/~1api~1projects~1{projectId}~1analysis-tasks/post");
+        assertThat(request.path("requestBody").path("content").has("multipart/form-data")).isTrue();
+        assertThat(request.path("responses").has("202")).isTrue();
+        assertThat(request.at("/responses/400").toString()).contains("INVALID_MEETING_INPUT");
         JsonNode start = doc.at("/paths/~1api~1meetings~1{meetingId}~1analysis-tasks/post");
         assertThat(start.path("responses").has("202")).isTrue();
         assertThat(start.path("responses").has("409")).isTrue();

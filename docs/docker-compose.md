@@ -2,7 +2,7 @@
 
 이 구성은 demo 프로파일과 기본 테스트 계정을 사용하는 로컬·데모용이며, 운영 배포용 구성이 아닙니다.
 
-`compose.full.yml`은 frontend, backend, agent, mcp-server, rag-mcp, postgres, rabbitmq를 함께 실행한다.
+`compose.full.yml`은 frontend, backend, agent, business-mcp, rag-mcp, postgres, rabbitmq를 함께 실행한다.
 기존 `docker-compose.yml`은 로컬 개발용 DB·RabbitMQ 설정으로 유지한다.
 전체 구성은 별도 프로젝트 이름 `meet-to-ticket-full`을 사용해 기존 DB 컨테이너와 구분한다.
 Docker Compose 2.24 이상과 Docker 엔진이 필요하다. 로컬 Java·Node·Python 설치는 빌드에 필요하지 않다.
@@ -23,16 +23,17 @@ cp -n .env.example .env
 |---|---|
 | 루트 `.env` | `BACKEND_INTERNAL_TOKEN`, 공개 포트, 실행 모드, DB·RabbitMQ 및 demo 계정 설정 |
 | `agent/.env` | `OPENAI_API_KEY` 및 선택적인 모델·추적 설정 |
-| `mcp-server/.env` | `GITHUB_TOKEN`, `GITHUB_OWNER=MCP-Capstone`, `GITHUB_REPO=mcp-capstone` |
+| `business-mcp/.env` | `GITHUB_TOKEN`, (선택) `GITHUB_ALLOWED_REPOS`, Notion 발행 시 `NOTION_TOKEN`, Slack 연결 확인 시 `SLACK_BOT_TOKEN` |
 | `rag-mcp/.env` | `GITHUB_TOKEN`(이슈 읽기), `GITHUB_OWNER`, `GITHUB_REPO`, `OPENAI_API_KEY`(임베딩) |
 
 키 파일이 없어도 컨테이너는 기동하지만 실제 LLM 분석에는 OpenAI 키, 실제 이슈 발행에는 GitHub 토큰이 필요하다.
 중복 판단에는 `rag-mcp/.env`의 GitHub 토큰과 OpenAI 키가 필요하다. 없으면 후보 없이 판단해 새로 발행한다.
 API 키와 토큰은 실행 시 환경 변수로 전달하며 이미지에 복사하지 않는다.
 
-루트의 `DRY_RUN=true`가 기본이다. 분석·검수 LLM은 호출하지만 실제 GitHub 이슈는 생성하지 않는다.
+루트의 `DRY_RUN=true`가 기본이다. 분석·검수 LLM은 호출하지만 실제 GitHub 이슈와 Notion 페이지는 생성하지 않는다.
 `agent/.env`의 `DRY_RUN`보다 루트 Compose 설정이 우선한다.
-최신 Agent는 DRY_RUN 결과를 `SKIPPED`로 반환한다. 이슈 링크가 없는 발행 제외 결과가 정상이다.
+분석 단계의 발행 결과는 `SKIPPED`로 반환한다. 이슈 링크가 없는 발행 제외 결과가 정상이다.
+내 티켓에서 확인한 티켓을 발행하면 링크 없이 발행 완료(`PUBLISHED`)로 바뀐다. 이 티켓은 실제 발행 모드로 바꿔도 다시 발행되지 않으므로, 실제 발행은 새 회의로 확인한다.
 실제 발행은 루트 `.env`에서 `DRY_RUN=false`로 바꾸고 컨테이너를 재생성한 뒤 새 회의를 분석한다.
 
 ## 실행
@@ -61,7 +62,7 @@ Agent는 Spring이 실행될 때까지 기다리도록 설정하지 않아 진�
 | frontend | `frontend:80` | `127.0.0.1:5173` (로컬 컴퓨터에서만 접근) |
 | backend | `backend:8080` | `127.0.0.1:8080` (로컬 컴퓨터에서만 접근) |
 | agent | `agent:8001` | 없음 |
-| mcp-server | `mcp-server:8000` | 없음 |
+| business-mcp | `business-mcp:8000` | 없음 |
 | rag-mcp | `rag-mcp:8002` | 없음 |
 | postgres | `postgres:5432` | 없음 |
 | rabbitmq | `rabbitmq:5672` (관리 UI 15672도 내부 전용) | 없음 |
@@ -107,7 +108,7 @@ docker compose -f compose.full.yml up -d --force-recreate agent backend
 1. `ps`에서 7개 서비스의 healthy 상태를 확인한다.
 2. `http://localhost:5173/api/health`와 Spring 상태 API가 정상 응답하는지 확인한다.
 3. 로그인 후 샘플 파일을 업로드하고 분석한다. 진행 보고 202와 최종 항목·집계 조회를 확인한다.
-4. 기본 DRY_RUN에서는 GitHub 이슈가 생성되지 않는지 확인한다. 실제 발행 검증은 별도 실행한다.
+4. 기본 DRY_RUN에서는 GitHub 이슈와 Notion 페이지가 생성되지 않는지 확인한다. 실제 발행 검증은 별도 실행한다.
 5. `ps`의 호스트 포트 매핑이 frontend·backend에만 있고, backend는 `127.0.0.1`에만 바인딩되는지 확인한다.
 6. 아래 명령으로 컨테이너를 내렸다 다시 올린 뒤 업로드한 회의가 유지되는지 확인한다.
 

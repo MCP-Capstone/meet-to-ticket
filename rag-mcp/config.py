@@ -18,7 +18,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8002  # docs/dev-env.md 포트 규칙 (mcp-server 8000, agent 8001)
+DEFAULT_PORT = 8002  # docs/dev-env.md 포트 규칙 (business-mcp 8000, agent 8001)
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_CHROMA_PATH = BASE_DIR / "chroma-data"
 
@@ -33,7 +33,7 @@ class Settings:
     github_token: str
     github_owner: str
     github_repo: str
-    github_allowed_repos: str  # 쉼표 구분 owner/repo. 비어 있으면 github_owner/github_repo만 허용
+    github_allowed_repos: str  # 쉼표 구분 owner/repo. 비어 있으면 저장소를 검사하지 않음 (로컬 테스트용 안전장치)
     openai_api_key: str
     embedding_model: str
     chroma_path: Path

@@ -4,8 +4,10 @@
 - POST /runs            : 접수 후 백그라운드 처리 (202)
 - POST /runs?wait=true  : 끝날 때까지 기다렸다가 결과 반환 (로컬 테스트용)
 - GET  /runs/{task_id}  : 이 프로세스에서 처리한 작업의 상태·결과
-                          처리 중이면 {"taskId", "status": "RUNNING", "stage"}, 끝나면 결과 전체
+                          처리 중이면 {"taskId", "status": "RUNNING", "stage", "progress"}, 끝나면 결과 전체
 - GET  /runs/{task_id}/history : 노드별 실행 기록 (checkpointer)
+- POST /projects/reindex      : GitHub 이슈 전체 RAG 재색인 접수
+- GET  /projects/reindex/{job_id} : 재색인 진행·결과 조회
 - GET  /health
 
 이슈를 발행한 taskId를 다시 POST하면 다시 실행하지 않고 저장된 결과를 돌려준다 (runner.stored_result).
@@ -24,11 +26,15 @@ from config import load_env, load_settings  # noqa: E402
 
 load_env()
 from reporter import BackendReporter  # noqa: E402
-from runner import history, run, stored_result  # noqa: E402
-from schemas import RunRequest  # noqa: E402
+from runner import history, run, run_publish_batch, stored_result  # noqa: E402
+from permissions import check_members  # noqa: E402
+from project_connections import check_project_connections  # noqa: E402
+from reindex import create_router  # noqa: E402
+from publisher import ToolCallError  # noqa: E402
+from schemas import PublishTicket, PublicationPreview, CheckMembersRequest, CheckMembersResponse, ProjectConnectionsRequest, ProjectConnectionsResponse, PublishBatchRequest, RunRequest  # noqa: E402
 from state import STAGE_EXTRACTING  # noqa: E402
 from api_docs import (  # noqa: E402
-    DESCRIPTION, HEALTH_RESPONSES, HISTORY_RESPONSES, JOB_RESPONSES, REQUEST_EXAMPLE, RUN_RESPONSES,
+    CHECK_MEMBERS_EXAMPLE, CHECK_MEMBERS_RESPONSES, DESCRIPTION, HEALTH_RESPONSES, HISTORY_RESPONSES, JOB_RESPONSES, REQUEST_EXAMPLE, RUN_RESPONSES,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -39,16 +45,22 @@ app = FastAPI(
     version="1.0",
     description=DESCRIPTION,
     openapi_tags=[{"name": "분석 실행", "description": "Spring에서 호출하는 작업 접수·조회"},
+                  {"name": "프로젝트", "description": "Spring이 프로젝트 저장 때 호출하는 확인 API"},
                   {"name": "상태 확인", "description": "Agent 설정과 실행 상태"}],
 )
 app.state.overrides = {}  # 테스트에서 llm, publisher, reporter, settings를 바꿔 넣는다
 
 _jobs: dict[str, dict[str, Any]] = {}
+_publish_jobs: dict[str, dict[str, Any]] = {}
 _tasks: set[asyncio.Task] = set()
 
 
 def _settings():
     return app.state.overrides.get("settings") or load_settings()
+
+
+# RAG 색인 관리 API는 분석 실행 경로와 상태를 분리한다. 테스트 override도 기존 app.state를 그대로 쓴다.
+app.include_router(create_router(_settings, lambda: app.state.overrides))
 
 
 def _running(task_id: str) -> dict[str, Any]:
@@ -61,11 +73,13 @@ class JobReporter:
     def __init__(self, inner: Any):
         self.inner = inner
 
-    async def progress(self, task_id: str, status: str, stage: str) -> None:
+    async def progress(self, task_id: str, status: str, stage: str, progress: dict[str, Any] | None = None) -> None:
         job = _jobs.get(task_id)
         if job is not None and job.get("status") == "RUNNING":
             job["stage"] = stage
-        await self.inner.progress(task_id, status, stage)
+            if progress is not None:
+                job["progress"] = progress
+        await self.inner.progress(task_id, status, stage, progress)
 
     async def result(self, task_id: str, payload: dict[str, Any]) -> bool:
         return await self.inner.result(task_id, payload)
@@ -88,6 +102,23 @@ async def _execute(req: RunRequest) -> dict[str, Any]:
         log.exception("작업 %s 처리 중 오류", req.task_id)
         data = {"taskId": req.task_id, "status": "FAILED", "errorCode": "INTERNAL_ERROR", "errorMessage": str(exc)}
     _jobs[req.task_id] = data
+    return data
+
+
+async def _execute_publish(req: PublishBatchRequest) -> dict[str, Any]:
+    settings = _settings()
+    try:
+        result = await run_publish_batch(
+            req, settings, publisher=app.state.overrides.get("batch_publisher"), llm=app.state.overrides.get("llm"),
+        )
+        data = result.model_dump(by_alias=True, mode="json")
+    except Exception as exc:  # noqa: BLE001
+        log.exception("발행 묶음 %s 처리 중 오류", req.batch_id)
+        data = {"batchId": req.batch_id, "status": "FAILED", "summary": {}, "items": [],
+                "errorCode": "INTERNAL_ERROR", "errorMessage": str(exc)}
+    _publish_jobs[req.batch_id] = data
+    reporter = app.state.overrides.get("reporter") or BackendReporter(settings.backend_base_url, settings.backend_token)
+    await reporter.publish_result(req.batch_id, data)
     return data
 
 
@@ -117,6 +148,48 @@ async def create_run(
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return JSONResponse(status_code=202, content={"taskId": req.task_id, "status": "ACCEPTED"})
+
+
+@app.post(
+    "/publish", tags=["분석 실행"], operation_id="publishConfirmedTickets", response_model=None,
+    summary="확인된 티켓 일괄 발행", status_code=202,
+    description="백엔드는 CONFIRMED 티켓만 batchId와 함께 보낸다. Agent는 프로젝트별로 재대조한 뒤 CREATE/LINK/UPDATE를 실행하고, 결과를 /internal/publish-batches/{batchId}/result로 보고한다. 같은 batchId는 다시 실행하지 않는다.",
+)
+async def publish_confirmed(req: PublishBatchRequest):
+    current = _publish_jobs.get(req.batch_id)
+    if current is not None:
+        if current.get("status") == "RUNNING":
+            raise HTTPException(status_code=409, detail="이미 처리 중인 batch_id입니다")
+        return JSONResponse(status_code=202, content={"batchId": req.batch_id, "status": "ACCEPTED"})
+    _publish_jobs[req.batch_id] = {"batchId": req.batch_id, "status": "RUNNING"}
+    task = asyncio.create_task(_execute_publish(req))
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+    return {"batchId": req.batch_id, "status": "ACCEPTED"}
+
+
+@app.post(
+    "/projects/check-members", tags=["프로젝트"], operation_id="checkProjectMembers",
+    summary="멤버별 저장소 권한 확인", response_model=CheckMembersResponse, responses=CHECK_MEMBERS_RESPONSES,
+    description="프로젝트 저장 때 Spring이 호출한다. LLM 없이 business-mcp의 check_member_permissions를 부른다. "
+                "MCP 전체 오류는 502와 함께 errorCode를 그대로 돌려준다.",
+)
+async def check_project_members(
+    req: CheckMembersRequest = Body(openapi_examples={"members": {"summary": "저장소와 멤버 GitHub 계정", "value": CHECK_MEMBERS_EXAMPLE}}),
+):
+    try:
+        return await check_members(_settings(), req, app.state.overrides.get("mcp_tools"))
+    except ToolCallError as exc:
+        return JSONResponse(status_code=502, content={"errorCode": exc.code, "errorMessage": exc.message})
+
+
+@app.post(
+    "/projects/check-connections", tags=["프로젝트"], operation_id="checkProjectConnections",
+    summary="Notion·Slack 프로젝트 연결 확인", response_model=ProjectConnectionsResponse,
+    description="프로젝트 저장 때 Spring이 호출한다. LLM 없이 business-mcp의 Notion·Slack 읽기 도구를 호출한다.",
+)
+async def check_connections(req: ProjectConnectionsRequest):
+    return await check_project_connections(_settings(), req, app.state.overrides.get("mcp_tools"))
 
 
 @app.get(
@@ -153,3 +226,14 @@ async def health():
         "dry_run": s.dry_run,
         "model": s.openai_model,
     }
+
+
+@app.post("/publication-preview", tags=["분석 실행"], response_model=PublicationPreview,
+          summary="저장된 티켓의 GitHub 발행 본문 미리보기", operation_id="previewPublication")
+async def preview_publication(req: PublishTicket):
+    # 상태 변경·LLM 호출·발행 작업 생성 없이 발행과 동일한 순수 함수를 사용한다.
+    from batch_publish import publication_preview
+    try:
+        return publication_preview(req)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

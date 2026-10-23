@@ -34,9 +34,15 @@ class ParsedSummary:
     meeting_date: date | None = None
     background: str = ""
     rows: list[ActionRow] = field(default_factory=list)
+    decisions: list[str] = field(default_factory=list)
     open_questions: list[str] = field(default_factory=list)
     excluded: list[str] = field(default_factory=list)
+    # 회의록에 있던 목록 섹션 (decisions, open_questions, excluded). "- 없음"뿐이어도 섹션이 있으면 들어간다
+    found: set[str] = field(default_factory=set)
 
+
+# 목록 섹션 이름: 제목에 들어가는 단어
+_LIST_SECTIONS = {"decisions": ("결정",), "open_questions": ("미결",), "excluded": ("제외", "보류")}
 
 _HEADER_ALIASES = {
     "id": "work_key",
@@ -77,11 +83,11 @@ def _split_sections(text: str) -> dict[str, list[str]]:
     return sections
 
 
-def _find(sections: dict[str, list[str]], *keywords: str) -> list[str]:
+def _find(sections: dict[str, list[str]], *keywords: str) -> list[str] | None:
     for name, lines in sections.items():
         if any(k in name for k in keywords):
             return lines
-    return []
+    return None
 
 
 def _bullets(lines: list[str]) -> list[str]:
@@ -132,9 +138,12 @@ def parse_summary(text: str) -> ParsedSummary:
         if m:
             result.meeting_date = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
 
-    background_lines = _find(sections, "배경", "논의 요약")
+    background_lines = _find(sections, "배경", "논의 요약") or []
     result.background = "\n".join(ln for ln in background_lines).strip()
-    result.rows = _parse_table(_find(sections, "액션 아이템", "액션", "할 일"))
-    result.open_questions = _bullets(_find(sections, "미결"))
-    result.excluded = _bullets(_find(sections, "제외", "보류"))
+    result.rows = _parse_table(_find(sections, "액션 아이템", "액션", "할 일") or [])
+    for name, keywords in _LIST_SECTIONS.items():
+        lines = _find(sections, *keywords)
+        if lines is not None:
+            result.found.add(name)
+            setattr(result, name, _bullets(lines))
     return result

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { api, useMock } from '../api'
+import { api, ApiRequestError, useMock } from '../api'
 import type { User } from '../api'
 import { Spinner } from './Spinner'
 
@@ -31,6 +31,9 @@ export function AuthForm({ onLogin, notice }: Props) {
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [name, setName] = useState('')
+  const [githubName, setGithubName] = useState('')
+  const [slackEmail, setSlackEmail] = useState('')
+  const [githubError, setGithubError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -39,12 +42,14 @@ export function AuthForm({ onLogin, notice }: Props) {
   const switchMode = (next: Mode) => {
     setMode(next)
     setError(null)
+    setGithubError(null)
     setPassword('')
     setPasswordConfirm('')
   }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    setGithubError(null)
     const invalid = isSignup ? validateSignup(loginId, password, passwordConfirm, name) : null
     if (invalid) {
       setError(invalid)
@@ -54,11 +59,15 @@ export function AuthForm({ onLogin, notice }: Props) {
     setSubmitting(true)
     try {
       const user = isSignup
-        ? await api.signup({ loginId, password, name: name.trim() })
+        ? await api.signup({ loginId, password, name: name.trim(), githubName: githubName.trim() || null, slackEmail: slackEmail.trim() || null })
         : await api.login({ loginId, password })
       onLogin(user)
     } catch (e) {
-      setError(toMessage(e))
+      if (isSignup && e instanceof ApiRequestError && e.code === 'INVALID_GITHUB_ACCOUNT') {
+        setGithubError(e.message || 'GitHub 계정을 찾을 수 없습니다. 로그인명을 확인해 주세요.')
+      } else {
+        setError(toMessage(e))
+      }
     } finally {
       setSubmitting(false)
     }
@@ -75,7 +84,7 @@ export function AuthForm({ onLogin, notice }: Props) {
         </button>
       </div>
 
-      {notice && !error && <p className="notice">{notice}</p>}
+      {notice && !error && !githubError && <p className="notice">{notice}</p>}
       {error && <p className="error">{error}</p>}
 
       <label>
@@ -117,6 +126,37 @@ export function AuthForm({ onLogin, notice }: Props) {
             이름
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={20} placeholder="예: 홍길동" required />
           </label>
+          <label>
+            GitHub 계정 (선택)
+            <input
+              value={githubName}
+              onChange={(e) => {
+                setGithubName(e.target.value)
+                setGithubError(null)
+              }}
+              placeholder="예: jadoolim"
+              autoCapitalize="none"
+              spellCheck={false}
+              aria-invalid={Boolean(githubError)}
+              aria-describedby={githubError ? 'github-account-help github-account-error' : 'github-account-help'}
+            />
+          </label>
+          <p id="github-account-help" className="muted hint">
+            프로필 이름이나 URL이 아닌 GitHub 로그인명을 입력해 주세요. 입력하지 않아도 가입할 수 있습니다.
+          </p>
+          {githubError && <p id="github-account-error" className="error" role="alert">{githubError}</p>}
+          <label>
+            Slack 이메일 (선택)
+            <input
+              type="email"
+              value={slackEmail}
+              onChange={(e) => setSlackEmail(e.target.value)}
+              placeholder="예: member@example.com"
+              autoCapitalize="none"
+              spellCheck={false}
+            />
+          </label>
+          <p className="muted hint">프로젝트 채널 공지에서 나를 멘션할 Slack 사용자 ID를 찾는 데만 사용합니다.</p>
         </>
       )}
 

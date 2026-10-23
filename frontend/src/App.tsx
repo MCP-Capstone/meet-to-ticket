@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnalysisProgress } from './components/AnalysisProgress'
 import { AuthForm } from './components/AuthForm'
+import { DispatchResult } from './components/DispatchResult'
 import { ResultList } from './components/ResultList'
+import { MyTickets } from './components/MyTickets'
+import { ProjectEditor } from './components/ProjectEditor'
+import { ProjectList } from './components/ProjectList'
 import { Spinner } from './components/Spinner'
 import { Stepper } from './components/Stepper'
 import { UploadForm } from './components/UploadForm'
 import { api, ApiRequestError, onUnauthorized, useMock } from './api'
-import type { AnalysisTask, ExecutionMode, Meeting, Project, ProjectMember, TaskItemList, User } from './api'
+import type { AnalysisTask, ExecutionMode, Meeting, MeetingAnalysisInput, Project, ProjectDetail, ProjectSummary, ProjectMember, TaskItemList, User } from './api'
 
 type Step = 'upload' | 'analyzing' | 'result'
 
@@ -20,10 +24,32 @@ function App() {
   // undefined: 로그인 상태 확인 중, null: 로그인 안 함
   const [user, setUser] = useState<User | null | undefined>(undefined)
   const [authNotice, setAuthNotice] = useState<string | null>(null)
+  const [authCheckError, setAuthCheckError] = useState<string | null>(null)
+  const [authCheckAttempt, setAuthCheckAttempt] = useState(0)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const logoutPending = useRef(false)
   // 401 처리기 안에서 최신 로그인 상태를 보려고 ref에도 둔다.
   const loggedIn = useRef(false)
-  // 프로젝트 선택 화면 전까지는 첫 번째 프로젝트를 쓴다.
+  const [page, setPage] = useState<'workflow' | 'project-list' | 'project-editor' | 'my-tickets'>('workflow')
+  const [projects, setProjects] = useState<ProjectSummary[]>([])
+  const [projectsLoading, setProjectsLoading] = useState(true)
+  const [editorProjectId, setEditorProjectId] = useState<number | null>(null)
+  const [projectSavedMessage, setProjectSavedMessage] = useState<string | null>(null)
+  const [projectSaving, setProjectSaving] = useState(false)
+  const [projectDeleting, setProjectDeleting] = useState(false)
+  const projectListRequest = useRef(0)
+  const [ticketBusy, setTicketBusy] = useState(false)
+  const [ticketDirty, setTicketDirty] = useState(false)
+  const canLeaveTickets = () => !ticketDirty || window.confirm('저장하지 않은 티켓 수정을 버리고 이동할까요?')
   const [project, setProject] = useState<Project | null>(null)
+  const selectedProject = useRef<Project | null>(null)
+  const [projectSelectionNotice, setProjectSelectionNotice] = useState<string | null>(null)
+  const selectProject = (next: Project | null) => {
+    selectedProject.current = next
+    setProject(next)
+    setProjectSelectionNotice(null)
+  }
   const [members, setMembers] = useState<ProjectMember[]>([])
   const [executionMode, setExecutionMode] = useState<ExecutionMode | null>(null)
   const [projectError, setProjectError] = useState<string | null>(null)
@@ -31,6 +57,11 @@ function App() {
   const [meeting, setMeeting] = useState<Meeting | null>(null)
   const [taskId, setTaskId] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
+  const startLock = useRef(false)
+  const runEpoch = useRef(0)
+  const activeRunId = useRef<string | null>(null)
+  const memberRequest = useRef(0)
+  const [meetingNotice, setMeetingNotice] = useState<string | null>(null)
   const [result, setResult] = useState<TaskItemList | null>(null)
   const [error, setError] = useState<string | null>(null)
   // 새 회의록을 올릴 때 업로드 화면을 처음 상태로 되돌리기 위한 키
@@ -42,32 +73,49 @@ function App() {
 
   // 새로고침해도 세션이 남아 있으면 로그인 상태를 이어간다.
   useEffect(() => {
+    let cancelled = false
     api
       .me()
-      .then(setUser)
-      .catch(() => setUser(null))
-  }, [])
+      .then((currentUser) => {
+        if (!cancelled) setUser(currentUser)
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        if (e instanceof ApiRequestError && e.status === 401) {
+          setUser(null)
+        } else {
+          setAuthCheckError('로그인 상태를 확인하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.')
+        }
+      })
+    return () => { cancelled = true }
+  }, [authCheckAttempt])
 
   // 로그인하면 프로젝트와 팀원을 불러온다.
   useEffect(() => {
     if (!user) return
     let cancelled = false
+    const version = ++projectListRequest.current
     const load = async () => {
       try {
         const list = await api.listProjects()
-        if (cancelled) return
+        if (cancelled || version !== projectListRequest.current) return
         setExecutionMode(list.executionMode)
+        setProjects(list.projects)
         const first = list.projects[0]
         if (!first) {
-          setProjectError('참여 중인 프로젝트가 없습니다. 관리자에게 프로젝트 등록을 요청해 주세요.')
+          selectProject(null)
+          setMembers([])
           return
         }
+        selectProject(first)
+        const memberVersion = ++memberRequest.current
         const memberList = await api.listMembers(first.projectId)
-        if (cancelled) return
-        setProject(first)
+        if (cancelled || memberVersion !== memberRequest.current) return
         setMembers(memberList.members)
       } catch (e) {
-        if (!cancelled && !isUnauthorized(e)) setProjectError(toMessage(e))
+        if (!cancelled && version === projectListRequest.current && !isUnauthorized(e)) setProjectError(toMessage(e))
+      } finally {
+        if (!cancelled && version === projectListRequest.current) setProjectsLoading(false)
       }
     }
     void load()
@@ -78,25 +126,104 @@ function App() {
 
   const toNames = (ids: number[]) => ids.map((id) => members.find((m) => m.projectMemberId === id)?.name ?? `#${id}`)
 
-  const handleStart = async (target: Meeting) => {
+  const handleProjectChange = (projectId: number) => {
+    const selected = projects.find((item) => item.projectId === projectId)
+    if (!selected || startLock.current) return
+    selectProject(selected)
+    setMembers([])
+    setProjectError(null)
     setError(null)
+    const version = ++memberRequest.current
+    api.listMembers(projectId).then((result) => {
+      if (version === memberRequest.current) setMembers(result.members)
+    }).catch((e: unknown) => {
+      if (version === memberRequest.current && !isUnauthorized(e)) setProjectError(toMessage(e))
+    })
+  }
+
+  const refreshProjects = async () => {
+    const version = ++projectListRequest.current
+    setProjectsLoading(true)
+    setProjectError(null)
+    try {
+      const list = await api.listProjects()
+      if (version !== projectListRequest.current) return
+      setProjects(list.projects)
+      setExecutionMode(list.executionMode)
+      // 재조회 중 바뀐 선택도 응답 시점의 최신 선택값으로 확인한다.
+      const current = selectedProject.current
+      const updated = list.projects.find((item) => item.projectId === current?.projectId)
+      if (updated) selectProject(updated)
+      else if (current) {
+        ++memberRequest.current
+        selectProject(null)
+        setMembers([])
+        setProjectSelectionNotice('선택한 프로젝트를 더 이상 사용할 수 없습니다. 업로드할 프로젝트를 다시 선택해 주세요.')
+      }
+    } catch (e) {
+      if (version === projectListRequest.current && !isUnauthorized(e)) setProjectError(toMessage(e))
+    } finally {
+      if (version === projectListRequest.current) setProjectsLoading(false)
+    }
+  }
+
+  const handleProjectDeleted = (projectId: number) => {
+    setProjects((current) => current.filter((item) => item.projectId !== projectId))
+    if (editorProjectId === projectId) setEditorProjectId(null)
+    if (project?.projectId === projectId) {
+      reset()
+      const next = projects.find((item) => item.projectId !== projectId)
+      selectProject(null)
+      setMembers([])
+      if (next) handleProjectChange(next.projectId)
+    }
+    void refreshProjects()
+  }
+
+  const handleStart = async (input: MeetingAnalysisInput) => {
+    if (!project || projectsLoading || !projects.some((item) => item.projectId === project.projectId) || startLock.current) return
+    const projectId = project.projectId
+    const epoch = runEpoch.current
+    startLock.current = true
+    setError(null)
+    setMeetingNotice(null)
     setStarting(true)
     try {
-      const res = await api.startAnalysis(target.meetingId)
-      setMeeting(target)
+      const res = await api.requestMeetingAnalysis(projectId, input)
+      if (epoch !== runEpoch.current) return
+      activeRunId.current = res.taskId
+      setExecutionMode(res.executionMode)
+      // 접수 완료 후 메타데이터 조회가 실패해도 새 처리 요청을 보내지 않는다.
+      setMeeting({
+        meetingId: res.meetingId, projectId, meetingDate: input.meetingDate,
+        title: input.title?.trim() || input.file?.name.replace(/\.[^.]+$/, '') || `${input.meetingDate} 회의`,
+        participantIds: [], originalFilename: input.file?.name ?? '', readyForAnalysis: true,
+      })
       setTaskId(res.taskId)
       setStep('analyzing')
+      api.getMeeting(res.meetingId).then((detail) => {
+        if (epoch === runEpoch.current && activeRunId.current === res.taskId) setMeeting(detail)
+      }).catch((e: unknown) => {
+        if (epoch === runEpoch.current && activeRunId.current === res.taskId && !isUnauthorized(e)) {
+          setMeetingNotice('처리는 접수됐습니다. 회의 상세 정보를 불러오지 못해 입력한 정보로 표시합니다.')
+        }
+      })
     } catch (e) {
-      if (!isUnauthorized(e)) setError(toMessage(e))
+      if (epoch === runEpoch.current && !isUnauthorized(e)) setError(toMessage(e))
     } finally {
-      setStarting(false)
+      if (epoch === runEpoch.current) {
+        startLock.current = false
+        setStarting(false)
+      }
     }
   }
 
   // 끝난 작업은 FAILED여도 항목별 결과가 있을 수 있어 먼저 결과를 불러온다.
   const handleFinish = async (task: AnalysisTask) => {
+    if (activeRunId.current !== task.taskId) return
     try {
       const res = await api.getAnalysisItems(task.taskId)
+      if (activeRunId.current !== task.taskId) return
       if (task.status === 'FAILED' && res.items.length === 0) {
         setError(task.errorMessage ?? '분석에 실패했습니다.')
         setStep('upload')
@@ -105,7 +232,7 @@ function App() {
       setResult(res)
       setStep('result')
     } catch (e) {
-      if (!isUnauthorized(e)) {
+      if (activeRunId.current === task.taskId && !isUnauthorized(e)) {
         setError(task.errorMessage ?? toMessage(e))
         setStep('upload')
       }
@@ -113,6 +240,12 @@ function App() {
   }
 
   const reset = () => {
+    ++runEpoch.current
+    ++memberRequest.current
+    activeRunId.current = null
+    startLock.current = false
+    setStarting(false)
+    setMeetingNotice(null)
     setMeeting(null)
     setTaskId(null)
     setResult(null)
@@ -124,9 +257,14 @@ function App() {
   // 세션이 만료되면 작업 중이던 화면을 지우고 로그인 화면으로 보낸다.
   useEffect(() => {
     onUnauthorized(() => {
+      ++projectListRequest.current
       if (loggedIn.current) setAuthNotice('로그인이 만료되었습니다. 다시 로그인해 주세요.')
+      setLogoutError(null)
       reset()
-      setProject(null)
+      selectProject(null)
+      setProjects([])
+      setPage('workflow')
+      setProjectSavedMessage(null)
       setMembers([])
       setUser(null)
     })
@@ -136,19 +274,57 @@ function App() {
   const handleLogin = (loggedInUser: User) => {
     setAuthNotice(null)
     setProjectError(null)
+    setProjectsLoading(true)
     setUser(loggedInUser)
   }
 
   const handleLogout = async () => {
-    await api.logout().catch(() => undefined)
-    reset()
-    setProject(null)
-    setMembers([])
-    setUser(null)
+    if (logoutPending.current || projectDeleting || ticketBusy || !canLeaveTickets()) return
+    logoutPending.current = true
+    setLoggingOut(true)
+    setLogoutError(null)
+    try {
+      await api.logout()
+      ++projectListRequest.current
+      reset()
+      selectProject(null)
+      setProjects([])
+      setPage('workflow')
+      setProjectSavedMessage(null)
+      setMembers([])
+      setUser(null)
+    } catch (e) {
+      // 세션 만료는 기존 공통 처리기가 로그인 화면으로 전환한다.
+      if (!isUnauthorized(e)) {
+        setLogoutError('로그아웃하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.')
+      }
+    } finally {
+      logoutPending.current = false
+      setLoggingOut(false)
+    }
+  }
+
+  const handleProjectSaved = (detail: ProjectDetail) => {
+    const entry = { projectId: detail.projectId, name: detail.name }
+    void refreshProjects()
+    setEditorProjectId(detail.projectId)
+    setProjectSavedMessage('프로젝트를 저장했습니다.')
+    if (!project || project.projectId === detail.projectId) {
+      selectProject(entry)
+      setProjectError(null)
+      // 기존 회의록 업로드의 참여자 표시는 기존 멤버 조회 API를 재사용한다.
+      const version = ++memberRequest.current
+      setMembers([])
+      api.listMembers(detail.projectId).then((result) => {
+        if (version === memberRequest.current) setMembers(result.members)
+      }).catch((e: unknown) => {
+        if (version === memberRequest.current && !isUnauthorized(e)) setProjectError(toMessage(e))
+      })
+    }
   }
 
   return (
-    <main className="container">
+    <main className={`container${page === 'project-list' ? ' project-workspace' : ''}`}>
       <header className="header">
         <div>
           <h1>meet-to-ticket</h1>
@@ -164,15 +340,34 @@ function App() {
           {user && (
             <>
               <span className="user-name">{user.name}님</span>
-              <button className="link" onClick={handleLogout}>
-                로그아웃
+              <button className="link" onClick={handleLogout} disabled={projectSaving || projectDeleting || ticketBusy || starting || loggingOut}>
+                {loggingOut ? '로그아웃 중...' : '로그아웃'}
               </button>
             </>
           )}
         </div>
       </header>
 
-      {user === undefined && (
+      {user && logoutError && (
+        <div role="alert">
+          <p className="error">{logoutError}</p>
+          <button type="button" className="link" onClick={handleLogout} disabled={loggingOut || projectSaving || projectDeleting || ticketBusy}>
+            로그아웃 다시 시도
+          </button>
+        </div>
+      )}
+
+      {user === undefined && authCheckError && (
+        <div role="alert">
+          <p className="error">{authCheckError}</p>
+          <button type="button" className="primary" onClick={() => {
+            setAuthCheckError(null)
+            setAuthCheckAttempt((attempt) => attempt + 1)
+          }}>다시 시도</button>
+        </div>
+      )}
+
+      {user === undefined && !authCheckError && (
         <p className="loading">
           <Spinner size="sm" label="로그인 확인 중" /> 로그인 상태를 확인하고 있습니다...
         </p>
@@ -180,40 +375,84 @@ function App() {
 
       {user === null && <AuthForm onLogin={handleLogin} notice={authNotice} />}
 
-      {user && projectError && <p className="error">{projectError}</p>}
-
-      {user && !project && !projectError && (
-        <p className="loading">
-          <Spinner size="sm" label="프로젝트 불러오는 중" /> 프로젝트를 불러오고 있습니다...
-        </p>
+      {user && (
+        <nav className="workspace-nav" aria-label="서비스 메뉴">
+          <button type="button" aria-current={page === 'workflow' ? 'page' : undefined} disabled={projectSaving || projectDeleting || ticketBusy || loggingOut} onClick={() => { if (canLeaveTickets()) setPage('workflow') }}>회의록 업로드</button>
+          <button type="button" aria-current={page === 'project-list' || page === 'project-editor' ? 'page' : undefined} disabled={step === 'analyzing' || starting || projectSaving || projectDeleting || ticketBusy || loggingOut} onClick={() => {
+            if (!canLeaveTickets()) return
+            setPage('project-list')
+            void refreshProjects()
+          }}>프로젝트</button>
+          <button type="button" aria-current={page === 'my-tickets' ? 'page' : undefined} disabled={projectSaving || projectDeleting || starting || step === 'analyzing' || ticketBusy || loggingOut} onClick={() => setPage('my-tickets')}>내 티켓</button>
+        </nav>
       )}
 
-      {user && project && (
+      {user && page === 'my-tickets' && <MyTickets projects={projects} projectsLoading={projectsLoading} onBusyChange={setTicketBusy} onDirtyChange={setTicketDirty}
+        onOpenProjectSettings={(projectId) => { setEditorProjectId(projectId); setProjectSavedMessage(null); setPage('project-editor') }} />}
+
+      {user && page === 'project-list' && <ProjectList projects={projects} loading={projectsLoading} error={projectError}
+        onReload={() => { void refreshProjects() }} onCreate={() => { setEditorProjectId(null); setProjectSavedMessage(null); setPage('project-editor') }}
+        onEdit={(projectId) => { setEditorProjectId(projectId); setProjectSavedMessage(null); setPage('project-editor') }}
+        onDeleted={handleProjectDeleted} onBusyChange={setProjectDeleting} />}
+
+      {user && page === 'project-editor' && <>
+        <button type="button" className="link" disabled={projectSaving} onClick={() => { setPage('project-list'); void refreshProjects() }}>프로젝트 목록으로</button>
+        <div className="project-toolbar">
+          <label>편집할 프로젝트
+            <select value={editorProjectId ?? ''} disabled={projectSaving} onChange={(e) => {
+              setEditorProjectId(e.target.value === '' ? null : Number(e.target.value))
+              setProjectSavedMessage(null)
+            }}>
+              <option value="">새 프로젝트 등록</option>
+              {projects.map((item) => <option key={item.projectId} value={item.projectId}>{item.name}</option>)}
+            </select>
+          </label>
+        </div>
+        {projectSavedMessage && <p className="project-success" role="status">{projectSavedMessage}</p>}
+        {projectError && <p className="error" role="alert">{projectError}</p>}
+        <ProjectEditor key={editorProjectId ?? 'new'} projectId={editorProjectId}
+          onSaved={handleProjectSaved} onSavingChange={setProjectSaving} onChange={() => setProjectSavedMessage(null)} onCancel={() => { setPage('project-list'); void refreshProjects() }} />
+      </>}
+
+      {user && page === 'workflow' && projectSelectionNotice && <p className="notice" role="status">{projectSelectionNotice}</p>}
+
+      {user && page === 'workflow' && projectError && <p className="error">{projectError}</p>}
+
+      {user && page === 'workflow' && (
         <>
           <Stepper current={stepIndex[step]} />
 
-          {error && <p className="error">{error}</p>}
+          {error && <p className="error" role="alert">{error}</p>}
+          {meetingNotice && <p className="notice" role="status">{meetingNotice}</p>}
 
-          {step === 'upload' && (
-            <UploadForm
-              key={uploadKey}
-              projectId={project.projectId}
-              toNames={toNames}
-              starting={starting}
-              onStart={handleStart}
-            />
+          {/* 분석 중에도 마운트를 유지해 실패 시 입력값(날짜, 본문, 파일)을 보존한다. */}
+          {(step === 'upload' || step === 'analyzing') && (
+            <div hidden={step !== 'upload'}>
+              <UploadForm
+                key={uploadKey}
+                projects={projects}
+                projectId={project?.projectId ?? null}
+                projectsLoading={projectsLoading}
+                onProjectChange={handleProjectChange}
+                starting={starting}
+                onStart={handleStart}
+              />
+            </div>
           )}
 
           {step === 'analyzing' && taskId !== null && meeting && (
             <AnalysisProgress taskId={taskId} meetingTitle={meeting.title} onFinish={handleFinish} onCancel={reset} />
           )}
 
-          {step === 'result' && meeting && result && (
+          {step === 'result' && meeting && result && taskId !== null && (
             <>
-              <ResultList meeting={meeting} participants={toNames(meeting.participantIds)} result={result} />
-              <button className="link" onClick={reset}>
-                새 회의록 업로드
-              </button>
+              {/* 기획_v16: 티켓을 담당자별로 보낸 결과 (TASK-023·024·025) */}
+              <DispatchResult taskId={taskId} meeting={meeting} onUploadAnother={reset} />
+              {/* Agent 처리 상세 (Phase 1 결과 형식). 검수 지적·경고를 항목별로 볼 때 연다 */}
+              <details className="result-detail">
+                <summary>Agent 처리 상세</summary>
+                <ResultList meeting={meeting} participants={toNames(meeting.participantIds)} result={result} />
+              </details>
             </>
           )}
         </>

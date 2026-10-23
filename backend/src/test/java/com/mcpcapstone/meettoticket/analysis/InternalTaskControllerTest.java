@@ -198,12 +198,40 @@ class InternalTaskControllerTest {
 				"https://github.com/" + project.getGithubOwner() + "/" + project.getGithubRepo() + "/issues/1", null);
 		store.apply(taskId, new AgentContracts.Result(taskId, meetingId, TaskStatus.COMPLETED, TaskStage.VERIFYING,
 				task().getCreatedAt(), OffsetDateTime.now(), List.of(item),
-				new AgentContracts.Summary(1, 1, 0, 1, 0, 0, 0), null));
+				new AgentContracts.Summary(1, 1, 0, 1, 0, 0, 0, 0), null, null));
 		assertThat(task().getStatus()).isEqualTo(TaskStatus.COMPLETED);
 		assertThat(items.findByTaskIdOrderById(taskId)).hasSize(1);
 		mvc.perform(get("/api/analysis-tasks/{id}/items", taskId).session(session))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.summary.succeeded").value(1));
+	}
+
+	@Test
+	void 진행_세부_정보를_저장하고_같은_단계에서도_갱신한다() throws Exception {
+		for (int done = 5; done <= 6; done++) {
+			mvc.perform(post("/internal/tasks/{id}/progress", taskId)
+					.header("X-Internal-Token", TOKEN).contentType("application/json")
+					.content("{\"status\":\"RUNNING\",\"stage\":\"REVIEWING\",\"progress\":{\"step\":\"DEDUPING\","
+							+ "\"dedupe\":{\"done\":" + done + ",\"total\":7,\"linked\":1}}}"))
+					.andExpect(status().isAccepted());
+		}
+		mvc.perform(get("/api/analysis-tasks/{id}", taskId).session(session))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.stage").value("REVIEWING"))
+				.andExpect(jsonPath("$.progress.step").value("DEDUPING"))
+				.andExpect(jsonPath("$.progress.dedupe.done").value(6));
+		// 세부 정보 없이 온 보고는 저장된 세부 정보를 지우지 않는다
+		report(TaskStage.REVIEWING);
+		assertThat(task().getProgressJson()).contains("\"done\":6");
+	}
+
+	@Test
+	void 객체가_아닌_진행_세부_정보를_거절한다() throws Exception {
+		mvc.perform(post("/internal/tasks/{id}/progress", taskId)
+				.header("X-Internal-Token", TOKEN).contentType("application/json")
+				.content("{\"status\":\"RUNNING\",\"stage\":\"REVIEWING\",\"progress\":\"DEDUPING\"}"))
+				.andExpect(status().isBadRequest());
+		assertThat(task().getProgressJson()).isNull();
 	}
 
 	private void report(TaskStage stage) throws Exception {

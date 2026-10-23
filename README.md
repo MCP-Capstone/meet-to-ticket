@@ -12,7 +12,7 @@
 ```
 
 ```
-브라우저 -> frontend(5173) -/api 프록시-> backend(8080) -> agent(8001) -> mcp-server(8000) -> GitHub
+브라우저 -> frontend(5173) -/api 프록시-> backend(8080) -> agent(8001) -> business-mcp(8000) -> GitHub
 ```
 
 - backend는 PostgreSQL(5432)과 RabbitMQ(5672, 분석 접수 큐)를 사용한다.
@@ -25,7 +25,7 @@
 | `frontend/` | 웹 프론트 | React, TypeScript, Vite | 5173 |
 | `backend/` | API 서버 | Java 21, Spring Boot 4.1, JPA | 8080 |
 | `agent/` | 회의록 분석 AI Agent | Python 3.12, FastAPI, LangGraph | 8001 |
-| `mcp-server/` | 이슈 생성 MCP 서버 | Python 3.12, MCP | 8000 |
+| `business-mcp/` | 이슈 생성 MCP 서버 | Python 3.12, MCP | 8000 |
 | `rag-mcp/` | 기존 이슈 색인/유사 검색 MCP 서버 | Python 3.12, MCP, Chroma | 8002 |
 
 ## 실행 방법
@@ -50,9 +50,9 @@ docker compose -f compose.full.yml up -d --build
 | Docker Desktop | PostgreSQL, RabbitMQ |
 | Java 21 | backend |
 | Node 24 권장 (`frontend/.nvmrc`), 최소 20.19 또는 22.12 이상 | frontend |
-| Python 3.12, [uv](https://docs.astral.sh/uv/) | agent, mcp-server |
+| Python 3.12, [uv](https://docs.astral.sh/uv/) | agent, business-mcp |
 | OpenAI API 키 | agent (회의록 분석) |
-| GitHub 토큰 (이슈 쓰기 권한) | mcp-server (이슈 발행) |
+| GitHub 토큰 (이슈 쓰기 권한) | business-mcp (이슈 발행) |
 
 이슈 발행 테스트는 `MCP-Capstone/mcp-capstone` 저장소에서 한다. 토큰은 이 저장소에 이슈를 만들 수 있어야 한다.
 
@@ -62,7 +62,7 @@ docker compose -f compose.full.yml up -d --build
 
 | 파일 | 채울 값 |
 |---|---|
-| `mcp-server/.env` | `GITHUB_TOKEN` (`GITHUB_OWNER=MCP-Capstone`, `GITHUB_REPO=mcp-capstone`) |
+| `business-mcp/.env` | `GITHUB_TOKEN` (로컬 테스트는 `GITHUB_ALLOWED_REPOS=MCP-Capstone/mcp-capstone` 권장) |
 | `agent/.env` | `OPENAI_API_KEY` (`BACKEND_BASE_URL`은 비워 둔다. 기본 `DRY_RUN=true`라 이슈는 만들지 않고, 실제로 발행하려면 `false`로 바꾼다) |
 | 루트 `.env` | 필요 없음 (기본값 사용) |
 
@@ -73,7 +73,7 @@ docker compose -f compose.full.yml up -d --build
 docker compose up -d
 
 # 2) MCP 서버
-cd mcp-server && uv venv --python 3.12 && uv pip sync requirements-dev.txt
+cd business-mcp && uv venv --python 3.12 && uv pip sync requirements-dev.txt
 python server.py                       # http://127.0.0.1:8000/mcp
 
 # 3) Agent
@@ -115,7 +115,7 @@ cd frontend && npm ci && VITE_USE_MOCK=false npm run dev
 |---|---|
 | backend | `cd backend && ./gradlew test` |
 | agent | `cd agent && pytest` |
-| mcp-server | `cd mcp-server && pytest` |
+| business-mcp | `cd business-mcp && pytest` |
 | rag-mcp | `cd rag-mcp && pytest` |
 | frontend | `cd frontend && npm run build` (타입 검사 포함) |
 
@@ -143,7 +143,7 @@ docker compose down -v    # 종료 + 데이터 삭제
 | backend | `application.yml` 기본값 사용 (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`로 변경 가능) |
 
 - 모든 서비스는 로컬(호스트)에서 실행하므로 주소는 `localhost:5432`로 같다.
-- agent, mcp-server, rag-mcp는 DB를 사용하지 않는다. 테이블 구조는 backend(JPA 엔티티)가 관리한다.
+- agent, business-mcp, rag-mcp는 DB를 사용하지 않는다. 테이블 구조는 backend(JPA 엔티티)가 관리한다.
 - 값을 바꾸려면 `.env.example`을 `.env`로 복사해서 수정한다.
 - 5432 포트를 이미 쓰는 로컬 PostgreSQL이 있으면 먼저 종료한다.
 
@@ -153,8 +153,21 @@ docker compose down -v    # 종료 + 데이터 삭제
 - `docs/convention.md`: 브랜치 / 커밋 / PR 규칙
 - `docs/dev-env.md`: 포트, CORS, 실행 순서
 - `backend/README.md`: API, demo 프로필, 실제 Agent 연결
-- `agent/README.md`, `mcp-server/README.md`, `rag-mcp/README.md`: 개발환경과 실행
+- `agent/README.md`, `business-mcp/README.md`, `rag-mcp/README.md`: 개발환경과 실행
 - `docs/docker-compose.md`: 전체 Docker 실행 안내
 - `docs/api/README.md`: API 문서
 - `docs/rabbitmq-analysis.md`: RabbitMQ 분석 큐
 - `scripts/db/README.md`: 테이블, 시드 데이터, 샘플 회의록
+
+## 팀 역할과 기여
+
+Phase 1(Capstone)을 이어 Phase 2(Mini-project ③)를 진행한다. Phase 2 기준점은 `phase1-end` 태그다.
+
+| 이름 | Phase 1 역할 | Phase 2 역할 | R 대응 | 맡은 일 | 병합 PR |
+|---|---|---|---|---|---|
+| 강민규 | PM, Frontend | PM | | | |
+| 임나윤 | Backend | 풀스택 | | | |
+| 함주헌 | Backend | AI-Pipeline | | | |
+| 최윤경 | AI | AI-MCP | | | |
+| 박종민 | AI | AI-Agent | | | |
+| 허민규 | 기획, QA, 데이터 | Eval, Data, QA | | | |

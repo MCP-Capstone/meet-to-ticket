@@ -1,10 +1,10 @@
 # rag-mcp
 
-기존 GitHub 이슈를 저장소별 Vector DB(Chroma)에 미리 색인해 두고, Agent가 이슈를 발행하기 전에 **비슷한 기존 이슈를 찾을 수 있게** 하는 MCP 서버입니다. 이 문서는 `rag-mcp/` 폴더만 다룹니다.
+기존 GitHub 이슈를 저장소별 Vector DB(Chroma)에 미리 색인해 두고, Agent가 이슈를 발행하기 전에 **비슷한 기존 이슈를 찾을 수 있게** 하는 MCP 서버입니다. 의미 유사도와 BM25 키워드 순위를 함께 사용하지만, 결과의 `score`는 계속 의미 유사도(`1 - cosine 거리`)입니다. 이 문서는 `rag-mcp/` 폴더만 다룹니다.
 
 | 서버 | 역할 |
 |---|---|
-| `mcp-server/` (8000) | GitHub 이슈 생성·조회 (business mcp) |
+| `business-mcp/` (8000) | GitHub 이슈 생성·조회 (business mcp) |
 | `rag-mcp/` (8002) | 기존 이슈 색인과 의미 검색 (rag mcp) |
 
 강의안 레퍼런스 아키텍처의 rag mcp 구조를 따릅니다. 문서(이슈)는 질문과 별개로 미리 색인하고, 검색은 Vector DB에서 합니다.
@@ -32,13 +32,13 @@
 | `chroma-data/` | Vector DB 저장 폴더. 색인하면 생긴다 | **안 올림** |
 | `Dockerfile`, `.dockerignore` | 컨테이너 이미지 설정 (9번) | 올림 |
 
-## 2. 왜 mcp-server와 환경을 따로 두나
+## 2. 왜 business-mcp와 환경을 따로 두나
 
-같은 mcp 2.x를 쓰지만, 이 서버는 Vector DB(chromadb)와 임베딩(openai) 패키지가 추가로 필요합니다. chromadb는 함께 설치되는 패키지가 많아(약 100개), mcp-server 환경에 섞지 않고 폴더와 가상환경을 따로 둡니다. agent(mcp 1.x) 환경과도 합치지 않습니다.
+같은 mcp 2.x를 쓰지만, 이 서버는 Vector DB(chromadb)와 임베딩(openai) 패키지가 추가로 필요합니다. chromadb는 함께 설치되는 패키지가 많아(약 100개), business-mcp 환경에 섞지 않고 폴더와 가상환경을 따로 둡니다. agent(mcp 1.x) 환경과도 합치지 않습니다.
 
 ## 3. 처음 세팅
 
-`rag-mcp/` 폴더 안에서 실행합니다. uv 설치 방법은 `mcp-server/README.md` 4절과 같습니다.
+`rag-mcp/` 폴더 안에서 실행합니다. uv 설치 방법은 `business-mcp/README.md` 4절과 같습니다.
 
 ```bash
 uv venv --python 3.12
@@ -52,8 +52,8 @@ cp .env.example .env
 | 이름 | 설명 |
 |---|---|
 | `GITHUB_TOKEN` | 색인할 저장소의 이슈를 읽을 수 있는 토큰 |
-| `GITHUB_OWNER`, `GITHUB_REPO` | 색인 대상 저장소 (기본 허용 대상) |
-| `GITHUB_ALLOWED_REPOS` | 선택. 여러 저장소를 허용할 때 쉼표 구분 `owner/repo` |
+| `GITHUB_OWNER`, `GITHUB_REPO` | `index.py` 명령의 기본 색인 대상 저장소 |
+| `GITHUB_ALLOWED_REPOS` | 선택. 값이 있으면 이 저장소들만 허용(쉼표 구분 `owner/repo`), 비우면 검사하지 않음 |
 | `OPENAI_API_KEY` | 임베딩 생성용 키 |
 | `EMBEDDING_MODEL` | 기본 `text-embedding-3-small` |
 | `CHROMA_PATH` | Vector DB 저장 폴더. 비우면 `rag-mcp/chroma-data` |
@@ -82,27 +82,29 @@ python index.py --full                # 기존 색인을 지우고 전체 다시
 | 항목 | 내용 |
 |---|---|
 | 색인 대상 | PR을 뺀 열린·닫힌 이슈 |
-| 색인 텍스트 | 제목 + 본문 앞 2,000자 |
+| 색인 텍스트 | 제목 + 본문 앞 2,000자 + 최근 댓글 10개. 발행 양식의 회의 배경·푸터는 제외 |
 | 저장 위치 | `CHROMA_PATH` 폴더, 저장소마다 컬렉션 `issues__{owner}__{repo}` (cosine) |
-| 컬렉션 메타데이터 | 임베딩 모델, 벡터 차원, 마지막 색인 시각(`last_synced_at`) |
+| 컬렉션 메타데이터 | 임베딩 모델, 벡터 차원, 색인 형식 버전, 마지막 색인 시각(`last_synced_at`) |
 | 다시 색인 | `last_synced_at` 이후 바뀐 이슈만 GitHub에서 받고, `updated_at`이 같으면 건너뜀. 바뀐 이슈가 없으면 임베딩을 부르지 않음 |
-| 임베딩 모델을 바꾸면 | 기존 색인과 비교할 수 없어 자동으로 전체 다시 색인 |
+| 임베딩 모델·색인 형식을 바꾸면 | 기존 색인과 비교할 수 없어 자동으로 전체 다시 색인 |
 | GitHub에서 지운 이슈 | 바뀐 것만 받는 방식이라 색인에 남습니다. `--full`로 정리합니다 |
 
 오류는 `[코드] 메시지` 형식으로 나옵니다: `CONFIG_MISSING`(키 없음), `REPOSITORY_NOT_ALLOWED`, `GITHUB_AUTH`, `GITHUB_NOT_FOUND`, `GITHUB_RATE_LIMIT`, `GITHUB_ERROR`, `EMBEDDING_ERROR`.
 
 ## 6. 도구와 Resource
 
-Agent는 `http://127.0.0.1:8002/mcp`로 연결해 아래 도구를 부릅니다. 모든 도구는 `owner`, `repo`를 받고, 허용 저장소(`GITHUB_ALLOWED_REPOS` 또는 `GITHUB_OWNER/GITHUB_REPO`)만 다룹니다.
+Agent는 `http://127.0.0.1:8002/mcp`로 연결해 아래 도구를 부릅니다. 모든 도구는 `owner`, `repo`를 받고, `GITHUB_ALLOWED_REPOS`에 값이 있으면 그 저장소만 다룹니다.
 
 | 이름 | 종류 | 입력 | 출력 |
 |---|---|---|---|
-| `search_similar_issues` | 조회 (읽기 전용) | `query`, `k`(기본 5, 1~10), `state`(`open`/`closed`/`all`, 기본 `all`) | `repository`, `index{model, count, updated_at}`, `results[{number, title, state, url, score, snippet, closed_at}]` |
+| `search_similar_issues` | 조회 (읽기 전용) | `query`, `k`(기본 5, 1~10), `state`(`open`/`closed`/`all`, 기본 `all`) | `repository`, `index{model, count, updated_at}`, `results[{number, title, state, url, score, matched_keywords, snippet, closed_at}]` |
 | `sync_issues` | 변경 (색인만 바꿈) | `full`(기본 `false`) | `repository`, `indexed`, `skipped`, `total`, `full`, `updated_at` |
 | `index_issue` | 변경 (색인만 바꿈) | `number` | `repository`, `number`, `indexed` |
+| `index_status` | 조회 (읽기 전용) | 없음 | `repository`, `count`, `last_synced_at`, `embedding_model` |
+| `drop_index` | 변경 (색인만 바꿈) | 없음 | `repository`, `count: 0`, `deleted` |
 | Resource `issue://{owner}/{repo}/{number}` | 원문 | | 제목, 상태(닫힌 시각), URL, 본문 (GitHub에서 바로 읽음) |
 
-- `score`는 `1 - cosine 거리`입니다. 1에 가까울수록 비슷합니다. 실제 저장소에서 거의 같은 제목은 0.8 안팎, 관계없는 이슈는 0.3 안팎이었습니다.
+- `score`는 `1 - cosine 거리`입니다. 1에 가까울수록 의미상 비슷합니다. 정렬은 의미 순위와 BM25 키워드 순위를 합치므로 `score` 자체가 내림차순일 필요는 없습니다. `matched_keywords`는 BM25에서 실제로 일치한 단어입니다.
 - `snippet`은 본문 앞 200자, `closed_at`은 열린 이슈면 `null`입니다.
 - 검색 결과는 그 저장소 컬렉션에서만 찾습니다. 다른 저장소 이슈는 섞이지 않습니다.
 - 도구는 GitHub 이슈를 만들거나 바꾸지 않습니다. 바꾸는 것은 Vector DB 색인뿐입니다.
@@ -111,7 +113,7 @@ Agent는 `http://127.0.0.1:8002/mcp`로 연결해 아래 도구를 부릅니다.
 |---|---|
 | `INDEX_EMPTY` | 색인이 비었거나, 색인 모델과 현재 모델이 다름 → `sync_issues` (모델이 다르면 `full=true`) |
 | `INVALID_ARGUMENT` | `query`가 비었거나 `state`가 잘못됨 |
-| `REPOSITORY_NOT_ALLOWED` | 허용되지 않은 저장소 |
+| `REPOSITORY_NOT_ALLOWED` | `GITHUB_ALLOWED_REPOS`에 값이 있는데 그 안에 없는 저장소 |
 | `GITHUB_AUTH`, `GITHUB_NOT_FOUND`, `GITHUB_RATE_LIMIT`, `GITHUB_ERROR` | GitHub 호출 실패 (색인·원문 읽기) |
 | `EMBEDDING_ERROR` | OpenAI 임베딩 실패 |
 
@@ -121,6 +123,14 @@ Agent 쪽에서 연결을 확인하려면 두 서버를 켠 뒤 `agent/` 폴더�
 python mcp_check.py --owner MCP-Capstone --repo mcp-capstone --rag "로그인 버튼 모양 변경"
 ```
 
+### Agent·화면 연동 순서
+
+1. 프로젝트별 발행을 시작하기 전에 Agent가 `sync_issues(full=false)`를 한 번 호출합니다. 색인 오류는 발행 자체를 막지 않고 로그로 남깁니다.
+2. GitHub 이슈를 새로 발행하거나 기존 이슈에 댓글·본문 변경을 반영한 직후, Agent가 `index_issue`를 best-effort로 호출합니다. 이 호출이 실패해도 GitHub 발행 결과는 실패로 바꾸지 않습니다.
+3. 색인 관리 화면은 Agent를 통해 `index_status`, `sync_issues(full=true)`, `drop_index`를 호출합니다. `drop_index`는 해당 `owner/repo` 컬렉션만 지우며 다른 프로젝트 색인에는 영향이 없습니다.
+
+이 MCP는 GitHub 발행 API나 화면 API를 직접 변경하지 않습니다. 위 호출의 재시도·오류 표시 정책은 Agent와 Backend가 담당합니다.
+
 ## 7. 테스트
 
 ```bash
@@ -128,6 +138,14 @@ pytest
 ```
 
 `tests/conftest.py`가 테스트 중 실제 GitHub·OpenAI 호출을 막습니다. 색인 테스트는 가짜 GitHub(`tests/fakes.py`), 가짜 임베딩, 임시 Chroma 폴더를 씁니다. 도구 테스트는 서버를 띄우지 않고 `mcp.call_tool`, `mcp.read_resource`로 부릅니다 (인메모리). 토큰과 키가 `.env`에 있어도 테스트에서는 지워집니다.
+
+검색 품질은 실제 색인을 만든 뒤 아래 20개 평가 질의로 측정합니다. 결과에는 `Recall@k`, `MRR`, 검색된 결과의 의미 점수 분포가 JSON으로 출력됩니다.
+
+```bash
+python -m eval.evaluate --owner MCP-Capstone --repo mcp-capstone --k 5
+```
+
+평가 질의와 기대 이슈 번호는 `eval/cases.json`에 있습니다. 저장소 이슈가 바뀌면 이 파일도 함께 검토합니다.
 
 ## 9. Docker로 실행
 
@@ -173,7 +191,7 @@ docker run --rm -p 127.0.0.1:8002:8002 --env-file rag-mcp/.env -v meet-to-ticket
 
 ## 10. 패키지 추가 규칙
 
-`mcp-server/README.md` 6절과 같습니다. 패키지 추가와 compile은 환경 담당이 하며, 이 폴더에서 아래 두 줄로 `.txt`를 만듭니다.
+`business-mcp/README.md` 6절과 같습니다. 패키지 추가와 compile은 환경 담당이 하며, 이 폴더에서 아래 두 줄로 `.txt`를 만듭니다.
 
 ```bash
 uv pip compile requirements.in --universal -o requirements.txt

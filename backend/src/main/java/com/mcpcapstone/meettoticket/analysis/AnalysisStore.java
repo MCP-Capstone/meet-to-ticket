@@ -5,6 +5,7 @@ import com.mcpcapstone.meettoticket.common.*;
 import com.mcpcapstone.meettoticket.common.error.*;
 import com.mcpcapstone.meettoticket.meeting.*;
 import com.mcpcapstone.meettoticket.project.*;
+import com.mcpcapstone.meettoticket.project.dto.ProjectDetail;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -12,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import tools.jackson.databind.JsonNode;
 
 import java.time.*;
 import java.util.*;
@@ -39,11 +42,7 @@ public class AnalysisStore {
         var all = members.findByProjectIdOrderById(m.getProject().getId());
         List<Long> participantIds = new ArrayList<>();
         json.read(m.getParticipantsJson()).forEach(n -> participantIds.add(n.longValue()));
-        if (mode.equals("LIVE")
-                && all.stream()
-                        .filter(x -> participantIds.contains(x.getId()))
-                        .anyMatch(x -> x.getGithubName() == null || x.getGithubName().isBlank()))
-            throw new BusinessException(ErrorCode.MEMBER_GITHUB_UNLINKED);
+        // GitHub 계정이 없는 멤버도 분석한다. 이슈 본문에 이름만 적고 GitHub 담당자 지정은 건너뛴다 (REQ-010)
         var project = m.getProject();
         var request =
                 new AgentContracts.StartRequest(
@@ -60,7 +59,11 @@ public class AnalysisStore {
                                 project.getId(),
                                 project.getName(),
                                 project.getGithubOwner(),
-                                project.getGithubRepo()),
+                                project.getGithubRepo(),
+                                // 연결 오류가 확인된 Notion은 보내지 않는다. 확인 전(null)이면 보내고, 실패하면 Agent가 맥락 없이 진행한다
+                                project.notionConnectionStatus() == ProjectDetail.ConnectionStatus.ERROR
+                                        ? null
+                                        : project.getNotionPageUrl()),
                         all.stream()
                                 .map(
                                         x ->
@@ -114,6 +117,8 @@ public class AnalysisStore {
         boolean mock = mode(t).equals("MOCK");
         validator.validate(requestOf(t), result, mock);
         if (result.status().terminal()) {
+            List<ProjectMember> projectMembers =
+                    members.findByProjectIdOrderById(t.getMeeting().getProject().getId());
             for (var item : result.items()) {
                 var existing = items.findById(item.itemId());
                 if (existing.isPresent()) {
@@ -121,7 +126,10 @@ public class AnalysisStore {
                         throw new IllegalArgumentException("다른 작업의 itemId입니다.");
                     continue;
                 }
-                items.save(new TaskItem(t, item, json.write(item.contentJson())));
+                var saved = new TaskItem(t, item, json.write(item.contentJson()));
+                saved.assignTo(AssigneeResolver.resolve(
+                        item.contentJson(), projectMembers, t.getMeeting().getCreatedBy()).orElse(null));
+                items.save(saved);
             }
         }
         t.update(
@@ -129,20 +137,26 @@ public class AnalysisStore {
                 result.stage(),
                 result.finishedAt(),
                 result.error() == null ? null : result.error().message());
+        if (result.progress() != null) t.updateProgress(json.write(result.progress()));
     }
 
 	// 진행 보고만 갱신한다. 최종 상태와 항목 저장은 기존 apply()가 담당한다.
 	@Transactional
-	public void updateProgress(UUID id, TaskStatus status, TaskStage stage) {
-		if (status != TaskStatus.RUNNING || stage == null || stage == TaskStage.VERIFYING) {
+	public void updateProgress(UUID id, TaskStatus status, TaskStage stage, JsonNode progress) {
+		if (status != TaskStatus.RUNNING || stage == null || stage == TaskStage.VERIFYING
+				|| progress != null && !progress.isObject()) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED);
 		}
 		AnalysisTask task = tasks.findForUpdate(id)
 				.orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
 		if (task.getStatus().terminal()) return;
 		// TaskStage는 처리 순서대로 선언돼 있다. 중복·지연된 보고로 단계를 되돌리지 않는다.
-		if (task.getStage() != null && stage.compareTo(task.getStage()) <= 0) return;
-		task.update(TaskStatus.RUNNING, stage, task.getFinishedAt(), task.getErrorMessage());
+		if (task.getStage() != null && stage.compareTo(task.getStage()) < 0) return;
+		// 같은 단계 안에서는 세부 정보만 바뀐다 (예: 중복 검수 5/7 → 6/7)
+		if (stage != task.getStage()) {
+			task.update(TaskStatus.RUNNING, stage, task.getFinishedAt(), task.getErrorMessage());
+		}
+		if (progress != null) task.updateProgress(json.write(progress));
 	}
 
     @Transactional
@@ -187,7 +201,8 @@ public class AnalysisStore {
                 mode(t),
                 t.getCreatedAt(),
                 t.getFinishedAt(),
-                t.getErrorMessage());
+                t.getErrorMessage(),
+                t.getProgressJson() == null ? null : json.read(t.getProgressJson()));
     }
 
     private AgentContracts.Item itemView(TaskItem i) {
@@ -206,7 +221,7 @@ public class AnalysisStore {
     }
 
     private AgentContracts.Summary summary(List<AgentContracts.Item> list) {
-        int approved = 0, rejected = 0, s = 0, f = 0, u = 0, k = 0;
+        int approved = 0, rejected = 0, s = 0, f = 0, u = 0, k = 0, d = 0;
         for (var i : list) {
             if ("APPROVED".equals(i.reviewStatus())) approved++;
             else if ("REJECTED".equals(i.reviewStatus())) rejected++;
@@ -215,10 +230,11 @@ public class AnalysisStore {
                 case "FAILED" -> f++;
                 case "UNKNOWN" -> u++;
                 case "SKIPPED" -> k++;
+                case "DRAFT" -> d++;
                 default -> {}
             }
         }
-        return new AgentContracts.Summary(list.size(), approved, rejected, s, f, u, k);
+        return new AgentContracts.Summary(list.size(), approved, rejected, s, f, u, k, d);
     }
 
     public record Pending(UUID taskId, String executionMode, OffsetDateTime createdAt) {}
@@ -239,7 +255,9 @@ public class AnalysisStore {
             @Schema(description = "종료 시각. 진행 중 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
             OffsetDateTime finishedAt,
             @Schema(description = "전체 실패 사유. 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
-            String errorMessage) {}
+            String errorMessage,
+            @Schema(description = "진행 화면용 세부 정보. 아직 없으면 null. step: CONTEXT(맥락 파악) / EXTRACTING(티켓 추출) / DEDUPING(중복 검수) / DISPATCHING(담당자에게 전송). context: {members, issues, notionDocs}, extraction: {todos, decisions, openQuestions}, dedupe: {done, total, linked}. 아직 모르는 값은 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, type = "object", implementation = Object.class)
+            JsonNode progress) {}
 
     public record ItemList(
             @Schema(description = "분석 UUID", requiredMode = Schema.RequiredMode.REQUIRED, example = "9b12ec5a-1423-4b71-8e20-f8f28d306c81")

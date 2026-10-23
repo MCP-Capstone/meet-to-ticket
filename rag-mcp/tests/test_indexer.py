@@ -132,7 +132,35 @@ def test_index_issue_adds_one(store):
     assert store.get_collection("o", "r").count() == 1
 
 
+def test_index_issue_does_not_move_sync_cursor(store):
+    # index_issue가 last_synced_at을 올리면 다음 증분 동기화가 그 사이 바뀐 다른 이슈를 놓친다
+    gh = FakeGitHub({"o/r": [gh_item(1, "a"), gh_item(9, "새 이슈")]})
+    emb = FakeEmbedder()
+    sync(gh, emb, store)
+    before = store.get_collection("o", "r").metadata["last_synced_at"]
+    indexer.index_issue("o", "r", 9, client=gh.client(), embedder=emb, store=store)
+    assert store.get_collection("o", "r").metadata["last_synced_at"] == before
+
+
+def test_index_issue_on_new_collection_leaves_cursor_unset(store):
+    # 컬렉션이 없을 때 만들어도 커서를 두지 않아, 다음 동기화가 전체를 받는다
+    gh = FakeGitHub({"o/r": [gh_item(9, "새 이슈")]})
+    indexer.index_issue("o", "r", 9, client=gh.client(), embedder=FakeEmbedder(), store=store)
+    assert "last_synced_at" not in (store.get_collection("o", "r").metadata or {})
+
+
 def test_build_text_limits_body():
     # 본문은 앞 2,000자만 쓴다
     text = indexer.build_text({"title": "t", "body": "x" * 5000})
     assert text.startswith("t\n\n") and len(text) == 3 + indexer.BODY_MAX
+
+
+def test_build_text_removes_published_meeting_template_and_keeps_comments():
+    issue = {
+        "title": "로그인 개선",
+        "body": "실제 작업 내용\n\n<details>\n<summary>회의 배경</summary>\n회의 공통 설명\n</details>\n\n---\n회의: 12 · work_key: A-1 · 회의 후속조치 Agent가 작성",
+        "comments": ["갱신된 요구사항"],
+    }
+    text = indexer.build_text(issue)
+    assert "실제 작업 내용" in text and "갱신된 요구사항" in text
+    assert "회의 배경" not in text and "work_key" not in text

@@ -1,7 +1,7 @@
 """중복 판단에 쓰는 기존 이슈 조회 도구.
 
 모델에게 주는 도구(조회만)와 코드만 부르는 도구(색인)를 나눈다.
-- 모델용: search_similar_issues(rag-mcp, 의미 검색), search_issues(mcp-server, 키·단어 검색),
+- 모델용: search_similar_issues(rag-mcp, 의미 검색), search_issues(business-mcp, 키·단어 검색),
           read_issue(rag-mcp Resource issue://{owner}/{repo}/{number}를 도구로 감쌈)
 - 코드용: sync(실행마다 1회 색인 갱신), index(발행한 이슈 색인)
 
@@ -28,7 +28,7 @@ ResourceReader = Callable[[str], Awaitable[str]]
 
 
 class SimilarArgs(BaseModel):
-    query: str = Field(description="찾을 작업 내용. 새 티켓의 제목이나 한 줄 요약")
+    query: str = Field(description="찾을 작업 내용. 첫 검색은 새 티켓의 할 일(회의록 원문) 문장을 그대로 쓴다")
     k: int = Field(5, ge=1, le=10, description="가져올 후보 수 (1~10)")
     state: State = Field("all", description="이슈 상태 (open, closed, all)")
 
@@ -60,10 +60,11 @@ class IssueTools:
         repo: str,
         *,
         similar: Any | None = None,      # rag-mcp search_similar_issues (MCP 도구)
-        keyword: Any | None = None,      # mcp-server search_issues (MCP 도구)
+        keyword: Any | None = None,      # business-mcp search_issues (MCP 도구)
         reader: ResourceReader | None = None,  # rag-mcp Resource 읽기
         sync_tool: Any | None = None,    # rag-mcp sync_issues
         index_tool: Any | None = None,   # rag-mcp index_issue
+        status_tool: Any | None = None,  # rag-mcp index_status (색인 개수)
         max_chars: int = 2000,
     ):
         self.owner = owner
@@ -73,6 +74,7 @@ class IssueTools:
         self._reader = reader
         self._sync = sync_tool
         self._index = index_tool
+        self._status = status_tool
         self.max_chars = max_chars
 
     # ------------------------------------------------------------ 모델용
@@ -157,6 +159,18 @@ class IssueTools:
         except ToolCallError as exc:
             log.warning("색인 갱신 실패 %s/%s: [%s] %s", self.owner, self.repo, exc.code, exc.message)
             return None
+
+    async def count(self) -> int | None:
+        """색인된 기존 이슈 수 (진행 화면의 맥락 파악). 모르면 None."""
+        if self._status is None:
+            return None
+        try:
+            out = await self._call(self._status, {})
+        except ToolCallError as exc:
+            log.warning("색인 개수 조회 실패 %s/%s: [%s] %s", self.owner, self.repo, exc.code, exc.message)
+            return None
+        count = out.get("count")
+        return count if isinstance(count, int) else None
 
     async def index(self, number: int) -> bool:
         """새로 발행한 이슈를 색인에 추가한다. 실패해도 발행 결과에는 영향이 없다."""

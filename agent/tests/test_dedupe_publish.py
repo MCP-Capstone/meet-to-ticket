@@ -88,7 +88,7 @@ def test_dedupe_link_lines():
     assert dedupe_link({"relation": None, "issue_number": None, "skipped": "timeout"}) is None
     ticket = {"action_text": "a", "dedupe": {"relation": "RELATED", "issue_number": 3, "issue_state": "open"}}
     body = build_issue_body(ticket, "m", "")
-    assert "## 관련\n- 관련 이슈: #3" in body  # 회의록 예상 처리·관련 키가 없어도 관련 절을 만든다
+    assert "## 관련 이슈\n- 관련 이슈: #3" in body  # 회의록 예상 처리·관련 키가 없어도 관련 절을 만든다
 
 
 async def test_new_issues_are_indexed(settings):

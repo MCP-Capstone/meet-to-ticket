@@ -7,7 +7,7 @@ import pytest
 
 from config import Settings
 from publisher import ToolCallError
-from schemas import ActionRowOut, DraftTicket, Meeting, Project, ProjectMember, ReviewCheck, RunRequest, TicketReview
+from schemas import ActionRowOut, ActionRowsOut, DecisionOut, DraftTicket, Meeting, Project, ProjectMember, ReviewCheck, RunRequest, TicketReview
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 
@@ -74,29 +74,52 @@ class FakeLLM:
 
     def __init__(self, review_plan: dict[str, list[list[tuple[int, str]]]] | None = None,
                  fail_on: str | None = None, rows: list[ActionRowOut] | None = None,
-                 bad_quote_for: set[str] | None = None, always: set[str] | None = None):
+                 decisions: list[DecisionOut] | None = None, open_questions: list[str] | None = None,
+                 excluded: list[str] | None = None,
+                 bad_quote_for: set[str] | None = None, always: set[str] | None = None,
+                 skip_draft: dict[str, int] | None = None, skip_revise: dict[str, int] | None = None,
+                 draft_questions: list[str] | None = None, notion_for: set[str] | None = None):
         self.always = always or set()
         self.review_plan = review_plan or {}
         self.review_round: dict[str, int] = {}
         self.fail_on = fail_on
         self.rows = rows or []
+        self.decisions = decisions or []
+        self.open_questions = open_questions or []
+        self.excluded = excluded or []
         self.bad_quote_for = bad_quote_for or set()
+        self.skip_draft = dict(skip_draft or {})  # work_key → 초안을 빠뜨릴 횟수
+        self.skip_revise = dict(skip_revise or {})  # work_key → 보완 초안을 빠뜨릴 횟수
+        self.draft_questions = draft_questions or []  # 초안마다 돌려줄 미결 질문
+        self.notion_for = notion_for or set()  # Notion으로 분류할 work_key
+        self.draft_contexts: list[Any] = []
         self.draft_calls: list[list[dict[str, Any]]] = []
+        self.draft_labels: list[list[str] | None] = []
         self.review_contexts: list[Any] = []
 
-    async def extract_rows(self, summary: str) -> list[ActionRowOut]:
-        if self.fail_on == "rows":
+    async def extract(self, summary: str) -> ActionRowsOut:
+        if self.fail_on == "extract":
             from state import AgentFatal
             raise AgentFatal("LLM_ERROR", "boom")
-        return self.rows
+        return ActionRowsOut(rows=self.rows, decisions=self.decisions,
+                             open_questions=self.open_questions, excluded=self.excluded)
 
-    async def draft(self, summary: str, items: list[dict[str, Any]]) -> list[DraftTicket]:
+    async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None,
+                    context: dict[str, Any] | None = None) -> list[DraftTicket]:
         if self.fail_on == "draft":
             from state import AgentFatal
             raise AgentFatal("LLM_ERROR", "boom")
         self.draft_calls.append(items)
+        self.draft_labels.append(labels)
+        self.draft_contexts.append(context)
         out = []
         for it in items:
+            if self.skip_draft.get(it["work_key"], 0) > 0:
+                self.skip_draft[it["work_key"]] -= 1  # 초안을 빠뜨리는 LLM 흉내
+                continue
+            if "feedback" in it and self.skip_revise.get(it["work_key"], 0) > 0:
+                self.skip_revise[it["work_key"]] -= 1
+                continue
             quote = it["action"]
             if it["work_key"] in self.bad_quote_for and "feedback" not in it:
                 quote = "원문에 없는 문장"
@@ -104,9 +127,13 @@ class FakeLLM:
                 work_key=it["work_key"],
                 title=f"{it['action']}" + (" (수정)" if "feedback" in it else ""),
                 description=f"{it['action']}을(를) 진행한다. 가나다라 표시.",
+                tasks=[f"{it['action']} 작업"],
                 acceptance_criteria=["결과를 팀에 공유한다"],
                 evidence_quotes=[quote],
-                open_questions=[],
+                open_questions=list(self.draft_questions),
+                publish_target="NOTION" if it["work_key"] in self.notion_for else "GITHUB",
+                target_reason="코드 변경 없는 조사" if it["work_key"] in self.notion_for else "코드 변경이 필요한 구현",
+                labels=[*(labels or [])[:1], "후보에 없는 라벨"],  # 후보 밖 라벨은 코드가 뺀다
             ))
         return out
 
@@ -158,18 +185,32 @@ class FakePublisher:
 class FakeReporter:
     def __init__(self):
         self.progress_calls: list[tuple[str, str, str]] = []
+        self.progress_details: list[dict[str, Any] | None] = []  # progress_calls와 같은 순서
         self.results: list[dict[str, Any]] = []
+        self.publish_results: list[dict[str, Any]] = []
 
-    async def progress(self, task_id: str, status: str, stage: str) -> None:
+    async def progress(self, task_id: str, status: str, stage: str, progress: dict[str, Any] | None = None) -> None:
         self.progress_calls.append((task_id, status, stage))
+        self.progress_details.append(progress)
 
     async def result(self, task_id: str, payload: dict[str, Any]) -> bool:
         self.results.append(payload)
         return True
 
+    async def publish_result(self, batch_id: str, payload: dict[str, Any]) -> bool:
+        self.publish_results.append(payload)
+        return True
+
 
 @pytest.fixture
 def settings() -> Settings:
+    # 기존 테스트는 Phase 1 흐름(검수 후 바로 발행)을 검증한다. 초안 저장 모드는 draft_settings로 본다
+    return Settings(max_revisions=2, publish_on_run=True)
+
+
+@pytest.fixture
+def draft_settings() -> Settings:
+    """기본 설정과 같은 초안 저장 모드 (기획_v16, TASK-012)."""
     return Settings(max_revisions=2)
 
 

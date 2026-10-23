@@ -13,10 +13,11 @@ import prompts
 from config import Settings
 from issue_tools import IssueTools
 from nodes import AgentNodes, run_metrics
+from project_context import ProjectContextTools
 from publisher import DryRunPublisher, McpPublisher
 from reporter import BackendReporter
-from schemas import RunRequest, RunResult
-from state import MCP_UNAVAILABLE, STAGE_EXTRACTING, STATUS_FAILED, AgentState
+from schemas import PublishBatchRequest, PublishBatchResult, RunRequest, RunResult
+from state import MCP_UNAVAILABLE, STAGE_EXTRACTING, STATUS_FAILED, STATUS_RUNNING, STEP_CONTEXT, AgentState
 
 log = logging.getLogger("agent.runner")
 
@@ -62,7 +63,8 @@ async def history(task_id: str) -> list[dict[str, Any]] | None:
     """노드가 끝날 때마다 저장된 상태를 시간 순서로 요약한다. 기록이 없으면 None."""
     from graph import build_graph
 
-    app = build_graph(AgentNodes(None, None, None, Settings()), checkpointer())  # 상태 조회만 하고 실행하지 않음
+    # 상태 조회만 하고 실행하지 않는다. 발행 노드가 있는 그래프로 읽어야 PUBLISH_ON_RUN 실행 기록도 노드 이름이 맞다
+    app = build_graph(AgentNodes(None, None, None, Settings(publish_on_run=True)), checkpointer())
     snapshots = [s async for s in app.aget_state_history(_thread(task_id))]
     if not snapshots:
         return None
@@ -97,10 +99,12 @@ def initial_state(req: RunRequest, trace_id: str | None = None, deadline_seconds
         "started_at": started_at,
         "deadline_at": started_at + deadline_seconds if deadline_seconds > 0 else None,
         "meeting_id": str(m.meeting_id),
+        "meeting_title": m.title or "",
         "meeting_date": m.meeting_date.isoformat() if m.meeting_date else None,
         "original_content": m.original_content,
         "owner": req.project.github_owner,
         "repo": req.project.github_repo,
+        "notion_page_url": req.project.notion_page_url,
         "members": [pm.model_dump() for pm in req.project_members],
         "tickets": [],
         "stage": STAGE_EXTRACTING,
@@ -116,7 +120,7 @@ def _mcp_client(name: str, url: str) -> Any:
 
 
 async def github_tools(settings: Settings) -> dict[str, Any]:
-    """mcp-server의 도구 (create_issue, search_issues 등). 연결이 안 되면 예외."""
+    """business-mcp의 도구 (create_issue, search_issues 등). 연결이 안 되면 예외."""
     tools = await _mcp_client("github", settings.mcp_server_url).get_tools(server_name="github")
     return {t.name: t for t in tools}
 
@@ -124,7 +128,8 @@ async def github_tools(settings: Settings) -> dict[str, Any]:
 def make_mcp_publisher(tools: dict[str, Any]) -> McpPublisher:
     if "create_issue" not in tools:
         raise RuntimeError(f"create_issue 도구를 찾지 못함: {sorted(tools)}")
-    return McpPublisher(tools["create_issue"])
+    return McpPublisher(tools["create_issue"], tools.get("add_comment"), tools.get("update_issue"), tools.get("post_message"),
+                        tools.get("search_issues"), tools.get("find_marker"), tools.get("create_page"))
 
 
 async def make_issue_tools(
@@ -157,9 +162,19 @@ async def make_issue_tools(
         reader=read_resource,
         sync_tool=rag.get("sync_issues"),
         index_tool=rag.get("index_issue"),
+        status_tool=rag.get("index_status"),
         max_chars=settings.tool_result_max_chars,
     )
     return tools, "ready"
+
+
+async def report_context_started(req: RunRequest, reporter: Any) -> None:
+    progress = {"step": STEP_CONTEXT,
+                "context": {"members": len(req.project_members), "issues": None, "notionDocs": None}}
+    try:
+        await reporter.progress(req.task_id, STATUS_RUNNING, STAGE_EXTRACTING, progress)
+    except Exception as exc:  # noqa: BLE001 - 보고 실패로 작업을 멈추지 않는다
+        log.warning("진행 보고 실패: %s", exc)
 
 
 async def sync_index(tools: IssueTools, settings: Settings) -> dict[str, Any] | None:
@@ -169,6 +184,58 @@ async def sync_index(tools: IssueTools, settings: Settings) -> dict[str, Any] | 
     except asyncio.TimeoutError:
         log.warning("색인 갱신이 %s초 안에 끝나지 않아 건너뜀", settings.rag_sync_timeout_seconds)
         return None
+
+
+async def run_publish_batch(
+    request: PublishBatchRequest, settings: Settings, *, publisher: Any | None = None, llm: Any | None = None,
+) -> PublishBatchResult:
+    """확인된 여러 프로젝트 티켓을 발행한다.
+
+    프로젝트별로 재대조가 색인을 한 번 증분 동기화한다. 재대조·색인 실패는 기존 처리 유형과 GitHub 발행을 막지 않는다.
+    """
+    from batch_publish import _ticket, publish_batch
+    from recheck import recheck
+
+    github: dict[str, Any] | None = None
+    if publisher is None:
+        if settings.dry_run:
+            publisher = DryRunPublisher()
+        else:
+            github = await github_tools(settings)
+            publisher = make_mcp_publisher(github)
+    if settings.rag_enabled and llm is None:
+        from llm import OpenAILLM
+        llm = OpenAILLM(settings)
+
+    # 재대조는 같은 저장소 묶음마다 sync_issues 한 번을 수행한다.
+    prepared = list(request.tickets)
+    by_repo: dict[tuple[str, str], list[int]] = {}
+    for index, ticket in enumerate(prepared):
+        by_repo.setdefault((ticket.project.github_owner, ticket.project.github_repo), []).append(index)
+    indexed: dict[tuple[str, str], IssueTools] = {}
+    if settings.rag_enabled:
+        for key, positions in by_repo.items():
+            tools, _ = await make_issue_tools(settings, key[0], key[1], github)
+            if tools is None or llm is None:
+                continue
+            checked = await recheck([_ticket(prepared[pos]) for pos in positions], issue_tools=tools, llm=llm, settings=settings)
+            for pos, value in zip(positions, checked["tickets"]):
+                handling = value.get("handling") or {}
+                prepared[pos] = prepared[pos].model_copy(update={
+                    "processing_type": handling.get("type", prepared[pos].processing_type),
+                    "target_issue_number": handling.get("issue_number", prepared[pos].target_issue_number),
+                })
+            indexed[key] = tools
+
+    result = await publish_batch(request.model_copy(update={"tickets": prepared}), publisher)
+    # 발행/댓글/갱신 직후 최신 본문·댓글을 다시 색인한다. 실패는 결과 성공을 바꾸지 않는다.
+    source = {ticket.ticket_id: ticket for ticket in prepared}
+    for item in result.items:
+        ticket = source[item.ticket_id]
+        tools = indexed.get((ticket.project.github_owner, ticket.project.github_repo))
+        if tools and item.github_issue_number and item.status in {"PUBLISHED", "LINKED", "UPDATED"}:
+            await tools.index(item.github_issue_number)
+    return result
 
 
 def _failed(req: RunRequest, code: str, message: str) -> dict[str, Any]:
@@ -191,6 +258,7 @@ async def run(
     publisher: Any | None = None,
     reporter: Any | None = None,
     issue_tools: IssueTools | None = None,
+    notion_tools: dict[str, Any] | None = None,
 ) -> RunResult:
     """요청 1건을 하나의 trace로 실행한다.
 
@@ -224,7 +292,7 @@ async def run(
         tags=["meet-to-ticket"],
     ) as run_tree:
         result = await _run(req, settings, trace_id, metadata, llm=llm, publisher=publisher, reporter=reporter,
-                            issue_tools=issue_tools)
+                            issue_tools=issue_tools, notion_tools=notion_tools)
         run_tree.end(outputs={"status": result.status, "errorCode": result.error_code, "summary": result.summary})
     log.info("작업 끝 task=%s trace=%s status=%s error=%s %sms", req.task_id, trace_id,
              result.status, result.error_code, result.metrics.get("durationMs"))
@@ -241,6 +309,7 @@ async def _run(
     publisher: Any | None,
     reporter: Any | None,
     issue_tools: IssueTools | None = None,
+    notion_tools: dict[str, Any] | None = None,
 ) -> RunResult:
     state = initial_state(req, trace_id, settings.task_deadline_seconds)
     publisher_was_injected = publisher is not None  # 테스트에서 가짜 발행 도구를 넣은 경우
@@ -273,16 +342,38 @@ async def _run(
             try:
                 github = await github_tools(settings)
             except Exception as exc:  # noqa: BLE001
-                log.warning("mcp-server 조회 도구를 쓰지 못함 (키워드 검색 없이 진행): %s", exc)
+                log.warning("business-mcp 조회 도구를 쓰지 못함 (키워드 검색 없이 진행): %s", exc)
         issue_tools, rag_status = await make_issue_tools(
             settings, req.project.github_owner, req.project.github_repo, github)
     else:
         rag_status = "ready"
+    # 색인 갱신과 맥락 불러오기는 오래 걸릴 수 있어(각 최대 30초) 진행 화면에 "맥락 파악"을 먼저 보고한다.
+    # 불러온 개수는 prepare가 다시 보고한다
+    await report_context_started(req, reporter)
     state["rag"] = {"status": rag_status, "sync": await sync_index(issue_tools, settings) if issue_tools else None}
+
+    if notion_tools is None and req.project.notion_page_url and not publisher_was_injected:
+        # Notion 도구(list_pages, read_page)도 business-mcp에 있다. dry run이면 아직 연결하지 않았을 수 있다
+        if github is None:
+            try:
+                github = await github_tools(settings)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("business-mcp에 연결하지 못해 Notion 맥락 없이 진행: %s", exc)
+        notion_tools = github
+    context_source = notion_tools or github or {}
+    context_tools = None
+    if context_source and (context_source.get("list_issues") is not None or req.project.notion_page_url is not None):
+        context_tools = ProjectContextTools(
+            context_source.get("list_issues"), context_source.get("list_pages"), context_source.get("read_page"),
+            max_chars=settings.tool_result_max_chars,
+        )
 
     from graph import build_graph
 
-    nodes = AgentNodes(llm=llm, publisher=publisher, reporter=reporter, settings=settings, issue_tools=issue_tools)
+    nodes = AgentNodes(
+        llm=llm, publisher=publisher, reporter=reporter, settings=settings, issue_tools=issue_tools,
+        context_tools=context_tools,
+    )
     app = build_graph(nodes, checkpointer())
     config = {"recursion_limit": 50, "run_name": "agent-graph", "tags": ["meet-to-ticket"], "metadata": metadata,
               **_thread(req.task_id)}

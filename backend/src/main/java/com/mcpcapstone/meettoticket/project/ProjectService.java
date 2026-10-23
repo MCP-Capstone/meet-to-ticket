@@ -1,31 +1,70 @@
 package com.mcpcapstone.meettoticket.project;
 
+import com.mcpcapstone.meettoticket.agent.RepositoryPermissionGateway;
+import com.mcpcapstone.meettoticket.agent.ProjectConnectionGateway;
 import com.mcpcapstone.meettoticket.common.error.*;
+import com.mcpcapstone.meettoticket.meeting.MeetingRepository;
+import com.mcpcapstone.meettoticket.project.dto.ProjectDetail;
+import com.mcpcapstone.meettoticket.project.dto.ProjectSaveRequest;
+import com.mcpcapstone.meettoticket.user.User;
+import com.mcpcapstone.meettoticket.user.UserRepository;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
-import java.util.List;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.time.LocalDate;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ProjectService {
+    private final ProjectRepository projects;
     private final ProjectMemberRepository members;
+    private final UserRepository users;
+    private final RepositoryPermissionGateway permissions;
+    private final ProjectConnectionGateway connections;
+    private final TransactionTemplate tx;
+    private final MeetingRepository meetings;
 
     public void requireAccess(Long projectId, Long userId) {
         if (!members.existsByProjectIdAndUserId(projectId, userId))
             throw new BusinessException(ErrorCode.PROJECT_ACCESS_DENIED);
     }
 
+    // 프로젝트 설정 편집과 삭제(TASK-009) 전에 부른다. 멤버가 아니면 403 접근 불가, 멤버지만 관리자가 아니면 403 관리자 필요.
+    public void requireAdmin(Long projectId, Long userId) {
+        ProjectMember me =
+                members.findByProjectIdAndUserId(projectId, userId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.PROJECT_ACCESS_DENIED));
+        if (!me.isAdmin()) throw new BusinessException(ErrorCode.PROJECT_ADMIN_REQUIRED);
+    }
+
     public List<ProjectData> list(Long userId) {
-        return members.findProjectsForUser(userId).stream()
-                .map(p -> new ProjectData(p.getId(), p.getName()))
-                .toList();
+		List<ProjectMember> memberships = members.findMembershipsForUser(userId);
+		if (memberships.isEmpty()) return List.of();
+		List<Long> ids = memberships.stream().map(m -> m.getProject().getId()).toList();
+		// 프로젝트 수와 무관하게 세 번 조회한다. 목록 조회는 외부 연결 확인을 실행하지 않는다.
+		var counts = members.countMembersByProjectIds(ids).stream().collect(Collectors.toMap(
+				ProjectMemberRepository.MemberCount::getProjectId, ProjectMemberRepository.MemberCount::getMemberCount));
+		var latest = meetings.findLatestMeetingsByProjectIds(ids).stream().collect(Collectors.toMap(
+				MeetingRepository.LatestMeeting::getProjectId, MeetingRepository.LatestMeeting::getLastMeetingDate));
+		return memberships.stream().map(m -> {
+			Project p = m.getProject();
+			return new ProjectData(p.getId(), p.getName(), p.getGithubOwner(), p.getGithubRepo(),
+					new ProjectDetail.Connections(p.getGithubConnection(), p.notionConnectionStatus(), p.slackConnectionStatus()),
+					counts.getOrDefault(p.getId(), 0L), latest.get(p.getId()), m.isAdmin());
+		}).toList();
     }
 
     public List<MemberData> members(Long projectId, Long userId) {
@@ -33,11 +72,249 @@ public class ProjectService {
         return members.findByProjectIdOrderById(projectId).stream().map(MemberData::from).toList();
     }
 
+    public ProjectDetail detail(Long projectId, Long userId) {
+        requireAccess(projectId, userId);
+        return detail(projects.getReferenceById(projectId), userId);
+    }
+
+    // 등록한 사용자는 관리자이자 멤버가 된다 (REQ-029).
+    // 저장은 한 트랜잭션으로 끝내고, Agent 호출은 트랜잭션 밖에서 해 DB 연결을 붙잡지 않는다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public ProjectDetail create(ProjectSaveRequest request, Long userId) {
+        Long projectId = tx.execute(status -> {
+            String owner = request.githubOwner().trim();
+            String repo = request.githubRepo().trim();
+            if (projects.findByGithubOwnerIgnoreCaseAndGithubRepoIgnoreCase(owner, repo).isPresent())
+                throw new BusinessException(ErrorCode.DUPLICATE_PROJECT_REPOSITORY);
+            Project project = projects.save(new Project(request.name().trim(), owner, repo));
+            apply(project, request);
+            User creator = users.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+            members.save(new ProjectMember(project, creator, creator.getName(), creator.getGithubName(), ProjectRole.ADMIN));
+            saveMembers(project, request.memberUserIds(), request.memberSlackEmails());
+            return project.getId();
+        });
+        return checkAndLoad(projectId, userId);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public ProjectDetail update(Long projectId, ProjectSaveRequest request, Long userId) {
+        tx.executeWithoutResult(status -> {
+            requireAdmin(projectId, userId);
+            Project project = projects.getReferenceById(projectId);
+            projects.findByGithubOwnerIgnoreCaseAndGithubRepoIgnoreCase(request.githubOwner().trim(), request.githubRepo().trim())
+                    .filter(other -> !other.getId().equals(projectId))
+                    .ifPresent(other -> { throw new BusinessException(ErrorCode.DUPLICATE_PROJECT_REPOSITORY); });
+            apply(project, request);
+            saveMembers(project, request.memberUserIds(), request.memberSlackEmails());
+        });
+        return checkAndLoad(projectId, userId);
+    }
+
+    private record CheckTarget(Long memberId, String githubName) {}
+    private record SlackTarget(Long userId, String email) {}
+
+    // 저장소나 멤버 구성이 바뀌었을 수 있으므로 저장할 때마다 기존 결과를 지우고 GitHub 계정이 있는 멤버를 다시 확인한다.
+    // 전체 실패는 저장 자체를 막지 않고 해당 멤버 권한 null, connections.github=ERROR로 남긴다.
+    private ProjectDetail checkAndLoad(Long projectId, Long userId) {
+        record Plan(String owner, String repo, List<CheckTarget> targets, String notionPageUrl, String slackChannelId, List<SlackTarget> slackTargets) {}
+        Plan plan = tx.execute(status -> {
+            Project project = projects.getReferenceById(projectId);
+            project.recordGithubConnection(null);
+            List<CheckTarget> targets = new ArrayList<>();
+            List<SlackTarget> slackTargets = new ArrayList<>();
+            for (ProjectMember m : members.findByProjectIdOrderById(projectId)) {
+                m.recordPermission(null);
+                if (m.getGithubName() != null) targets.add(new CheckTarget(m.getId(), m.getGithubName()));
+                if (m.getUser() != null && m.getUser().getSlackEmail() != null)
+                    slackTargets.add(new SlackTarget(m.getUser().getId(), m.getUser().getSlackEmail()));
+            }
+            return new Plan(project.getGithubOwner(), project.getGithubRepo(), targets,
+                    project.getNotionPageUrl(), project.getSlackChannelId(), slackTargets);
+        });
+
+        Map<String, String> results = new HashMap<>();
+        if (!plan.targets().isEmpty()) {
+            List<String> names = plan.targets().stream().map(CheckTarget::githubName).distinct().toList();
+            try {
+                for (var r : permissions.check(plan.owner(), plan.repo(), names))
+                    if (r.githubName() != null) results.put(r.githubName().toLowerCase(Locale.ROOT), r.permission());
+            } catch (RuntimeException e) {
+                log.warn("프로젝트 {} 멤버 저장소 권한 확인 실패: {}", projectId, e.getMessage());
+                results.clear();
+            }
+        }
+
+        ProjectConnectionGateway.ConnectionCheck external = null;
+        if (plan.notionPageUrl() != null || plan.slackChannelId() != null || !plan.slackTargets().isEmpty()) {
+            try {
+                external = connections.check(plan.notionPageUrl(), plan.slackChannelId(),
+                        plan.slackTargets().stream().map(target -> new ProjectConnectionGateway.SlackMember(target.userId(), target.email())).toList());
+            } catch (RuntimeException e) {
+                log.warn("프로젝트 {} Notion·Slack 연결 확인 실패: {}", projectId, e.getMessage());
+                external = ProjectConnectionGateway.ConnectionCheck.failed(
+                        plan.slackTargets().stream().map(target -> new ProjectConnectionGateway.SlackMember(target.userId(), target.email())).toList());
+            }
+        }
+        ProjectConnectionGateway.ConnectionCheck connectionResult = external;
+
+        tx.executeWithoutResult(status -> {
+            boolean error = !plan.targets().isEmpty() && results.isEmpty();
+            for (CheckTarget t : plan.targets()) {
+                ProjectMember m = members.findById(t.memberId()).orElse(null);
+                // 확인하는 사이 GitHub 계정이 바뀐 멤버는 결과를 적용하지 않는다.
+                if (m == null || !t.githubName().equals(m.getGithubName())) continue;
+                ProjectDetail.RepositoryPermission permission = toPermission(results.get(t.githubName().toLowerCase(Locale.ROOT)));
+                m.recordPermission(permission);
+                if (permission == null) error = true;
+            }
+            Project project = projects.getReferenceById(projectId);
+            if (!plan.targets().isEmpty())
+                project.recordGithubConnection(error ? ProjectDetail.ConnectionStatus.ERROR : ProjectDetail.ConnectionStatus.CONNECTED);
+            if (connectionResult != null) {
+                if (plan.notionPageUrl() != null && Objects.equals(plan.notionPageUrl(), project.getNotionPageUrl()))
+                    project.updateNotionConnectionStatus(toConnectionStatus(connectionResult.notion().status()));
+                if (plan.slackChannelId() != null && Objects.equals(plan.slackChannelId(), project.getSlackChannelId()))
+                    project.recordSlackConnection(toConnectionStatus(connectionResult.slack().status()), connectionResult.slack().value());
+                Map<Long, ProjectConnectionGateway.MemberConnection> byUserId = connectionResult.members().stream()
+                        .collect(Collectors.toMap(ProjectConnectionGateway.MemberConnection::userId, Function.identity(), (left, right) -> left));
+                for (SlackTarget target : plan.slackTargets()) {
+                    ProjectConnectionGateway.MemberConnection result = byUserId.get(target.userId());
+                    User member = users.findById(target.userId()).orElse(null);
+                    // 확인 중 이메일이 바뀐 사용자의 이전 결과를 적용하지 않는다.
+                    if (member == null || !Objects.equals(member.getSlackEmail(), target.email()) || result == null) continue;
+                    member.recordSlackConnection(toConnectionStatus(result.status()), result.slackUserId());
+                }
+            }
+        });
+        return loadDetail(projectId, userId);
+    }
+
+    // GRANTED/DENIED만 저장한다. ERROR나 알 수 없는 값, 응답에서 빠진 멤버는 null(확인 실패)이다.
+    private static ProjectDetail.RepositoryPermission toPermission(String value) {
+        if ("GRANTED".equals(value)) return ProjectDetail.RepositoryPermission.GRANTED;
+        if ("DENIED".equals(value)) return ProjectDetail.RepositoryPermission.DENIED;
+        return null;
+    }
+
+    private static ProjectDetail.ConnectionStatus toConnectionStatus(String value) {
+        if ("CONNECTED".equals(value)) return ProjectDetail.ConnectionStatus.CONNECTED;
+        if ("NOT_CONNECTED".equals(value)) return ProjectDetail.ConnectionStatus.NOT_CONNECTED;
+        return ProjectDetail.ConnectionStatus.ERROR;
+    }
+
+    private ProjectDetail loadDetail(Long projectId, Long userId) {
+        return tx.execute(status -> detail(projects.getReferenceById(projectId), userId));
+    }
+
+    // 관리자 지정과 해제 (REQ-030). 관리자는 항상 1명 이상 남긴다.
+    @Transactional
+    public ProjectDetail changeRole(Long projectId, Long targetUserId, ProjectRole role, Long userId) {
+        List<ProjectMember> admins = members.lockByProjectIdAndRole(projectId, ProjectRole.ADMIN);
+        // 잠금을 잡은 뒤 확인해야 그 사이에 해제된 관리자를 걸러낸다.
+        if (admins.stream().noneMatch(m -> m.getUser() != null && m.getUser().getId().equals(userId)))
+            requireAdmin(projectId, userId);
+        ProjectMember target =
+                members.findByProjectIdAndUserId(projectId, targetUserId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.PROJECT_MEMBER_NOT_FOUND));
+        if (role == ProjectRole.MEMBER && target.isAdmin() && admins.size() <= 1)
+            throw new BusinessException(ErrorCode.LAST_PROJECT_ADMIN);
+        target.changeRole(role);
+        return detail(projects.getReferenceById(projectId), userId);
+    }
+
+    private void apply(Project project, ProjectSaveRequest request) {
+        project.update(
+                request.name().trim(),
+                blankToNull(request.description()),
+                request.githubOwner().trim(),
+                request.githubRepo().trim(),
+                blankToNull(request.notionPageUrl()),
+                blankToNull(request.slackChannelId()));
+    }
+
+    // memberUserIds는 변경 후 전체 멤버 목록이다. 관리자는 목록에 없어도 남긴다 (관리자 해제는 TASK-056).
+    // 가입하지 않은 멤버(user 없음, 데모 데이터)는 이 목록으로 관리하지 않으므로 그대로 둔다.
+    // memberSlackEmails는 사용자 계정에 저장한다. 같은 사용자가 여러 프로젝트에 있어도 Slack ID를 하나만 유지한다.
+    private void saveMembers(Project project, List<Long> memberUserIds, Map<Long, String> memberSlackEmails) {
+        Set<Long> wanted = new LinkedHashSet<>(memberUserIds);
+        Map<Long, String> emails = memberSlackEmails == null ? Map.of() : memberSlackEmails;
+        Set<Long> userIds = new LinkedHashSet<>(wanted);
+        userIds.addAll(emails.keySet());
+        Map<Long, User> found =
+                users.findAllById(userIds).stream().collect(Collectors.toMap(User::getId, Function.identity()));
+        if (found.size() != userIds.size()) throw new BusinessException(ErrorCode.MEMBER_USER_NOT_FOUND);
+
+        List<ProjectMember> current = members.findByProjectIdOrderById(project.getId());
+        Set<Long> projectUserIds = current.stream()
+                .map(ProjectMember::getUser)
+                .filter(Objects::nonNull)
+                .map(User::getId)
+                .collect(Collectors.toSet());
+        projectUserIds.addAll(wanted);
+        if (!projectUserIds.containsAll(emails.keySet()))
+            throw new BusinessException(ErrorCode.MEMBER_USER_NOT_FOUND);
+        for (Map.Entry<Long, String> entry : emails.entrySet()) {
+            found.get(entry.getKey()).updateSlackEmail(blankToNull(entry.getValue()));
+        }
+        for (ProjectMember m : current) {
+            if (m.getUser() == null) continue;
+            if (wanted.remove(m.getUser().getId()) || m.isAdmin()) m.syncWithUser();
+            else members.delete(m);
+        }
+        for (Long id : wanted) {
+            User u = found.get(id);
+            members.save(new ProjectMember(project, u, u.getName(), u.getGithubName()));
+        }
+    }
+
+    // 외부 호출 없이 저장된 값만 반환한다. 저장소 권한과 GitHub 연결은 프로젝트 저장 때 확인한 결과다 (확인 전이면 null).
+    // Notion/Slack 연결은 Agent의 실제 확인을 다음 단계에서 기록한다. 입력 직후 null은 아직 확인하지 않았다는 뜻이다.
+    private ProjectDetail detail(Project project, Long userId) {
+        List<ProjectMember> all = members.findByProjectIdOrderById(project.getId());
+        List<ProjectDetail.Member> registered = all.stream()
+                .filter(m -> m.getUser() != null)
+                .map(m -> new ProjectDetail.Member(
+                        m.getUser().getId(),
+                        m.getUser().getName(),
+                        m.getUser().getGithubName(),
+                        m.getUser().getSlackEmail(),
+                        m.getUser().getSlackUserId(),
+                        m.getUser().slackConnectionStatus(),
+                        m.isAdmin(),
+                        m.getUser().getGithubName() == null
+                                ? ProjectDetail.RepositoryPermission.NO_ACCOUNT
+                                : m.getRepositoryPermission()))
+                .toList();
+        boolean canEdit = all.stream()
+                .anyMatch(m -> m.getUser() != null && m.getUser().getId().equals(userId) && m.isAdmin());
+        return new ProjectDetail(
+                project.getId(),
+                project.getName(),
+                project.getDescription(),
+                project.getGithubOwner(),
+                project.getGithubRepo(),
+                project.getNotionPageUrl(),
+                project.getSlackChannelId(),
+                registered,
+                new ProjectDetail.Connections(project.getGithubConnection(), project.notionConnectionStatus(), project.slackConnectionStatus()),
+                canEdit);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
     public record ProjectData(
             @Schema(description = "프로젝트 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
             Long projectId,
             @Schema(description = "프로젝트 이름", requiredMode = Schema.RequiredMode.REQUIRED, example = "CSV 내보내기")
-            String name) {}
+            String name,
+			@Schema(description = "GitHub 저장소 소유자", requiredMode = Schema.RequiredMode.REQUIRED) String githubOwner,
+			@Schema(description = "GitHub 저장소 이름", requiredMode = Schema.RequiredMode.REQUIRED) String githubRepo,
+			@Schema(description = "상세 조회와 같은 저장된 연결 상태. null은 확인 전", requiredMode = Schema.RequiredMode.REQUIRED) ProjectDetail.Connections connections,
+			@Schema(description = "미가입 팀원을 포함한 전체 멤버 수", requiredMode = Schema.RequiredMode.REQUIRED) long memberCount,
+			@Schema(description = "가장 최근 회의 날짜. 회의가 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) LocalDate lastMeetingDate,
+			@Schema(description = "로그인 사용자가 관리자이면 true. 편집과 삭제 가능", requiredMode = Schema.RequiredMode.REQUIRED) boolean canEdit) {}
 
     public record MemberData(
             @Schema(description = "프로젝트 팀원 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "11")

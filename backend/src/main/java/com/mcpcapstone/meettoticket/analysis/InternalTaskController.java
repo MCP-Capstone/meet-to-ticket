@@ -19,6 +19,7 @@ import org.springframework.web.server.ResponseStatusException;
 import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import tools.jackson.databind.JsonNode;
 
 @Hidden
 @RestController
@@ -41,7 +42,7 @@ public class InternalTaskController {
 			@RequestHeader(value = "X-Internal-Token", required = false) String agentToken,
 			@Valid @RequestBody ProgressRequest request) {
 		verifyToken(authorization, agentToken);
-		store.updateProgress(taskId, request.status(), request.stage());
+		store.updateProgress(taskId, request.status(), request.stage(), request.progress());
 		return ResponseEntity.accepted().build();
 	}
 
@@ -72,6 +73,7 @@ public class InternalTaskController {
 				internalToken.getBytes(StandardCharsets.UTF_8), suppliedToken.getBytes(StandardCharsets.UTF_8));
 	}
 
-	public record ProgressRequest(@NotNull TaskStatus status, @NotNull TaskStage stage) {
+	// progress: 진행 화면용 세부 정보 (선택). 예: {"step": "DEDUPING", "dedupe": {"done": 5, "total": 7, "linked": 1}}
+	public record ProgressRequest(@NotNull TaskStatus status, @NotNull TaskStage stage, JsonNode progress) {
 	}
 }

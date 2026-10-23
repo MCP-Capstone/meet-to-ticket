@@ -1,12 +1,14 @@
 """meet-to-ticket RAG MCP 서버.
 
 기존 GitHub 이슈를 저장소별 Vector DB(Chroma)에 미리 색인해 두고, Agent가 발행 전에 비슷한 이슈를 찾을 수 있게 한다.
-mcp-server(이슈 생성·조회)와 역할을 나눠, 이 서버는 색인과 의미 검색만 맡는다.
+business-mcp(이슈 생성·조회)와 역할을 나눠, 이 서버는 색인과 의미 검색만 맡는다.
 
 도구
 - search_similar_issues (조회): 의미가 비슷한 기존 이슈 찾기
 - sync_issues (변경): 저장소 이슈를 색인에 반영 (바뀐 이슈만, full=true면 전체)
 - index_issue (변경): 이슈 한 건을 바로 색인
+- index_status (조회): 프로젝트별 색인 수·마지막 동기화 시각 확인
+- drop_index (변경): 프로젝트별 색인 삭제
 Resource
 - issue://{owner}/{repo}/{number}: 이슈 원문 (GitHub에서 바로 읽음)
 
@@ -39,6 +41,12 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 # 에이전트가 http://<MCP_HOST>:<MCP_PORT>/mcp 로 연결해 아래 도구를 부른다
 mcp = MCPServer("meet-to-ticket-rag")
 
+# 도구 성격 힌트. 모든 도구가 외부 서비스(GitHub, 질문 임베딩용 OpenAI)를 부르므로 openWorldHint는 True다
+READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True)
+# 색인 갱신: 색인을 바꾸지만(GitHub 이슈는 바꾸지 않음) 같은 요청을 반복해도 결과가 같다.
+# full=true로 지워도 GitHub에서 다시 만들 수 있어 destructive로 보지 않는다
+INDEX_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True)
+
 
 # ---------------------------------------------------------------- 의존성 (테스트에서 가짜로 바꾼다)
 
@@ -70,18 +78,12 @@ def get_embedder() -> Embedder:
 @mcp.tool(
     description=(
         "기존 GitHub 이슈 중에서 query와 의미가 비슷한 이슈를 찾는다. "
-        "표현이 달라도 같은 작업인지 확인할 때 쓴다 (이슈 키나 정확한 단어로 찾을 때는 mcp-server의 search_issues). "
+        "표현이 달라도 같은 작업인지 확인할 때 쓴다 (이슈 키나 정확한 단어로 찾을 때는 business-mcp의 search_issues). "
         "결과는 score가 높은 순서이며 score는 1에 가까울수록 비슷하다. "
         "각 결과의 state(open/closed)와 closed_at으로 진행 중인 작업인지 끝난 작업인지 구분한다. "
         "색인이 비어 있으면 [INDEX_EMPTY]를 돌려준다."
     ),
-    annotations=ToolAnnotations(
-        title="유사 이슈 검색",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=True,  # 질문 문장을 임베딩하려고 OpenAI를 부른다
-    ),
+    annotations=READ.model_copy(update={"title": "유사 이슈 검색"}),
 )
 def search_similar_issues(
     owner: str,
@@ -100,13 +102,7 @@ def search_similar_issues(
         "기본은 마지막 색인 이후 바뀐 이슈만 다시 임베딩하고, full=true면 색인을 지우고 전체를 다시 만든다. "
         "Agent는 실행을 시작할 때 한 번 부른다."
     ),
-    annotations=ToolAnnotations(
-        title="이슈 색인 갱신",
-        readOnlyHint=False,  # 색인을 바꾼다 (GitHub 이슈는 바꾸지 않음)
-        destructiveHint=False,  # full=true로 지워도 GitHub에서 다시 만들 수 있다
-        idempotentHint=True,  # 같은 요청을 반복해도 결과가 같다
-        openWorldHint=True,
-    ),
+    annotations=INDEX_WRITE.model_copy(update={"title": "이슈 색인 갱신"}),
 )
 def sync_issues(owner: str, repo: str, full: bool = False) -> dict[str, Any]:
     """색인 결과 {repository, indexed, skipped, total, full, updated_at}."""
@@ -116,18 +112,28 @@ def sync_issues(owner: str, repo: str, full: bool = False) -> dict[str, Any]:
 
 @mcp.tool(
     description="이슈 한 건을 바로 색인에 추가하거나 갱신한다. Agent가 방금 발행한 이슈를 색인에 더할 때 쓴다.",
-    annotations=ToolAnnotations(
-        title="이슈 한 건 색인",
-        readOnlyHint=False,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
-    ),
+    annotations=INDEX_WRITE.model_copy(update={"title": "이슈 한 건 색인"}),
 )
 def index_issue(owner: str, repo: str, number: int) -> dict[str, Any]:
     """색인 결과 {repository, number, indexed}."""
     with github.make_client() as client:
         return indexer.index_issue(owner, repo, number, client=client, embedder=get_embedder(), store=get_store())
+
+
+@mcp.tool(
+    description="프로젝트 화면에 표시할 저장소 색인 개수, 마지막 동기화 시각, 임베딩 모델을 조회한다. 색인이 없으면 count=0을 돌려준다.",
+    annotations=READ.model_copy(update={"title": "이슈 색인 상태 조회"}),
+)
+def index_status(owner: str, repo: str) -> dict[str, Any]:
+    return indexer.index_status(owner, repo, store=get_store())
+
+
+@mcp.tool(
+    description="해당 저장소의 이슈 색인만 삭제한다. 프로젝트 삭제 시 쓰며, 이미 없어도 count=0으로 성공한다.",
+    annotations=INDEX_WRITE.model_copy(update={"title": "이슈 색인 삭제"}),
+)
+def drop_index(owner: str, repo: str) -> dict[str, Any]:
+    return indexer.drop_index(owner, repo, store=get_store())
 
 
 # ---------------------------------------------------------------- Resource

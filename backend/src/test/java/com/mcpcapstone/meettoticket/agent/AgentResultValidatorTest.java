@@ -27,7 +27,7 @@ class AgentResultValidatorTest {
 				UUID.randomUUID(),
 				new AgentContracts.MeetingData(
 						1L, "회의", LocalDate.of(2026, 10, 22), "Asia/Seoul", List.of(11L), "a.txt", "원문"),
-				new AgentContracts.ProjectData(1L, "CSV", "MCP-Capstone", "mcp-capstone"),
+				new AgentContracts.ProjectData(1L, "CSV", "MCP-Capstone", "mcp-capstone", null),
 				List.of(new AgentContracts.MemberData(11L, null, "박종민", "jongmiiin")));
 	}
 
@@ -69,7 +69,7 @@ class AgentResultValidatorTest {
 
 		assertThatCode(() -> validator.validate(r, result, false)).doesNotThrowAnyException();
 		assertThat(result.status()).isEqualTo(TaskStatus.COMPLETED);
-		assertThat(result.summary()).isEqualTo(new AgentContracts.Summary(2, 1, 1, 1, 0, 0, 0));
+		assertThat(result.summary()).isEqualTo(new AgentContracts.Summary(2, 1, 1, 1, 0, 0, 0, 0));
 		assertThat(result.items().get(1).publishStatus()).isEqualTo("BLOCKED");
 	}
 
@@ -129,5 +129,50 @@ class AgentResultValidatorTest {
 
 		assertThatCode(() -> validator.validate(r, result, false)).doesNotThrowAnyException();
 		assertThat(result.status()).isEqualTo(TaskStatus.RUNNING);
+	}
+
+	@Test
+	void 발행_전_초안은_담당자_확인_대기로_저장하고_COMPLETED다() {
+		var r = request();
+		var result = map(r, run("SUCCEEDED", List.of(
+				item("PENDING", "DRAFT", null, null, null),
+				item("PENDING", "DRAFT", null, null, null))));
+
+		assertThatCode(() -> validator.validate(r, result, false)).doesNotThrowAnyException();
+		assertThat(result.status()).isEqualTo(TaskStatus.COMPLETED);
+		assertThat(result.summary()).isEqualTo(new AgentContracts.Summary(2, 0, 0, 0, 0, 0, 0, 2));
+		assertThat(result.items()).allSatisfy(i -> {
+			assertThat(i.reviewStatus()).isEqualTo("PENDING");
+			assertThat(i.publishStatus()).isEqualTo("DRAFT");
+		});
+	}
+
+	@Test
+	void 이슈_번호가_붙은_초안은_차단한다() {
+		var r = request();
+		var result = new AgentContracts.Result(r.taskId(), null, TaskStatus.COMPLETED,
+				com.mcpcapstone.meettoticket.analysis.TaskStage.VERIFYING,
+				java.time.OffsetDateTime.now(), java.time.OffsetDateTime.now(),
+				List.of(new AgentContracts.Item(UUID.randomUUID(), null, "초안", json.read("{}"), "CREATE", null,
+						"PENDING", "DRAFT", 7, REPO_URL + 7, null)),
+				new AgentContracts.Summary(1, 0, 0, 0, 0, 0, 0, 1), null, null);
+
+		assertThatThrownBy(() -> validator.validate(r, result, false))
+				.isInstanceOf(AgentResultValidationException.class);
+	}
+
+	@Test
+	void 진행_중_응답의_세부_정보를_넘긴다() {
+		var r = request();
+		Map<String, Object> running = new HashMap<>();
+		running.put("taskId", r.taskId().toString());
+		running.put("status", "RUNNING");
+		running.put("stage", "REVIEWING");
+		running.put("progress", Map.of("step", "DEDUPING", "dedupe", Map.of("done", 5, "total", 7, "linked", 1)));
+		var result = map(r, json.tree(running));
+
+		assertThatCode(() -> validator.validate(r, result, false)).doesNotThrowAnyException();
+		assertThat(result.progress().path("dedupe").path("done").asInt()).isEqualTo(5);
+		assertThat(map(r, run("RUNNING", List.of())).progress()).isNull();
 	}
 }

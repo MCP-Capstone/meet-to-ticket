@@ -1,0 +1,17 @@
+# 이미지에 넣지 않을 파일. Dockerfile은 requirements.txt, common.py, server.py, integrations/만 복사한다.
+
+# 비밀 값: 토큰은 실행할 때 --env-file로 넣는다
+.env
+.env.*
+
+# 로컬 가상환경과 캐시
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 테스트와 개발용 파일
+tests/
+pytest.ini
+requirements-dev.in
+requirements-dev.txt

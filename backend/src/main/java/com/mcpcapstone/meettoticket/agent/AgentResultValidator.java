@@ -40,7 +40,7 @@ public class AgentResultValidator {
             return;
         }
         Set<UUID> ids = new HashSet<>();
-        int approved = 0, rejected = 0, success = 0, failed = 0, unknown = 0, skipped = 0;
+        int approved = 0, rejected = 0, success = 0, failed = 0, unknown = 0, skipped = 0, drafts = 0;
         for (var item : result.items()) {
             require(
                     item != null
@@ -64,6 +64,10 @@ public class AgentResultValidator {
                             && review.path("reviewedRevision").asInt(-1) == revision
                             && text(review.path("reason").asText("")),
                     "보완 횟수·검수 버전·사유 오류");
+            if (draft(item)) {
+                drafts++;
+                continue;
+            }
             if ("REJECTED".equals(item.reviewStatus())) {
                 require(
                         "BLOCKED".equals(item.publishStatus())
@@ -133,7 +137,8 @@ public class AgentResultValidator {
                                     success,
                                     failed,
                                     unknown,
-                                    skipped)),
+                                    skipped,
+                                    drafts)),
                     "항목 집계 불일치");
         if (result.error() != null) {
             require(
@@ -163,6 +168,7 @@ public class AgentResultValidator {
                     "항목 ID 중복 또는 제목 오류");
             require(item.workKey() == null || item.workKey().length() <= 100, "workKey 길이 초과");
             require(item.contentJson() != null && item.contentJson().isObject(), "contentJson 객체 누락");
+            if (draft(item)) continue;
             if ("REJECTED".equals(item.reviewStatus())) {
                 require(
                         "BLOCKED".equals(item.publishStatus())
@@ -206,6 +212,20 @@ public class AgentResultValidator {
             return;
         }
         require(result.status() == AgentRunMapper.expectedStatus(expected), "집계에 따른 작업 상태 불일치");
+    }
+
+    // 발행 전 초안: 담당자 확인 대기(PENDING)이고 이슈 번호·URL·오류가 없어야 한다
+    private static boolean draft(AgentContracts.Item item) {
+        if (!AgentRunMapper.PENDING.equals(item.reviewStatus())
+                && !AgentRunMapper.DRAFT.equals(item.publishStatus())) return false;
+        require(
+                AgentRunMapper.PENDING.equals(item.reviewStatus())
+                        && AgentRunMapper.DRAFT.equals(item.publishStatus())
+                        && item.githubIssueNumber() == null
+                        && item.githubIssueUrl() == null
+                        && item.errorMessage() == null,
+                "초안 항목의 검수·발행 상태 오류");
+        return true;
     }
 
     private boolean validUrl(AgentContracts.StartRequest r, AgentContracts.Item item) {
