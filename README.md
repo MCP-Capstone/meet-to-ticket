@@ -158,3 +158,16 @@ docker compose down -v    # 종료 + 데이터 삭제
 - `docs/api/README.md`: API 문서
 - `docs/rabbitmq-analysis.md`: RabbitMQ 분석 큐
 - `scripts/db/README.md`: 테이블, 시드 데이터, 샘플 회의록
+
+## 팀 역할과 기여
+
+Phase 1(Capstone)을 이어 Phase 2(Mini-project ③)를 진행한다. Phase 2 기준점은 `phase1-end` 태그다.
+
+| 이름 | Phase 1 역할 | Phase 2 역할 | R 대응 | 맡은 일 | 병합 PR |
+|---|---|---|---|---|---|
+| 강민규 | PM, Frontend | PM | | | |
+| 임나윤 | Backend | 풀스택 | | | |
+| 함주헌 | Backend | AI-Pipeline | | | |
+| 최윤경 | AI | AI-MCP | | | |
+| 박종민 | AI | AI-Agent | | | |
+| 허민규 | 기획, QA, 데이터 | Eval, Data, QA | | | |
