@@ -353,3 +353,11 @@ const res = await fetch('/api/meetings')
 - 새 mock 예시: RELATED 겹침 경고, UPDATE 변경 전후, LINK 재대조 변경, 판단 시간 초과, UNRELATED, 정보 미제공. 링크는 `example/meet-to-ticket` 예시이며 실제 이슈를 조회하지 않는다.
 - 검증: `npm run test:dedupe`, `npm run test:progress`, `npm run test:publish`, `npm run build`, `npm run lint`.
 - 기존 API를 사용하며 의존성 변경은 없다.
+
+### 내 티켓 발행 본문 미리보기 (#245)
+
+카드의 **발행 본문 미리보기**에서 저장된 최종 설명과 상세 작업·완료 조건·회의록 근거·확인 필요 사항을 조회한다. `GET /api/tickets/{ticketId}/preview`만 호출하며 확인·거절·발행을 수행하지 않는다. 미저장 수정은 반영하지 않고 안내하며, 저장 성공 후 열린 미리보기를 다시 조회한다. 조회 오류 시 입력을 보존하고 다시 조회할 수 있다.
+
+GitHub 신규 이슈, 연결 댓글, 갱신 추가 섹션·알림 댓글을 구분한다. Agent의 현재 발행 본문 생성 함수를 공유하지만 발행 직전 재대조로 유형·대상이 달라질 수 있고, GitHub에서 허용되지 않는 라벨·담당자가 제외될 수 있다. 이미 발행한 티켓도 **현재 저장값 기준**으로 보여주며 과거 발행 원문을 복원하는 화면은 아니다. Slack·Notion은 상세 백로그만 표시한다. MOCK에서는 모의 문안임을 표시한다. 상세 작업·완료 조건은 이번 작업에서 조회만 지원한다.
+
+검증: `npm run test:preview`, 기존 `test:progress`·`test:publish`·`test:dedupe`, `npm run build`, `npm run lint`. 추가 의존성은 없다.

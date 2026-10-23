@@ -266,3 +266,12 @@ class TicketReview(BaseModel):
 
 class ReviewBatch(BaseModel):
     reviews: list[TicketReview]
+
+
+class PublicationPreview(CamelModel):
+    kind: ProcessingType
+    body: str
+    secondary_body: str | None = None
+    labels: list[str] = Field(default_factory=list)
+    github_assignees: list[str] = Field(default_factory=list)
+    target_issue_number: int | None = None

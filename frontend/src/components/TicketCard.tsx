@@ -4,6 +4,7 @@ import type { MyTicket, ProjectMember, TicketAction, TicketEditRequest, TicketSt
 import { validMeetingDate } from '../meetingInput'
 import { failureGuide, needsPermissionFix } from '../publishFailure'
 import { TicketDedupeDetails } from './TicketDedupeDetails'
+import { TicketPublicationPreview } from './TicketPublicationPreview'
 
 const ticketStatusLabel: Record<TicketStatus, string> = {
   ASSIGNEE_REQUIRED: '담당 지정 필요', PENDING_REVIEW: '검토 대기', CONFIRMED: '확인', REJECTED: '거절',
@@ -161,6 +162,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
           </dl>
         </>
       )}
+      <TicketPublicationPreview ticket={ticket} dirty={dirty} />
       {ticket.status === 'FAILED' && ticket.publishFailure && (
         <div className="publish-failure" role="alert">
           <p className="error">{failureGuide(ticket.publishFailure)}</p>

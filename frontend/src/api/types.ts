@@ -374,3 +374,14 @@ export interface PublishBatchResult {
   summary: { total: number; published: number; linked: number; updated: number; failed: number; publishing: number }
   tickets: PublishResultEntry[]
 }
+
+
+export interface TicketPublicationPreview {
+  ticketId: string
+  title: string
+  status: TicketStatus
+  publishTarget: PublishTarget
+  executionMode: ExecutionMode
+  publication: { kind: ProcessingType; body: string; secondaryBody: string | null; labels: string[]; githubAssignees: string[]; targetIssueNumber: number | null } | null
+  backlog: { description: string | null; tasks: string[]; acceptanceCriteria: string[]; evidenceQuotes: string[]; openQuestions: string[] }
+}

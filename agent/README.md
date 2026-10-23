@@ -753,3 +753,11 @@ pytest
 ## Spring·Agent Swagger 명세 (#58)
 
 [공개·내부 API 구분, Swagger 접속 및 전체 흐름 테스트 안내](../docs/api/README.md)를 참고한다.
+
+### 담당자 검토용 본문 미리보기 (#245)
+
+`POST /publication-preview`는 `PublishTicket` 한 건(기존 `/publish`의 `tickets[]` 형식)을 받아 `{kind, body, secondaryBody, labels, githubAssignees, targetIssueNumber}`를 반환한다. GitHub만 지원하며, 다른 발행 대상이나 대상 번호 없는 LINK/UPDATE는 422이다. `publication_preview`는 실제 `publish_one`에서도 사용한다. CREATE는 이슈 본문, LINK는 댓글, UPDATE는 추가 섹션과 별도 알림 댓글이다. 저장된 설명이 원래 액션 문구와 다르면 LINK/UPDATE 문안에도 저장된 작업 내용을 함께 넣는다. 원래 인용과 중복 쓰기 방지 표식은 유지한다.
+
+LLM·MCP·외부 발행·실행 작업을 호출하지 않고 본문만 조립한다. 요청의 `reviewStatus: CONFIRMED`는 기존 발행 DTO를 재사용하기 위한 값이며, 조회가 Spring의 승인 상태를 바꾸는 것은 아니다. 현재 스냅샷 기준이므로 발행 전 재대조·외부 라벨/담당자 권한 검증 결과를 보장하지 않는다. `labels`는 CREATE/UPDATE의 적용 후보, `githubAssignees`는 CREATE의 지정 후보이며 LINK에는 둘 다 빈 배열이다.
+
+검증: `.venv/bin/python -m pytest -q tests/test_publication_preview.py tests/test_batch_publish.py tests/test_openapi.py`.
