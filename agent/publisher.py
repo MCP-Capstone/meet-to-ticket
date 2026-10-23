@@ -72,10 +72,12 @@ def error_from_exception(exc: Exception, default_code: str = PUBLISH_FAILED) -> 
 class McpPublisher:
     """GitHub 쓰기 MCP 도구를 감싼다. 도구 오류는 공통 ToolCallError로 바꾼다."""
 
-    def __init__(self, create_issue_tool: Any, add_comment_tool: Any | None = None, update_issue_tool: Any | None = None):
+    def __init__(self, create_issue_tool: Any, add_comment_tool: Any | None = None, update_issue_tool: Any | None = None,
+                 post_message_tool: Any | None = None):
         self.create_tool = create_issue_tool
         self.comment_tool = add_comment_tool
         self.update_tool = update_issue_tool
+        self.message_tool = post_message_tool
 
     async def _call(self, tool: Any | None, args: dict[str, Any], name: str) -> dict[str, Any]:
         if tool is None:
@@ -94,6 +96,9 @@ class McpPublisher:
 
     async def update_issue(self, **args: Any) -> dict[str, Any]:
         return await self._call(self.update_tool, args, "update_issue")
+
+    async def post_message(self, **args: Any) -> dict[str, Any]:
+        return await self._call(self.message_tool, args, "post_message")
 
 
 class DryRunPublisher:
