@@ -126,8 +126,9 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
                 raise ToolCallError("SLACK_VERIFY_REQUIRED", "이전 Slack 공지 결과를 알 수 없어 중복 게시를 막기 위해 다시 보내지 않았습니다. Slack 채널에서 공지가 올라갔는지 확인하세요")
             sent = True
             out = await publisher.post_message(channel_id=channel_id, text=text, mentions=mentions)
+            # business-mcp post_message는 메시지 링크를 permalink로 돌려준다 (url 키 없음)
             return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="POSTED",
-                                     message_url=out.get("url"))
+                                     message_url=out.get("permalink"))
         if source.publish_target == "NOTION":
             # 루트 페이지가 없으면 Notion을 부르지 않는다. GitHub 이슈로 대신 만들지도 않는다.
             root = (source.project.notion_page_url or "").strip()
