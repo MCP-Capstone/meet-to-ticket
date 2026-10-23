@@ -3,6 +3,7 @@ import { api, ApiRequestError } from '../api'
 import type { MyTicket, ProjectMember, TicketAction, TicketEditRequest, TicketStatus } from '../api'
 import { validMeetingDate } from '../meetingInput'
 import { failureGuide, needsPermissionFix } from '../publishFailure'
+import { TicketDedupeDetails } from './TicketDedupeDetails'
 
 const ticketStatusLabel: Record<TicketStatus, string> = {
   ASSIGNEE_REQUIRED: '담당 지정 필요', PENDING_REVIEW: '검토 대기', CONFIRMED: '확인', REJECTED: '거절',
@@ -130,6 +131,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
         <span className={`badge ticket-status ${ticket.status.toLowerCase()}`}>{ticketStatusLabel[ticket.status] ?? ticket.status}</span>
       </div>
       <p className="meta">{({ GITHUB: 'GitHub', SLACK: 'Slack', NOTION: 'Notion' })[ticket.publishTarget]} · {({ CREATE: '신규 발행', LINK: '기존 이슈 연결', UPDATE: '기존 이슈 갱신' })[ticket.processingType]}</p>
+      <TicketDedupeDetails ticket={ticket} />
       {editing ? (
         <fieldset className="ticket-fields" disabled={busy || pending || blocked}>
           <legend className="sr-only">티켓 수정</legend>
