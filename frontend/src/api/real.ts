@@ -1,5 +1,7 @@
 import { request } from './client'
 import type {
+  DispatchResult,
+  DispatchTicket,
   AnalysisTask,
   MyTicket,
   MyTicketList,
@@ -99,4 +101,11 @@ export const realApi = {
 
   // 작업이 끝난 뒤에만 호출한다. 끝나기 전에는 409 TASK_NOT_FINISHED
   getAnalysisItems: (taskId: string) => request<TaskItemList>(`/analysis-tasks/${taskId}/items`),
+
+  // 전송 결과 (TASK-023, 024). 작업이 끝난 뒤에만 호출한다
+  getDispatchResult: (taskId: string) => request<DispatchResult>(`/analysis-tasks/${taskId}/tickets`),
+
+  // 담당 지정 필요 티켓에 대표 담당을 지정해 보낸다 (TASK-025). 회의록을 올린 사람만 할 수 있다
+  assignTicket: (ticketId: string, memberId: number) =>
+    request<DispatchTicket>(`/tickets/${ticketId}/assignee`, { method: 'PUT', body: JSON.stringify({ memberId }) }),
 }

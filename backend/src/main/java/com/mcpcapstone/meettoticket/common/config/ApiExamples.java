@@ -61,6 +61,37 @@ public final class ApiExamples {
             }
             """;
 
+    public static final String DISPATCH_RESULT = """
+            {"taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81",
+             "counts":{"total":2,"pendingReview":1,"linked":0,"assigneeRequired":1},
+             "tickets":[{"ticket":{"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정",
+                 "status":"PENDING_REVIEW","processingType":"CREATE","publishTarget":"GITHUB",
+                 "dedupe":{"judged":false,"skipped":null,"relation":null,"issue":null,"overlap":false,"reason":null,"before":null,"after":null,"changed":false},
+                 "projectId":1,"projectName":"CSV 내보내기","meetingId":2,"meetingTitle":"CSV 중간 점검",
+                 "taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81","createdAt":"2026-10-22T10:31:00+09:00",
+                 "description":"필터 결과가 0건이면 헤더만 있는 CSV를 내려준다.",
+                 "due":{"text":"내일 오후 5시","date":"2026-10-23","time":"17:00"},
+                 "assignee":{"projectMemberId":11,"name":"박종민"}},
+               "mine":false,
+               "preview":{"body":"## 작업 내용\\n필터 결과가 0건이면 헤더만 있는 CSV를 내려준다.\\n","labels":["bug"],
+                 "evidenceQuotes":["박종민이 내일 오후 5시까지 수정한다."]}},
+              {"ticket":{"ticketId":"7d1f0c2a-55b1-4c0e-9a3e-2f6b8e0c9d11","title":"CSV 내보내기 통합 QA",
+                 "status":"ASSIGNEE_REQUIRED","processingType":"CREATE","publishTarget":"GITHUB",
+                 "dedupe":{"judged":false,"skipped":null,"relation":null,"issue":null,"overlap":false,"reason":null,"before":null,"after":null,"changed":false},
+                 "projectId":1,"projectName":"CSV 내보내기","meetingId":2,"meetingTitle":"CSV 중간 점검",
+                 "taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81","createdAt":"2026-10-22T10:31:00+09:00",
+                 "description":"내보내기 전체 흐름을 함께 점검한다.","due":{"text":null,"date":null,"time":null},"assignee":null},
+               "mine":false,"preview":{"body":"## 작업 내용\\n내보내기 전체 흐름을 함께 점검한다.\\n","labels":[],"evidenceQuotes":[]}}],
+             "canAssign":true,
+             "members":[{"memberId":11,"name":"박종민"},{"memberId":12,"name":"함주헌"}]}""";
+
+    public static final String ERROR_TICKET_UPLOADER_REQUIRED = """
+            {
+              "code": "TICKET_UPLOADER_REQUIRED",
+              "message": "회의록을 올린 사람만 대표 담당을 지정할 수 있습니다."
+            }
+            """;
+
     public static final String ERROR_TICKET_NOT_FOUND = """
             {
               "code": "TICKET_NOT_FOUND",

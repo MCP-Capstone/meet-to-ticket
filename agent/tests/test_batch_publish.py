@@ -35,6 +35,31 @@ def ticket(ticket_id, kind, number=None):
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("github, unresolved", [(["chosen-login"], []), ([], ["선택한 담당"])])
+async def test_stored_assignee_object_is_used_in_github_request_and_body(github, unresolved):
+    publisher = BatchPublisher()
+    source = ticket("assigned", "CREATE")
+    source.content_json.update({
+        "description": "수정한 작업 내용",
+        "issue_body": "수정 전 본문",
+        "assignees": {"names": ["선택한 담당"], "github": github, "unresolved": unresolved},
+    })
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[source]), publisher)
+
+    assert out.items[0].status == "PUBLISHED"
+    args = publisher.calls[0][1]
+    assert args["assignees"] == github
+    assert "## 작업 내용\n수정한 작업 내용" in args["body"]
+    assert "- 회의록 담당자: 선택한 담당" in args["body"]
+    assert "수정 전 본문" not in args["body"]
+    if github:
+        assert "- GitHub: @chosen-login" in args["body"]
+    else:
+        assert "- GitHub 계정 미매핑: 선택한 담당" in args["body"]
+
+
+@pytest.mark.anyio
 async def test_batch_runs_create_link_and_update_with_their_actual_results():
     publisher = BatchPublisher()
     out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[

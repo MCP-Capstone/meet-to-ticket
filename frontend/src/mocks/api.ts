@@ -1,8 +1,11 @@
 import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
-import type { AnalysisTask, DirectoryUser, ExecutionMode, Meeting, StartAnalysisResponse, TaskStage, User } from '../api/types'
+
+import type { AnalysisTask, DirectoryUser, DispatchResult, ExecutionMode, Meeting, StartAnalysisResponse, TaskStage, User } from '../api/types'
 import { listMockTickets, editMockTicket, changeMockTicket, retryMockTicket } from './tickets'
+
 import { mockItems } from './data'
+import { countOf, makeMockDispatch } from './dispatch'
 import { readMeetingFile, validateMeetingText, validMeetingDate } from '../meetingInput'
 import { changeMockProjectRole, getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
 
@@ -18,6 +21,8 @@ const EXECUTION_MODE: ExecutionMode = 'LIVE'
 
 // 작업별 시작 시각. 경과 시간으로 상태를 흉내 낸다.
 const tasks = new Map<string, { meetingId: number; startedAt: number }>()
+// 전송 결과는 대표 담당 지정이 남도록 작업마다 한 번 만들어 둔다
+const dispatches = new Map<string, DispatchResult>()
 const analyzedMeetings = new Set<number>()
 
 // 분석 단계별 소요 시간 (ms). 합계가 지나면 COMPLETED
@@ -313,5 +318,29 @@ export const mockApi: typeof realApi = {
         drafts: count('DRAFT'),
       },
     }
+  },
+
+  async getDispatchResult(taskId) {
+    await delay(200)
+    const user = requireLogin()
+    if (!tasks.has(taskId)) throw fail(404, 'TASK_NOT_FOUND', '분석 작업을 찾을 수 없습니다.')
+    if (!dispatches.has(taskId)) dispatches.set(taskId, makeMockDispatch(taskId, user.name))
+    return dispatches.get(taskId)!
+  },
+
+  async assignTicket(ticketId, memberId) {
+    await delay(200)
+    requireLogin()
+    for (const result of dispatches.values()) {
+      const target = result.tickets.find((t) => t.ticket.ticketId === ticketId)
+      if (!target) continue
+      if (target.ticket.status !== 'ASSIGNEE_REQUIRED') throw fail(409, 'TICKET_STATUS_CONFLICT', '현재 티켓 상태에서는 할 수 없는 작업입니다.')
+      const m = result.members.find((x) => x.memberId === memberId)
+      if (!m) throw fail(404, 'PROJECT_MEMBER_NOT_FOUND', '프로젝트 멤버가 아닌 사용자입니다.')
+      target.ticket = { ...target.ticket, status: 'PENDING_REVIEW', assignee: { projectMemberId: m.memberId, name: m.name } }
+      result.counts = countOf(result.tickets)
+      return target
+    }
+    throw fail(404, 'TICKET_NOT_FOUND', '티켓을 찾을 수 없습니다.')
   },
 }
