@@ -303,6 +303,8 @@ business-mcp/
 | 도구 | 부르는 시점 | 입력 | 결과 | 다시 불러도 되나 |
 |---|---|---|---|---|
 | `create_issue` | 발행 (신규) | `owner`, `repo`, `title`, `body`, `labels`, `assignees` | `{status: "created", number, url, assignees, dropped_assignees, dropped_labels}` | 아니요 (이슈가 하나 더 생김) |
+| `add_comment` | SAME 기존 이슈 연결 | `owner`, `repo`, `number`, `body` | `{status: "commented", comment_id, url}` | 아니요 (댓글이 하나 더 생김) |
+| `update_issue` | CHANGE 기존 이슈 반영 | `owner`, `repo`, `number`, `append_section`, `add_labels`, `note` | `{status: "updated", number, url, dropped_labels, comment_id, comment_url, comment_error}` | 아니요 (본문·댓글이 달라짐) |
 | `list_labels` | 초안 라벨 고르기 | `owner`, `repo` | `{labels: [{name, description}]}` | 예 |
 | `check_member_permissions` | 프로젝트 저장(멤버 권한 표시) | `owner`, `repo`, `github_names` | `{members: [{github_name, permission}]}` | 예 |
 | `list_issues` | 연결 확인 | `owner`, `repo`, `state="open"`, `limit=10` | `{issues: [{number, title, state, url, assignees}]}` | 예 |
@@ -310,6 +312,8 @@ business-mcp/
 
 - `create_issue`: 제목 앞뒤 공백 제거, 256자·본문 65000자 초과분은 자름. 담당자 지정이 거부(422)되면 담당자 없이 한 번 더 생성하고 `dropped_assignees`에 표시합니다.
 - `create_issue` 라벨: 보내기 전에 저장소 라벨 목록과 비교해(대소문자 무시) 없는 라벨은 빼고 `dropped_labels`에 표시합니다. push 권한이 있는 토큰으로 없는 라벨을 넘기면 GitHub가 라벨을 새로 만들 수 있어서입니다. 라벨을 요청하지 않으면 라벨 목록을 조회하지 않습니다.
+- `add_comment`: 기존 이슈에 연결 댓글을 새로 남깁니다. `SAME` 판정의 댓글 문안은 Agent가 만들고 MCP는 게시만 합니다.
+- `update_issue`: 본문 전체를 바꾸지 않고 `append_section`을 기존 본문 끝에 추가합니다. 제목·담당자·상태는 받지 않으며, 라벨은 기존 라벨을 유지한 채 유효한 `add_labels`만 추가합니다. `note`가 있으면 갱신 알림 댓글을 한 번 더 남깁니다. 본문·라벨 저장 뒤 이 댓글만 실패하면 갱신 결과는 유지하고 `comment_error`로 알립니다. PR이나 본문 길이 초과 갱신은 거부합니다.
 - `list_labels`: 저장소 라벨 전체(페이지를 모두 받음). Agent는 이 안에서 초안 라벨을 고릅니다.
 - `check_member_permissions`: 멤버마다 이 저장소 이슈의 담당자로 지정할 수 있는지 GitHub assignees API로 확인합니다. `permission`은 `GRANTED`(가능), `DENIED`(불가), `ERROR`(확인 실패, 권한 없음으로 보지 않음). 먼저 저장소를 조회해서, 저장소를 볼 수 없으면 멤버별 결과 없이 `[GITHUB_NOT_FOUND]` 같은 오류를 돌려줍니다. 계정은 앞뒤 공백·대소문자 중복을 정리하고 한 번에 100명까지. GitHub 계정이 없는 멤버(`NO_ACCOUNT`)는 백엔드가 판단하고 넘기지 않습니다.
 - `list_issues`: 최신순, PR 제외, `limit` 1~50, `state`는 `open`·`closed`·`all`

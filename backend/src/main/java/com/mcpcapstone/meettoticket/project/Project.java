@@ -6,6 +6,10 @@ import jakarta.persistence.*;
 
 import lombok.*;
 
+import com.mcpcapstone.meettoticket.project.dto.ProjectDetail.ConnectionStatus;
+
+import java.util.Objects;
+
 @Entity
 @Table(
         name = "projects",
@@ -33,13 +37,21 @@ public class Project {
     @Column(name = "notion_page_url", length = 500)
     private String notionPageUrl;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "notion_connection_status", length = 20)
+	private ConnectionStatus notionConnectionStatus;
+
     @Column(name = "slack_channel_id", length = 30)
     private String slackChannelId;
 
     // 멤버 저장소 권한 확인 결과. 확인 전이면 null.
     @Enumerated(EnumType.STRING)
     @Column(name = "github_connection", length = 20)
-    private ProjectDetail.ConnectionStatus githubConnection;
+    private ConnectionStatus githubConnection;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "slack_connection_status", length = 20)
+	private ConnectionStatus slackConnectionStatus;
 
     public Project(String name, String owner, String repo) {
         this.name = name;
@@ -58,11 +70,42 @@ public class Project {
         this.description = description;
         this.githubOwner = owner;
         this.githubRepo = repo;
-        this.notionPageUrl = notionPageUrl;
-        this.slackChannelId = slackChannelId;
+		updateNotionPageUrl(notionPageUrl);
+		updateSlackChannelId(slackChannelId);
     }
 
-    public void recordGithubConnection(ProjectDetail.ConnectionStatus status) {
+    public void recordGithubConnection(ConnectionStatus status) {
         this.githubConnection = status;
     }
+
+	// 프로젝트 설정이 바뀌면 이전 외부 확인 결과는 무효다. Agent 확인 전에는 null로 둔다.
+	private void updateNotionPageUrl(String notionPageUrl) {
+		if (!Objects.equals(this.notionPageUrl, notionPageUrl)) {
+			this.notionPageUrl = notionPageUrl;
+			this.notionConnectionStatus = notionPageUrl == null ? ConnectionStatus.NOT_CONNECTED : null;
+		}
+	}
+
+	private void updateSlackChannelId(String slackChannelId) {
+		if (!Objects.equals(this.slackChannelId, slackChannelId)) {
+			this.slackChannelId = slackChannelId;
+			this.slackConnectionStatus = slackChannelId == null ? ConnectionStatus.NOT_CONNECTED : null;
+		}
+	}
+
+	public ConnectionStatus notionConnectionStatus() {
+		return notionPageUrl == null ? ConnectionStatus.NOT_CONNECTED : notionConnectionStatus;
+	}
+
+	public ConnectionStatus slackConnectionStatus() {
+		return slackChannelId == null ? ConnectionStatus.NOT_CONNECTED : slackConnectionStatus;
+	}
+
+	public void updateNotionConnectionStatus(ConnectionStatus status) {
+		this.notionConnectionStatus = notionPageUrl == null ? ConnectionStatus.NOT_CONNECTED : status;
+	}
+
+	public void updateSlackConnectionStatus(ConnectionStatus status) {
+		this.slackConnectionStatus = slackChannelId == null ? ConnectionStatus.NOT_CONNECTED : status;
+	}
 }

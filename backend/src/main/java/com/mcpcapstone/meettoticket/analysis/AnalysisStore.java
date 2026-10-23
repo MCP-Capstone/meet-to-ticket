@@ -110,6 +110,8 @@ public class AnalysisStore {
         boolean mock = mode(t).equals("MOCK");
         validator.validate(requestOf(t), result, mock);
         if (result.status().terminal()) {
+            List<ProjectMember> projectMembers =
+                    members.findByProjectIdOrderById(t.getMeeting().getProject().getId());
             for (var item : result.items()) {
                 var existing = items.findById(item.itemId());
                 if (existing.isPresent()) {
@@ -117,7 +119,9 @@ public class AnalysisStore {
                         throw new IllegalArgumentException("다른 작업의 itemId입니다.");
                     continue;
                 }
-                items.save(new TaskItem(t, item, json.write(item.contentJson())));
+                var saved = new TaskItem(t, item, json.write(item.contentJson()));
+                saved.assignTo(AssigneeResolver.resolve(item.contentJson(), projectMembers).orElse(null));
+                items.save(saved);
             }
         }
         t.update(

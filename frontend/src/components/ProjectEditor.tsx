@@ -115,6 +115,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
       githubOwner: parts[0], githubRepo: parts[1],
       notionPageUrl: notionPageUrl.trim() || null, slackChannelId: slackChannelId.trim() || null,
       memberUserIds: members.map((member) => member.userId),
+      memberSlackEmails: Object.fromEntries(members.map((member) => [member.userId, member.slackEmail?.trim() || null])),
     }
     submitLock.current = true
     setSaving(true)
@@ -198,12 +199,20 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
           {members.length === 0 ? <p className="muted">선택한 멤버가 없습니다. 아래에서 가입한 사용자를 추가하세요.</p> : (
             <div className="project-table-wrap">
               <table className="project-member-table">
-                <caption className="sr-only">선택한 프로젝트 멤버와 저장소 권한</caption>
-                <thead><tr><th scope="col">이름</th><th scope="col">GitHub 계정</th><th scope="col">저장소 권한</th><th scope="col">선택</th></tr></thead>
+                <caption className="sr-only">선택한 프로젝트 멤버와 외부 계정 연결 정보</caption>
+                <thead><tr><th scope="col">이름</th><th scope="col">GitHub 계정</th><th scope="col">저장소 권한</th><th scope="col">Slack 이메일</th><th scope="col">Slack ID</th><th scope="col">선택</th></tr></thead>
                 <tbody>{members.map((member) => (
                   <tr key={member.userId}>
                     <td>{member.name}</td><td>{member.githubName ?? '계정 없음'}</td>
                     <td>{visiblePermission(member)}</td>
+                    <td><input type="email" value={member.slackEmail ?? ''} placeholder="member@example.com" aria-label={`${member.name} Slack 이메일`} onChange={(e) => {
+                      const slackEmail = e.target.value || null
+                      setMembers((selected) => selected.map((item) => item.userId === member.userId
+                        ? { ...item, slackEmail, slackUserId: slackEmail === item.slackEmail ? item.slackUserId : null }
+                        : item))
+                      markChanged()
+                    }} /></td>
+                    <td>{member.slackUserId ?? '저장 후 확인'}</td>
                     <td><button type="button" className="link" aria-label={`${member.name} 멤버 제거`} onClick={() => {
                       setMembers((selected) => selected.filter((item) => item.userId !== member.userId)); markChanged()
                     }}>제거</button></td>
@@ -222,7 +231,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
               : searchError ? <div><p className="error" role="alert">{searchError}</p><button type="button" className="link" onClick={() => setSearchAttempt((value) => value + 1)}>검색 다시 시도</button></div>
               : candidates.length === 0 ? <p className="muted" role="status">추가할 수 있는 사용자가 없습니다.</p>
               : <ul className="project-candidates" aria-label="추가 가능한 사용자">{candidates.map((user) => (
-                <li key={user.userId}><span><strong>{user.name}</strong> <span className="muted">{user.githubName ?? 'GitHub 계정 없음'}</span></span>
+                <li key={user.userId}><span><strong>{user.name}</strong> <span className="muted">{user.githubName ?? 'GitHub 계정 없음'} · {user.slackEmail ?? 'Slack 이메일 없음'}</span></span>
                   <button type="button" className="secondary" aria-label={`${user.name} 멤버 추가`} onClick={() => {
                     setMembers((selected) => selected.some((member) => member.userId === user.userId) ? selected : [...selected, user]); markChanged()
                   }}>추가</button>

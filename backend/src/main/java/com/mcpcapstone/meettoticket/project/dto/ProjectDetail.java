@@ -25,6 +25,8 @@ public record ProjectDetail(
 			@Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "1") Long userId,
 			@Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "함주헌") String name,
 			@Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "juhun-ham") String githubName,
+			@Schema(description = "Slack 사용자 이메일. 채널 멘션 대상 조회에 쓴다.", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "member@example.com") String slackEmail,
+			@Schema(description = "Slack 사용자 ID. Agent가 이메일 조회에 성공하면 채운다.", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "U0123456789") String slackUserId,
 			@Schema(description = "프로젝트 관리자 여부", requiredMode = Schema.RequiredMode.REQUIRED) boolean admin,
 			@Schema(description = "저장소 권한. GitHub 계정이 없으면 NO_ACCOUNT, 프로젝트 저장 때 확인한 결과로 GRANTED/DENIED, 확인 전이거나 확인에 실패하면 null",
 					requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)

@@ -14,6 +14,7 @@ import re
 from typing import Any
 
 import httpx
+from mcp.server.mcpserver.exceptions import ToolError
 
 from common import INVALID_ARGUMENT, env, make_http_client, tool_error
 
@@ -327,3 +328,111 @@ def create_issue(
         "dropped_assignees": dropped,
         "dropped_labels": dropped_labels,
     }
+
+
+def _issue_number(number: int) -> int:
+    """GitHub 이슈 번호를 API 호출 전에 검증한다."""
+    # bool은 int의 하위 타입이지만 이슈 번호로는 의미가 없다.
+    if isinstance(number, bool):
+        raise tool_error(INVALID_ARGUMENT, "number는 1 이상의 이슈 번호여야 합니다")
+    try:
+        parsed = int(number)
+    except (TypeError, ValueError):
+        raise tool_error(INVALID_ARGUMENT, "number는 1 이상의 이슈 번호여야 합니다") from None
+    if parsed < 1:
+        raise tool_error(INVALID_ARGUMENT, "number는 1 이상의 이슈 번호여야 합니다")
+    return parsed
+
+
+def _required_text(value: str, name: str) -> str:
+    """공백만 있는 쓰기 본문은 GitHub에 보내지 않는다."""
+    text = (value or "").strip()
+    if not text:
+        raise tool_error(INVALID_ARGUMENT, f"{name}이 비어 있습니다")
+    if len(text) > BODY_MAX:
+        raise tool_error(INVALID_ARGUMENT, f"{name}은 {BODY_MAX}자 이하여야 합니다")
+    return text
+
+
+def add_comment(client: httpx.Client, owner: str, repo: str, number: int, body: str) -> dict[str, Any]:
+    """기존 이슈에 댓글을 하나 추가한다. 재호출하면 댓글도 하나 더 생긴다."""
+    number = _issue_number(number)
+    body = _required_text(body, "body")
+    resp = request(client, "POST", f"/repos/{owner}/{repo}/issues/{number}/comments", json={"body": body})
+    data = resp.json()
+    return {"status": "commented", "comment_id": data.get("id"), "url": data.get("html_url")}
+
+
+def _issue_labels(data: dict[str, Any]) -> list[str]:
+    """이슈 조회 응답의 라벨을 PATCH에 다시 넣을 수 있는 이름 목록으로 바꾼다."""
+    return [
+        label.get("name")
+        for label in data.get("labels", []) or []
+        if isinstance(label, dict) and label.get("name")
+    ]
+
+
+def _merge_labels(existing: list[str], added: list[str]) -> list[str]:
+    """기존 라벨은 유지하고, 대소문자 중복 없이 새 라벨만 덧붙인다."""
+    merged: list[str] = []
+    for label in [*existing, *added]:
+        if label and label.lower() not in {item.lower() for item in merged}:
+            merged.append(label)
+    return merged
+
+
+def update_issue(
+    client: httpx.Client,
+    owner: str,
+    repo: str,
+    number: int,
+    append_section: str,
+    add_labels: list[str] | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    """기존 이슈 본문 끝에 섹션을 추가하고, 필요하면 라벨과 갱신 알림 댓글을 더한다.
+
+    제목·담당자·state는 바꾸지 않는다. 본문 PATCH가 성공한 뒤 댓글만 실패하면 본문 갱신은
+    유지하고 comment_error를 돌려주므로, 호출자가 이슈 갱신 자체를 실패로 잘못 처리하지 않는다.
+    """
+    number = _issue_number(number)
+    section = _required_text(append_section, "append_section")
+    path = f"/repos/{owner}/{repo}/issues/{number}"
+
+    # PATCH의 body는 교체 방식이다. 먼저 현재 본문을 읽어, 기존 내용을 잃지 않고 끝에만 붙인다.
+    current = request(client, "GET", path).json()
+    if "pull_request" in current:
+        raise tool_error(INVALID_ARGUMENT, "PR에는 update_issue를 사용할 수 없습니다")
+    previous_body = (current.get("body") or "").rstrip()
+    body = f"{previous_body}\n\n{section}" if previous_body else section
+    # 생성 때처럼 자르면 기존 이슈의 끝이 조용히 사라질 수 있으므로 갱신은 안전하게 거부한다.
+    if len(body) > BODY_MAX:
+        raise tool_error(INVALID_ARGUMENT, f"기존 본문과 append_section 합계는 {BODY_MAX}자 이하여야 합니다")
+
+    kept_labels, dropped_labels = split_labels(client, owner, repo, add_labels)
+    payload: dict[str, Any] = {"body": body}
+    if kept_labels:
+        payload["labels"] = _merge_labels(_issue_labels(current), kept_labels)
+
+    data = request(client, "PATCH", path, json=payload).json()
+    out: dict[str, Any] = {
+        "status": "updated",
+        "number": data.get("number", number),
+        "url": data.get("html_url"),
+        "dropped_labels": dropped_labels,
+        "comment_id": None,
+        "comment_url": None,
+        "comment_error": None,
+    }
+    if note is None or not note.strip():
+        return out
+
+    try:
+        comment = add_comment(client, owner, repo, number, note)
+    except (ToolError, httpx.HTTPError) as exc:
+        # 본문과 라벨은 이미 변경됐다. 댓글 실패가 이 성공을 감추지 않게 결과에만 남긴다.
+        out["comment_error"] = str(exc)
+        return out
+    out["comment_id"] = comment["comment_id"]
+    out["comment_url"] = comment["url"]
+    return out
