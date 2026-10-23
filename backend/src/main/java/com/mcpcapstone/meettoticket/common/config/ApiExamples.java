@@ -75,6 +75,20 @@ public final class ApiExamples {
             }
             """;
 
+    public static final String ERROR_PROJECT_NAME_MISMATCH = """
+            {
+              "code": "PROJECT_NAME_MISMATCH",
+              "message": "프로젝트 이름이 일치하지 않습니다."
+            }
+            """;
+
+    public static final String ERROR_PROJECT_ANALYSIS_IN_PROGRESS = """
+            {
+              "code": "PROJECT_ANALYSIS_IN_PROGRESS",
+              "message": "처리 중인 회의록이 있어 삭제할 수 없습니다. 처리가 끝난 뒤 다시 시도해 주세요."
+            }
+            """;
+
     public static final String ERROR_DUPLICATE_PROJECT_REPOSITORY = """
             {
               "code": "DUPLICATE_PROJECT_REPOSITORY",

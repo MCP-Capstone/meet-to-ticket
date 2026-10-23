@@ -24,6 +24,7 @@
 | POST | /api/projects | 201 | 프로젝트 등록 (등록자는 관리자) |
 | GET | /api/projects/{projectId} | 200 | 프로젝트 상세, 멤버, 편집 가능 여부 |
 | PUT | /api/projects/{projectId} | 200 | 프로젝트 편집 (관리자만) |
+| DELETE | /api/projects/{projectId} | 204 | 프로젝트 삭제 (관리자만, 이름 입력 확인) |
 | PUT | /api/projects/{projectId}/members/{memberUserId}/role | 200 | 관리자 지정/해제 (관리자만) |
 | GET | /api/users?keyword= | 200 | 멤버로 고를 가입 사용자 검색 |
 | GET | /api/projects/{projectId}/members | 200 | 팀원·GitHub 계정 |
@@ -41,6 +42,7 @@
 
 프로젝트를 등록한 사용자는 관리자(ADMIN)이자 멤버가 되고, 편집(PUT)은 관리자만 한다(아니면 403 `PROJECT_ADMIN_REQUIRED`).
 `memberUserIds`는 변경 후 전체 멤버 목록이며, 관리자는 목록에 없어도 남는다. 관리자 지정/해제는 role API(`{"role": "ADMIN" | "MEMBER"}`)로 하고, 마지막 관리자를 해제하면 409 `LAST_PROJECT_ADMIN`이다. 같은 GitHub 저장소는 대소문자가 달라도 409 `DUPLICATE_PROJECT_REPOSITORY`이다.
+프로젝트 삭제는 본문 `{"confirmName": "프로젝트 이름"}`이 저장된 이름과 같아야 한다(아니면 400 `PROJECT_NAME_MISMATCH`). 멤버, 회의 기록, 분석 작업과 티켓을 지우고 이미 발행한 GitHub 이슈, Slack 메시지, Notion 페이지는 그대로 둔다. 처리 중인 회의록이 있으면 409 `PROJECT_ANALYSIS_IN_PROGRESS`이다.
 저장(POST/PUT)할 때마다 GitHub 계정이 있는 멤버의 저장소 권한을 Agent `POST /projects/check-members`로 확인한다(이전 결과는 먼저 초기화). 멤버별 `repositoryPermission`은 GRANTED/DENIED, 계정이 없으면 NO_ACCOUNT(호출 제외)이다. 멤버 ERROR나 Agent/MCP 전체 실패는 저장을 막지 않고 해당 멤버 `repositoryPermission=null`, `connections.github=ERROR`로 응답한다(전부 성공이면 CONNECTED, 확인할 멤버가 없으면 null). `GET /api/projects/{projectId}`는 외부 호출 없이 저장된 값을 반환한다.
 멤버 저장소 권한과 도구 연결은 TASK-006 전까지 확인하지 않는다. GitHub 계정이 없는 멤버만 `NO_ACCOUNT`이고, 확인 전 값은 `null`이다.
 
