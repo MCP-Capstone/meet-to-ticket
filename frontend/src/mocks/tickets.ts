@@ -17,7 +17,7 @@ function read(user: User): StoredTicket[] {
   const statuses: MyTicket['status'][] = ['PENDING_REVIEW', 'PENDING_REVIEW', 'CONFIRMED', 'REJECTED', 'FAILED', 'FAILED']
   const titles = ['CSV 빈 결과 오류 수정', '다운로드 완료 안내 개선', '파일명 날짜 형식 정리', '내보내기 도움말 작성', '내보내기 권한 오류 처리', '대용량 CSV 분할 다운로드']
   const failures: Record<number, MyTicket['publishFailure']> = {
-    4: { errorCode: 'GITHUB_RATE_LIMIT', errorMessage: 'GitHub 호출 한도를 넘었습니다.', failureCategory: 'OTHER', retryable: true, outcomeUnknown: false },
+    4: { errorCode: 'GITHUB_FORBIDDEN', errorMessage: 'GitHub 저장소 권한이 없습니다.', failureCategory: 'REPOSITORY_PERMISSION', retryable: true, outcomeUnknown: false },
     5: { errorCode: 'RESULT_UNKNOWN', errorMessage: '요청은 보냈지만 결과를 받지 못했습니다.', failureCategory: 'OTHER', retryable: true, outcomeUnknown: true },
   }
   const seed: StoredTicket[] = statuses.map((status, index) => ({
