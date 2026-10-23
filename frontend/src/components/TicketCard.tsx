@@ -94,9 +94,10 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
       setPublicationEditing(false)
     } catch (e) {
       if (e instanceof ApiRequestError && e.code === 'UNAUTHORIZED') return
-      if (e instanceof ApiRequestError && [403, 404, 409].includes(e.status)) {
+      // 기존 이슈가 그사이 닫히는 등 카드의 중복 판단 정보가 오래된 경우도 다시 불러와야 풀린다.
+      if (e instanceof ApiRequestError && ([403, 404, 409].includes(e.status) || ['EXISTING_ISSUE_REQUIRED', 'PROCESSING_TYPE_TARGET_MISMATCH'].includes(e.code))) {
         setBlocked(true)
-        setError(`${e.message} 최신 목록을 불러와 담당자와 상태를 확인해 주세요. 입력은 아직 저장되지 않았습니다.`)
+        setError(`${e.message} 최신 목록을 불러와 담당자, 상태, 기존 이슈를 확인해 주세요. 입력은 아직 저장되지 않았습니다.`)
       } else {
         setError(e instanceof Error ? e.message : '요청에 실패했습니다. 다시 시도해 주세요.')
       }
