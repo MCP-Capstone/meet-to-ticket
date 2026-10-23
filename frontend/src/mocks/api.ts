@@ -1,6 +1,6 @@
 import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
-import type { AnalysisTask, DirectoryUser, ExecutionMode, Meeting, TaskStage, User } from '../api/types'
+import type { AnalysisProgress, AnalysisTask, DirectoryUser, ExecutionMode, Meeting, ProgressStep, TaskStage, User } from '../api/types'
 import { mockItems } from './data'
 import { changeMockProjectRole, getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
 
@@ -10,22 +10,36 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 let nextMeetingId = 1
 
-// 화면 확인용이라 실제 Agent 결과처럼 보이게 LIVE로 둔다. (모의 실행 안내를 보려면 'MOCK')
-const EXECUTION_MODE: ExecutionMode = 'LIVE'
+// 실제 Agent나 GitHub는 호출하지 않는다.
+const EXECUTION_MODE: ExecutionMode = 'MOCK'
 
 // 작업별 시작 시각. 경과 시간으로 상태를 흉내 낸다.
 const tasks = new Map<string, { meetingId: number; startedAt: number }>()
 const analyzedMeetings = new Set<number>()
+const meetingMemberCounts = new Map<number, number>()
 
 // 분석 단계별 소요 시간 (ms). 합계가 지나면 COMPLETED
-const stageDurations: [TaskStage, number][] = [
-  ['EXTRACTING', 2500],
-  ['NORMALIZING', 1500],
-  ['REVIEWING', 2500],
-  ['PUBLISHING', 1500],
-  ['VERIFYING', 1000],
+const stageDurations: { step: ProgressStep; stage: TaskStage; ms: number }[] = [
+  { step: 'CONTEXT', stage: 'EXTRACTING', ms: 2500 },
+  { step: 'EXTRACTING', stage: 'NORMALIZING', ms: 4000 },
+  { step: 'DEDUPING', stage: 'REVIEWING', ms: 3000 },
+  { step: 'DISPATCHING', stage: 'REVIEWING', ms: 2500 },
 ]
 const QUEUED_MS = 1000
+
+// 건수는 화면 검증용 가짜 값이다. 앞 단계 세부 정보는 다음 단계에도 유지한다.
+function mockProgress(meetingId: number, step: ProgressStep, ratio = 1): AnalysisProgress {
+  const members = meetingMemberCounts.get(meetingId)
+  const dedupeRatio = step === 'DEDUPING' ? ratio : 1
+  return {
+    step,
+    ...(members === undefined ? {} : { context: { members, issues: null, notionDocs: null } }),
+    ...(step === 'CONTEXT' ? {} : { extraction: { todos: mockItems.length, decisions: 1, openQuestions: 0 } }),
+    ...(step !== 'DEDUPING' && step !== 'DISPATCHING' ? {} : {
+      dedupe: { done: Math.floor(mockItems.length * dedupeRatio), total: mockItems.length, linked: dedupeRatio >= 1 ? 1 : 0 },
+    }),
+  }
+}
 
 // 새로고침해도 가입 정보와 로그인이 유지되는 것을 흉내 내려고 sessionStorage에 저장한다.
 type MockUser = User & { password: string }
@@ -192,6 +206,7 @@ export const mockApi: typeof realApi = {
       originalFilename: file.name,
       readyForAnalysis: true,
     }
+    meetingMemberCounts.set(meeting.meetingId, members.length)
     return meeting
   },
 
@@ -226,17 +241,20 @@ export const mockApi: typeof realApi = {
     }
     let elapsed = Date.now() - task.startedAt - QUEUED_MS
     if (elapsed < 0) return base
-    for (const [stage, ms] of stageDurations) {
-      if (elapsed < ms) return { ...base, status: 'RUNNING', stage }
+    for (const { step, stage, ms } of stageDurations) {
+      if (elapsed < ms) return { ...base, status: 'RUNNING', stage, progress: mockProgress(task.meetingId, step, elapsed / ms) }
       elapsed -= ms
     }
-    return { ...base, status: 'COMPLETED', stage: 'VERIFYING', finishedAt: new Date().toISOString() }
+    return { ...base, status: 'COMPLETED', stage: 'VERIFYING', finishedAt: new Date().toISOString(), progress: mockProgress(task.meetingId, 'DISPATCHING') }
   },
 
   async getAnalysisItems(taskId) {
     await delay(300)
     requireLogin()
-    const items = mockItems.map((item) => ({ ...item, itemId: crypto.randomUUID() }))
+    const items = mockItems.map((item) => ({
+      ...item, itemId: crypto.randomUUID(), reviewStatus: 'PENDING' as const, publishStatus: 'DRAFT' as const,
+      githubIssueNumber: null, githubIssueUrl: null, errorMessage: null,
+    }))
     const count = (key: 'SUCCEEDED' | 'FAILED' | 'UNKNOWN' | 'SKIPPED' | 'DRAFT') => items.filter((i) => i.publishStatus === key).length
     return {
       taskId,
@@ -245,8 +263,8 @@ export const mockApi: typeof realApi = {
       items,
       summary: {
         total: items.length,
-        approved: items.filter((i) => i.reviewStatus === 'APPROVED').length,
-        rejected: items.filter((i) => i.reviewStatus === 'REJECTED').length,
+        approved: 0,
+        rejected: 0,
         succeeded: count('SUCCEEDED'),
         failed: count('FAILED'),
         unknown: count('UNKNOWN'),
