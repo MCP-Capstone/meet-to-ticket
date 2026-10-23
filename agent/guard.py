@@ -12,24 +12,25 @@ from __future__ import annotations
 
 import re
 
-from resolve import normalize_ws
-
 MEETING_TAG = "meeting_notes"
 NOTION_TAG = "notion_docs"
 ISSUES_TAG = "existing_issues"
 ISSUE_TAG = "existing_issue"
-DATA_TAGS = (MEETING_TAG, NOTION_TAG, ISSUES_TAG, ISSUE_TAG)
+EXTRACTED_TAG = "extracted_items"  # 회의 원문에서 파생된 값 (결정, 미결 질문, 제외 항목, 할 일 목록)
+DRAFTS_TAG = "issue_drafts"        # 모델이 쓴 초안 (원문에서 파생돼 지시문이 섞일 수 있음)
+DATA_TAGS = (MEETING_TAG, NOTION_TAG, ISSUES_TAG, ISSUE_TAG, EXTRACTED_TAG, DRAFTS_TAG)
 
 _TAG_RE = re.compile(r"<\s*/?\s*(?:" + "|".join(DATA_TAGS) + r")\b[^>]*>?", re.IGNORECASE)
 
 # 초안 경고 문구 (nodes.DRAFT_WARNING_PREFIXES에 넣어 초안을 다시 쓸 때마다 새로 계산한다)
 SUSPICIOUS_WARNING = "초안에 회의록에 없는 URL/코드블록/명령어 패턴이 있어 확인 필요"
 
-_URL_RE = re.compile(r"(?:https?|ftp)://\S+|\bwww\.\S+", re.IGNORECASE)
+# URL은 ASCII URL 문자만 잇는다 (한글 조사 "https://x.com/guide를"의 "를"은 URL이 아님)
+_URL_RE = re.compile(r"(?:https?|ftp)://[A-Za-z0-9\-._~:/?#@!$&*+,;=%]+|\bwww\.[A-Za-z0-9\-._~:/?#@!$&*+,;=%]+", re.IGNORECASE)
 _CODE_BLOCK_RE = re.compile(r"```|~~~")
 _COMMAND_RE = re.compile(
     r"(?:^|[\s`$;&|])(?:curl|wget|rm\s+-\w+|sudo|chmod|chown|bash|sh\s+-c|powershell|nc|ssh|scp|eval|exec|"
-    r"npm\s+(?:i|install|run)|pip\s+install|git\s+(?:push|clone|reset)|gh\s+(?:issue|pr|api))\b",
+    r"npm\s+(?:i|install|run)|pip\s+install|git\s+(?:push|clone|reset)|gh\s+(?:issue|pr|api))(?![A-Za-z0-9_])",
     re.IGNORECASE,
 )
 
@@ -43,16 +44,23 @@ def wrap_data(tag: str, text: str) -> str:
     return f"<{tag}>\n{neutralize(text)}\n</{tag}>"
 
 
+def _url(raw: str) -> str:
+    return raw.rstrip(".,;:!?").lower().rstrip("/")
+
+
 def _patterns(text: str) -> set[str]:
-    found = {m.group(0).strip().rstrip(".,)") for m in _URL_RE.finditer(text)}
+    """URL, 코드블록 표시, 명령어를 정규화한 집합. 비교는 부분 문자열이 아니라 이 집합의 원소 단위로 한다."""
+    found = {_url(m.group(0)) for m in _URL_RE.finditer(text)}
     if _CODE_BLOCK_RE.search(text):
         found.add("```")
-    found.update(m.group(0).strip(" `$;&|").lower() for m in _COMMAND_RE.finditer(text))
+    found.update(re.sub(r"\s+", " ", m.group(0).lower()).strip(" `$;&|") for m in _COMMAND_RE.finditer(text))
     return found
 
 
-def scan_draft(fields: list[str], source: str) -> list[str]:
-    """초안 문구에서 회의록 원문에 없던 URL, 코드블록, 명령어 패턴을 찾아 돌려준다. 없으면 빈 목록."""
-    normalized = normalize_ws(source).lower()
-    text = "\n".join(f for f in fields if f)
-    return sorted(p for p in _patterns(text) if normalize_ws(p).lower() not in normalized)
+def scan_draft(fields: list[str], source: str, context: str = "") -> list[str]:
+    """초안 문구에서 기준 텍스트(회의록 원문, 프로젝트 맥락)에 없던 URL, 코드블록, 명령어 패턴을 찾아 돌려준다.
+
+    "기준에 있음"은 URL/명령어 단위 일치로 본다 (https://a.com이 https://a.com.evil.io 안에서, nc가 async 안에서 통과하지 않게).
+    """
+    known = _patterns(source) | _patterns(context)
+    return sorted(_patterns("\n".join(f for f in fields if f)) - known)

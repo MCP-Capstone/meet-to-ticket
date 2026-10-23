@@ -63,6 +63,9 @@ def _submit_tool() -> Any:
 def build_judge_graph(chat: Any, tools: list[Any], *, max_calls: int, max_same: int) -> Any:
     """판단 루프 그래프. 티켓마다 다시 만들지 않고 한 번 만들어 같이 쓴다."""
     # 코드 수준 allowlist: 읽기 전용 도구만 모델에 묶고 ToolNode에도 넣는다. 그 밖의 이름은 모델이 불러도 실행되지 않는다
+    removed = [t.name for t in tools if t.name not in READ_ONLY_TOOLS]
+    if removed:
+        log.warning("읽기 전용 allowlist 밖의 도구를 중복 판단에서 뺌: %s", ", ".join(removed))
     tools = [t for t in tools if t.name in READ_ONLY_TOOLS]
     # tool_choice="required": 매 턴 도구(조회 또는 제출)를 하나 이상 부르게 해 글로만 답하고 끝나지 않게 한다
     bound = chat.bind_tools([*tools, _submit_tool()], tool_choice="required")

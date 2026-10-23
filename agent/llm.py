@@ -14,7 +14,7 @@ from typing import Any
 
 import prompts
 from config import Settings
-from guard import ISSUES_TAG, MEETING_TAG, NOTION_TAG, wrap_data
+from guard import DRAFTS_TAG, EXTRACTED_TAG, ISSUES_TAG, MEETING_TAG, NOTION_TAG, wrap_data
 from schemas import ActionRowsOut, DraftBatch, DraftTicket, ReviewBatch, TicketReview
 from state import LLM_ERROR, AgentFatal
 
@@ -25,6 +25,11 @@ def _bullet_list(items: list[str]) -> str:
     return "\n".join(f"- {x}" for x in items) or "- 없음"
 
 
+def _extracted(text: str) -> str:
+    """회의 원문에서 파생된 값(결정, 미결 질문, 제외 항목, 할 일 등)도 비신뢰 데이터라 태그로 감싼다."""
+    return wrap_data(EXTRACTED_TAG, text)
+
+
 def _context_text(context: dict[str, Any] | None) -> str:
     """프로젝트 맥락(기존 이슈, Notion 문서)을 각각 데이터 태그로 감싼다. 둘 다 외부에서 온 데이터다."""
     context = context or {}
@@ -33,7 +38,7 @@ def _context_text(context: dict[str, Any] | None) -> str:
     parts = [wrap_data(ISSUES_TAG, dump(context.get("issues") or [])),
              wrap_data(NOTION_TAG, dump(context.get("notionDocs") or []))]
     if rest:
-        parts.append(dump(rest))
+        parts.append(wrap_data(EXTRACTED_TAG, dump(rest)))
     return "\n".join(parts)
 
 
@@ -191,11 +196,11 @@ class OpenAILLM:
         context = context or {}
         user = prompts.DRAFT_USER.format(
             summary=wrap_data(MEETING_TAG, summary),
-            decisions=_bullet_list(context.get("decisions", [])),
-            open_questions=_bullet_list(context.get("open_questions", [])),
+            decisions=_extracted(_bullet_list(context.get("decisions", []))),
+            open_questions=_extracted(_bullet_list(context.get("open_questions", []))),
             project_context=_context_text(context.get("project_context")),
             labels=_bullet_list(labels or []),
-            items=json.dumps(items, ensure_ascii=False, indent=2),
+            items=_extracted(json.dumps(items, ensure_ascii=False, indent=2)),
         )
         out = await self._call("draft", [("system", prompts.DRAFT_SYSTEM), ("user", user)], "초안 작성")
         return out.tickets
@@ -204,10 +209,10 @@ class OpenAILLM:
         context = context or {}
         user = prompts.REVIEW_USER.format(
             summary=wrap_data(MEETING_TAG, summary),
-            source_note=context.get("source_note", ""),
-            excluded=_bullet_list(context.get("excluded_or_held", [])),
+            source_note=_extracted(context.get("source_note", "")),
+            excluded=_extracted(_bullet_list(context.get("excluded_or_held", []))),
             project_context=_context_text(context.get("project_context")),
-            drafts=json.dumps(drafts, ensure_ascii=False, indent=2),
+            drafts=wrap_data(DRAFTS_TAG, json.dumps(drafts, ensure_ascii=False, indent=2)),
         )
         out = await self._call("review", [("system", prompts.REVIEW_SYSTEM), ("user", user)], "검수")
         return out.reviews
