@@ -133,7 +133,8 @@ def index_issue(
     col = store.collection(owner, repo, embedder.model)
     _upsert(col, [issue], embedder)
     meta = dict(col.metadata or {})
-    meta.update({"embedding_model": embedder.model, "index_format_version": INDEX_FORMAT_VERSION, "last_synced_at": utc_now()})
+    # last_synced_at은 sync_issues만 갱신한다. 여기서 올리면 다음 증분 동기화가 그 사이에 바뀐 다른 이슈를 놓친다
+    meta.update({"embedding_model": embedder.model, "index_format_version": INDEX_FORMAT_VERSION})
     col.modify(metadata=meta)
     return {"repository": f"{owner}/{repo}", "number": number, "indexed": True}
 
