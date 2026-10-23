@@ -92,7 +92,11 @@ public class TaskItem {
         this.githubIssueNumber = item.githubIssueNumber();
         this.githubIssueUrl = item.githubIssueUrl();
         this.errorMessage = item.errorMessage();
-        this.processingType = ProcessingType.from(item.action(), item.contentJson());
+        this.publishTarget = PublishTarget.from(item.contentJson());
+        // GitHub 이외의 대상은 항상 신규 발행이다 (REQ-015)
+        this.processingType = publishTarget == PublishTarget.GITHUB
+                ? ProcessingType.from(item.action(), item.contentJson())
+                : ProcessingType.CREATE;
     }
 
     // 담당 멤버가 정해지면 검토 대기, 아니면 담당 지정 필요.

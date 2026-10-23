@@ -1,6 +1,7 @@
 """발행 대상 분류와 Slack 공지·Notion 페이지 출력문 (TASK-020, TASK-021)."""
 
 import uuid
+from dataclasses import replace
 
 import pytest
 
@@ -107,10 +108,36 @@ def test_slack_notice_counts_linked_and_skips_empty_sections():
     tickets = [{"assignee_names": ["박서연"], "publish_target": "GITHUB"},
                {"assignee_names": ["박서연"], "publish_target": "GITHUB"},
                {"assignee_names": [], "publish_target": "NOTION"}]
-    notice = build_slack_notice("CSV 점검", "2026-10-22", [], tickets, linked=1)
+    notice = build_slack_notice("CSV 점검", "2026-10-22", [], tickets, linked=1, members=["박서연"])
     text = notice["text"]
     assert text.startswith("*[회의 결과] CSV 점검* (2026-10-22)")
     assert "결정 사항" not in text
     assert "• 새 작업 2건 (GitHub 이슈 1, Notion 페이지 1)" in text and "• 기존 이슈 연결 1건" in text
-    assert "• @박서연 2건" in text and "• 담당 지정 필요 1건" in text
+    assert "• @박서연 2건" in text and "담당 지정 필요" not in text
     assert notice["reviewers"] == [{"name": "박서연", "tickets": 2}]
+
+
+def test_slack_notice_review_requests_match_ticket_recipients():
+    """검토 요청은 실제로 티켓을 받는 사람과 같다 (백엔드 AssigneeResolver와 같은 규칙)."""
+    tickets = [
+        {"assignee_names": ["박서연"], "publish_target": "GITHUB"},
+        {"assignee_names": ["박서연"], "publish_target": "NOTION"},   # Notion은 업로더가 받는다
+        {"assignee_names": ["외부인"], "publish_target": "GITHUB"},   # 프로젝트 멤버가 아님
+        {"assignee_names": ["김민준"], "publish_target": "GITHUB"},   # 동명이인
+        {"assignee_names": ["박서연", "박서연"], "publish_target": "GITHUB"},  # 같은 사람이 두 번
+    ]
+    notice = build_slack_notice("회의", None, [], tickets, linked=0, members=["박서연", "김민준", "김민준"])
+    text = notice["text"]
+    assert "• @박서연 2건" in text and "@김민준" not in text and "@외부인" not in text
+    assert "• 담당 지정 필요 2건" in text
+    assert "• Notion 페이지 1건 (업로더 확인)" in text
+    assert notice["reviewers"] == [{"name": "박서연", "tickets": 2}]
+
+
+async def test_phase1_keeps_labels_of_tickets_classified_as_notion(settings):
+    """PUBLISH_ON_RUN(baseline)에서는 분류하지 않으므로 Notion으로 판단된 티켓도 라벨을 그대로 쓴다."""
+    s = replace(settings, issue_labels=["feature", "docs"])
+    result = await run_case(s, llm=FakeLLM(notion_for={"10m1-a5"}))
+    a5 = by_key(result)["10m1-a5"].content_json
+    assert a5["publish_target"] == "GITHUB" and a5["target_reason"] is None
+    assert a5["labels"] == ["feature"]

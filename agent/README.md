@@ -434,7 +434,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | `NOTION` | `notion_page.{title, markdown}`. `create_page(root, title, markdown)`에 그대로 넘긴다. GitHub 전용 칸(라벨, 관련·상위 이슈, @계정)은 없다 | `publisher.build_notion_page` |
 | `SLACK` | 회의 하나당 공지 티켓 하나(`work_key`: `<회의 ID>-notice`). `slack.text`와 `slack.reviewers` | `publisher.build_slack_notice` |
 
-Slack 공지는 코드가 만든다 (LLM 없음). 결정 사항, 새 작업 수(GitHub 이슈·Notion 페이지)와 기존 이슈 연결 수, 담당자별 검토 요청("@이름 N건"), 담당 지정 필요 건수를 담는다. 게시할 때(#151) Slack 연결이 확인된 담당자만 `post_message`의 `mentions`로 넘겨 멘션되고, 나머지는 이름 텍스트로 남는다. 할 일이 없어도 결정 사항이 있으면 공지를 만든다. 백엔드는 Slack 공지와 Notion 티켓을 업로더의 내 티켓으로 보낸다 (REQ-010).
+Slack 공지는 코드가 만든다 (LLM 없음). 결정 사항, 새 작업 수(GitHub 이슈·Notion 페이지)와 기존 이슈 연결 수, 검토 요청을 담는다. 검토 요청은 실제로 티켓을 받는 사람과 맞춘다: GitHub 티켓은 회의록 담당자가 프로젝트 멤버 1명과 정확히 연결될 때만 "@이름 N건"(백엔드 `AssigneeResolver`와 같은 규칙), 나머지는 "담당 지정 필요 N건", Notion 티켓은 "Notion 페이지 N건 (업로더 확인)"이다. 게시할 때(#151) Slack 연결이 확인된 담당자만 `post_message`의 `mentions`로 넘겨 멘션되고, 나머지는 이름 텍스트로 남는다. 할 일이 없어도 결정 사항이 있으면 공지를 만든다. 백엔드는 `publish_target`을 티켓의 발행 대상 칸에 저장하고(GitHub 이외는 처리 유형이 항상 신규 발행), Slack 공지와 Notion 티켓을 업로더의 내 티켓으로 보낸다 (REQ-012).
 
 ### Harness 명세
 

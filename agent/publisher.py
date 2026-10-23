@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 from resolve import Due
-from state import MCP_UNAVAILABLE, PUBLISH_FAILED
+from state import MCP_UNAVAILABLE, PUBLISH_FAILED, TARGET_NOTION
 
 TAG = re.compile(r"\[([A-Z][A-Z0-9_]+)\]")
 
@@ -244,33 +244,41 @@ def build_notion_page(ticket: dict[str, Any], meeting_id: str, background: str) 
 
 
 def build_slack_notice(meeting_title: str, meeting_date: str | None, decisions: list[str],
-                       tickets: list[dict[str, Any]], linked: int) -> dict[str, Any]:
+                       tickets: list[dict[str, Any]], linked: int, members: list[str]) -> dict[str, Any]:
     """회의 결과 공지 출력문 (기획_v16 REQ-022, TASK-021). 회의 하나당 하나다.
 
-    담당자 검토 요청은 "@이름"으로 쓴다. 게시할 때 Slack 연결이 확인된 담당자만 post_message의
-    mentions로 넘겨 멘션이 되고, 나머지는 이름 텍스트로 남는다 (#151).
-    reviewers는 멘션 대상을 고를 수 있게 이름과 티켓 수를 담는다.
+    검토 요청은 실제로 티켓을 받는 사람과 맞춘다. GitHub 티켓은 회의록 담당자가 프로젝트 멤버 1명과
+    정확히 연결될 때만 그 사람이 받고(백엔드 AssigneeResolver와 같은 규칙), 나머지는 담당 지정 필요다.
+    Notion 티켓은 업로더가 받으므로 따로 센다 (REQ-012).
+    검토 요청은 "@이름"으로 쓴다. 게시할 때 Slack 연결이 확인된 담당자만 post_message의 mentions로
+    넘겨 멘션이 되고, 나머지는 이름 텍스트로 남는다 (#151).
     """
     head = f"*[회의 결과] {meeting_title or '회의'}*" + (f" ({meeting_date})" if meeting_date else "")
     lines = [head, ""]
     if decisions:
         lines += ["*결정 사항*", *[f"• {d}" for d in decisions], ""]
-    github = sum(1 for t in tickets if t.get("publish_target") != "NOTION")
-    notion = len(tickets) - github
-    lines += ["*후속 작업*", f"• 새 작업 {len(tickets) - linked}건 (GitHub 이슈 {github - linked}, Notion 페이지 {notion})"]
+    github = [t for t in tickets if t.get("publish_target") != TARGET_NOTION]
+    notion = len(tickets) - len(github)
+    lines += ["*후속 작업*", f"• 새 작업 {len(tickets) - linked}건 (GitHub 이슈 {len(github) - linked}, Notion 페이지 {notion})"]
     if linked:
         lines.append(f"• 기존 이슈 연결 {linked}건")
+    member_count = {name.strip(): 0 for name in members}
+    for name in members:
+        member_count[name.strip()] += 1
     counts: dict[str, int] = {}
     unassigned = 0
-    for t in tickets:
-        names = t.get("assignee_names") or []
-        if len(names) != 1:
-            unassigned += 1  # 여러 명이거나 정해지지 않으면 업로더가 대표 담당을 지정한다 (REQ-011)
+    for t in github:
+        names = {n.strip() for n in t.get("assignee_names") or []}
+        name = next(iter(names)) if len(names) == 1 else None
+        if name is None or member_count.get(name) != 1:
+            unassigned += 1  # 여러 명, 미정, 멤버가 아님, 동명이인 → 업로더가 대표 담당을 지정한다 (REQ-011)
             continue
-        counts[names[0]] = counts.get(names[0], 0) + 1
-    if counts or unassigned:
+        counts[name] = counts.get(name, 0) + 1
+    if counts or unassigned or notion:
         lines += ["", "*검토 요청*", *[f"• @{name} {n}건" for name, n in counts.items()]]
         if unassigned:
             lines.append(f"• 담당 지정 필요 {unassigned}건")
+        if notion:
+            lines.append(f"• Notion 페이지 {notion}건 (업로더 확인)")
     lines += ["", "각자 내 티켓에서 확인한 뒤 발행해 주세요."]
     return {"text": "\n".join(lines), "reviewers": [{"name": k, "tickets": v} for k, v in counts.items()]}
