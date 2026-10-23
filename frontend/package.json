@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test:progress": "node --test tests/analysisProgress.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

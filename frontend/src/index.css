@@ -403,7 +403,7 @@ button.primary {
   flex-direction: column;
   gap: 10px;
   width: 100%;
-  max-width: 320px;
+  max-width: 440px;
   text-align: left;
 }
 
@@ -422,6 +422,31 @@ button.primary {
 .progress-steps li.done {
   color: var(--ok);
 }
+
+.progress-steps li.stopped { color: var(--danger); }
+.progress-step-label { flex: 1; min-width: 0; }
+.progress-step-state { font-size: 12px; font-weight: 400; }
+.progress-steps .dot { flex-shrink: 0; }
+.progress-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  width: 100%;
+  max-width: 640px;
+  text-align: left;
+}
+.progress-details section {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.progress-details h3 { margin: 0 0 10px; font-size: 14px; }
+.progress-details dl { margin: 0; font-size: 13px; }
+.progress-details dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.progress-details dt { color: var(--muted); }
+.progress-details dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 
 .dot {
   width: 24px;
