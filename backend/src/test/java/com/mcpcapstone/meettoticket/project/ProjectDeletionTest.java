@@ -1,6 +1,8 @@
 package com.mcpcapstone.meettoticket.project;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -15,10 +17,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import com.mcpcapstone.meettoticket.agent.AgentContracts;
+import com.mcpcapstone.meettoticket.agent.AgentException;
 import com.mcpcapstone.meettoticket.analysis.AnalysisTask;
 import com.mcpcapstone.meettoticket.analysis.AnalysisTaskRepository;
 import com.mcpcapstone.meettoticket.analysis.TaskItem;
@@ -29,6 +33,7 @@ import com.mcpcapstone.meettoticket.meeting.Meeting;
 import com.mcpcapstone.meettoticket.meeting.MeetingRepository;
 import com.mcpcapstone.meettoticket.queue.AnalysisDispatch;
 import com.mcpcapstone.meettoticket.queue.AnalysisDispatchRepository;
+import com.mcpcapstone.meettoticket.reindex.ProjectReindexGateway;
 import com.mcpcapstone.meettoticket.user.UserRepository;
 
 @SpringBootTest
@@ -44,8 +49,10 @@ class ProjectDeletionTest {
 	@Autowired AnalysisTaskRepository tasks;
 	@Autowired TaskItemRepository items;
 	@Autowired AnalysisDispatchRepository dispatches;
+	@MockitoBean ProjectReindexGateway index;
 
 	private String name;
+	private String repo;
 	private MockHttpSession admin;
 	private MockHttpSession member;
 	private long adminId;
@@ -59,6 +66,7 @@ class ProjectDeletionTest {
 		adminId = userId(admin);
 		long memberId = userId(member);
 		name = "삭제 테스트 " + suffix;
+		repo = "del-" + suffix;
 		String res = mvc.perform(post("/api/projects").session(admin).contentType("application/json")
 						.content("""
 								{"name":"%s","description":null,"githubOwner":"MCP-Capstone","githubRepo":"del-%s",
@@ -116,6 +124,18 @@ class ProjectDeletionTest {
 		assertThat(users.existsById(adminId)).isTrue();
 		mvc.perform(get("/api/projects/{id}", projectId).session(admin))
 				.andExpect(status().isForbidden());
+		// 저장소 색인도 함께 지운다 (TASK-037)
+		verify(index).dropIndex("MCP-Capstone", repo);
+	}
+
+	@Test
+	void 색인_삭제가_실패해도_프로젝트는_삭제한다() throws Exception {
+		doThrow(new AgentException(true)).when(index).dropIndex(anyString(), anyString());
+
+		deleteProject(admin, name).andExpect(status().isNoContent());
+
+		assertThat(projects.existsById(projectId)).isFalse();
+		verify(index).dropIndex("MCP-Capstone", repo);
 	}
 
 	@Test
@@ -130,6 +150,7 @@ class ProjectDeletionTest {
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 		assertThat(projects.existsById(projectId)).isTrue();
+		verify(index, never()).dropIndex(anyString(), anyString());
 	}
 
 	@Test
@@ -141,5 +162,6 @@ class ProjectDeletionTest {
 				.andExpect(jsonPath("$.code").value("PROJECT_ANALYSIS_IN_PROGRESS"));
 		assertThat(projects.existsById(projectId)).isTrue();
 		assertThat(members.findByProjectIdOrderById(projectId)).hasSize(2);
+		verify(index, never()).dropIndex(anyString(), anyString());
 	}
 }
