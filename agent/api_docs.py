@@ -37,6 +37,21 @@ REQUEST_EXAMPLE = {
 }
 
 
+class CheckMembersError(CamelModel):
+    error_code: str = Field(description="MCP 전체 오류 코드를 그대로 전달 (예: MCP_UNAVAILABLE, REPOSITORY_NOT_ALLOWED, GITHUB_NOT_FOUND)")
+    error_message: str
+
+
+CHECK_MEMBERS_EXAMPLE = {"githubOwner": "MCP-Capstone", "githubRepo": "mcp-capstone", "githubNames": ["minjun-k", "seoyeon-p"]}
+CHECK_MEMBERS_RESPONSES = {
+    200: {"description": "멤버별 권한. 멤버 한 명의 확인 실패는 그 멤버만 ERROR",
+          "content": {"application/json": {"example": {"members": [
+              {"githubName": "minjun-k", "permission": "GRANTED"}, {"githubName": "seoyeon-p", "permission": "DENIED"}]}}}},
+    502: {"model": CheckMembersError, "description": "MCP/GitHub 전체 실패. errorCode는 MCP 오류 코드 그대로",
+          "content": {"application/json": {"example": {"errorCode": "MCP_UNAVAILABLE", "errorMessage": "MCP 서버에 연결하지 못함"}}}},
+}
+
+
 class RunAccepted(CamelModel):
     task_id: str = Field(description="요청과 같은 taskId. Spring에서는 UUID를 발급한다.")
     status: Literal["ACCEPTED"] = Field(description="접수만 완료. GitHub 생성 성공이 아님")

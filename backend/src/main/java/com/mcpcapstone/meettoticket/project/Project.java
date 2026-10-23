@@ -1,5 +1,7 @@
 package com.mcpcapstone.meettoticket.project;
 
+import com.mcpcapstone.meettoticket.project.dto.ProjectDetail;
+
 import jakarta.persistence.*;
 
 import lombok.*;
@@ -42,6 +44,11 @@ public class Project {
     @Column(name = "slack_channel_id", length = 30)
     private String slackChannelId;
 
+    // 멤버 저장소 권한 확인 결과. 확인 전이면 null.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "github_connection", length = 20)
+    private ConnectionStatus githubConnection;
+
 	@Enumerated(EnumType.STRING)
 	@Column(name = "slack_connection_status", length = 20)
 	private ConnectionStatus slackConnectionStatus;
@@ -65,6 +72,10 @@ public class Project {
         this.githubRepo = repo;
 		updateNotionPageUrl(notionPageUrl);
 		updateSlackChannelId(slackChannelId);
+    }
+
+    public void recordGithubConnection(ConnectionStatus status) {
+        this.githubConnection = status;
     }
 
 	// 프로젝트 설정이 바뀌면 이전 외부 확인 결과는 무효다. Agent 확인 전에는 null로 둔다.

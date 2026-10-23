@@ -293,7 +293,8 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 | 파일 | 역할 |
 |---|---|
-| `main.py` | FastAPI (`POST /runs`, `GET /runs/{task_id}` 진행 단계·결과, `GET /health`) |
+| `main.py` | FastAPI (`POST /runs`, `GET /runs/{task_id}` 진행 단계·결과, `POST /projects/check-members`, `GET /health`) |
+| `permissions.py` | 프로젝트 저장 시 멤버별 저장소 권한 확인. LLM 없이 MCP `check_member_permissions`를 호출 |
 | `cli.py` | 백엔드 없이 회의 요약 파일로 바로 실행 |
 | `runner.py` | 요청 1건 실행 (MCP 연결, 그래프 실행) |
 | `graph.py` | LangGraph 그래프 (prepare → draft → review ⇄ draft → dedupe → publish → finish) |
@@ -519,6 +520,8 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 | 처리 중 | 409 (백엔드는 조회로 넘어감) |
 | 이슈를 발행했거나 발행 여부가 불명(UNKNOWN) | 다시 실행하지 않는다. 202로 받고 `GET /runs/{taskId}`에 저장된 결과를 돌려준다 (중복 이슈 방지) |
 | 발행 전에 끝남 (LLM 오류, 발행 0건, `--dry-run`) | 이전 기록을 지우고 다시 실행한다 |
+
+`POST /projects/check-members`는 백엔드가 프로젝트를 저장할 때 부른다. 요청 `{ githubOwner, githubRepo, githubNames }`에 `{ members: [{ githubName, permission: GRANTED | DENIED | ERROR }] }`로 답한다. ERROR는 그 멤버만 확인에 실패한 경우다. MCP 전체 오류는 HTTP 502와 `{ errorCode, errorMessage }`로, MCP의 오류 코드(`MCP_UNAVAILABLE`, `REPOSITORY_NOT_ALLOWED`, `GITHUB_NOT_FOUND` 등)를 그대로 전달한다.
 
 `GET /runs/{taskId}/history`는 노드별 기록을 시간 순서로 돌려준다 (노드, 다음 노드, 단계, 검수 상태별 티켓 수, 발행 수, 저장 시각). 검수 보완이 있었다면 `draft → review`가 반복돼 보인다.
 
