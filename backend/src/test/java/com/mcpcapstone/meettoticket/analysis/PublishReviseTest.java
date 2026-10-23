@@ -248,4 +248,24 @@ class PublishReviseTest {
 		assertThat(again.isPublishOutcomeUnknown()).isFalse();
 		assertThat(again.mustRecheckOnPublish()).isTrue();
 	}
+
+	@Test
+	void 내_티켓_조회는_실패_티켓에만_실패_사유를_담는다() throws Exception {
+		TaskItem t = unknown();
+		TaskItem ok = ticket(TicketStatus.CONFIRMED, null);
+
+		var body = json.read(mvc.perform(get("/api/tickets/me").session(session)).andExpect(status().isOk())
+				.andReturn().getResponse().getContentAsString());
+
+		assertThat(body.path("counts").path("failed").asInt()).isEqualTo(1);
+		for (var node : body.path("tickets")) {
+			if (node.path("ticketId").asText().equals(t.getId().toString())) {
+				assertThat(node.path("publishFailure").path("errorCode").asText()).isEqualTo("RESULT_UNKNOWN");
+				assertThat(node.path("publishFailure").path("outcomeUnknown").asBoolean()).isTrue();
+				assertThat(node.path("publishFailure").path("failureCategory").asText()).isEqualTo("OTHER");
+			} else if (node.path("ticketId").asText().equals(ok.getId().toString())) {
+				assertThat(node.path("publishFailure").isNull()).isTrue();
+			}
+		}
+	}
 }

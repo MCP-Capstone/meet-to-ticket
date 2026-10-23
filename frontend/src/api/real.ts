@@ -3,6 +3,7 @@ import type {
   AnalysisTask,
   MyTicket,
   MyTicketList,
+  PublishStarted,
   TicketEditRequest,
   TicketAction,
   LoginRequest,
@@ -42,6 +43,10 @@ export const realApi = {
 
   changeTicketStatus: (ticketId: string, action: TicketAction) =>
     request<MyTicket>(`/tickets/${encodeURIComponent(ticketId)}/${action}`, { method: 'POST' }),
+
+  // 실패한 티켓 하나를 다시 발행한다. 202는 접수이고 결과는 내 티켓을 다시 조회해 확인한다.
+  retryTicket: (ticketId: string) =>
+    request<PublishStarted>(`/tickets/${encodeURIComponent(ticketId)}/retry`, { method: 'POST' }),
 
   // 내 프로젝트 목록과 백엔드 실행 모드(MOCK / LIVE)
   listProjects: () => request<ProjectList>('/projects'),

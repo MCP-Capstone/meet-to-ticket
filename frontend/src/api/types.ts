@@ -230,8 +230,17 @@ export interface ApiError {
 
 // TASK-026·028·029 서버 계약. 분석 결과의 reviewStatus와 구분한다.
 export type TicketStatus = 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'REJECTED' | 'PUBLISHING' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'FAILED'
-export type TicketAction = 'confirm' | 'reject' | 'reopen' | 'restore'
+export type TicketAction = 'confirm' | 'reject' | 'reopen' | 'restore' | 'revise'
 export interface TicketDue { text: string | null; date: string | null; time: string | null }
+// 발행에 실패한 티켓의 사유. outcomeUnknown이면 GitHub에 이미 반영됐을 수 있다.
+export interface PublishFailure {
+  errorCode: string | null
+  errorMessage: string | null
+  failureCategory: 'REPOSITORY_PERMISSION' | 'OTHER' | null
+  retryable: boolean
+  outcomeUnknown: boolean
+}
+export interface PublishStarted { batchId: string; count: number }
 export interface MyTicket {
   ticketId: string
   title: string
@@ -247,9 +256,10 @@ export interface MyTicket {
   description: string | null
   due: TicketDue
   assignee: { projectMemberId: number; name: string } | null
+  publishFailure: PublishFailure | null
 }
 export interface MyTicketList {
-  counts: { pendingReview: number; confirmed: number; rejected: number }
+  counts: { pendingReview: number; confirmed: number; rejected: number; failed: number }
   tickets: MyTicket[]
 }
 export interface TicketEditRequest {
