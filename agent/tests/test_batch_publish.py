@@ -23,7 +23,9 @@ class BatchPublisher:
 
     async def post_message(self, **args):
         self.calls.append(("message", args))
-        return {"url": "slack-url"}
+        # business-mcp post_message의 실제 응답 모양 (business-mcp/integrations/slack/api.py)
+        return {"status": "posted", "channel_id": args["channel_id"], "timestamp": "1.2",
+                "permalink": "slack-url", "mentioned_user_ids": []}
 
 
 def ticket(ticket_id, kind, number=None):
