@@ -58,18 +58,20 @@
 
 공통:
 
-- 재시도 API(`PublishService.retry`)는 담당자와 `FAILED` 상태만 검사하고 `retryable` 값은 보지 않는다. `retryable=false`인 실패(예: `NOTION_ROOT_MISSING`)도 API로 반복 호출할 수 있고, 화면의 "다시 시도" 버튼도 `retryable`로 막지 않는다 (결과 불명일 때만 확인 체크박스가 필요하다). 원인을 고치지 않으면 같은 실패가 반복된다. 별도 이슈로 관리 필요.
-- 기존 Issue 갱신(`UPDATE`)에서 본문 섹션은 추가됐지만 알림 댓글만 실패하면 티켓은 `UPDATED` + `COMMENT_FAILED` + `retryable=true`로 남는다. 재시도 API는 `FAILED`만 받으므로 이 티켓은 재시도로 댓글을 다시 보낼 수 없다. 별도 이슈로 관리 필요.
-- 실패 티켓은 재시도 대신 "수정하려고 검토 대기로 되돌리기"(`TicketService.revise`)도 할 수 있다. 되돌리면 지난 발행 결과는 비우고, 결과 불명이었다는 사실만 `previousOutcomeUnknown`으로 남겨 다음 발행에서 재대조를 강제한다.
+- 재시도 API(`PublishService.retry`)는 담당자와 `FAILED` 상태를 검사하고, 재대조할 수 없는 대상(Notion, Slack)의 결과 불명(`MANUAL_CHECK`)이면 409로 막는다. 그 밖에는 `retryable` 값을 보지 않는다. `retryable=false`인 실패(예: `NOTION_ROOT_MISSING`)도 API로 반복 호출할 수 있고, 화면의 "다시 시도" 버튼도 `retryable`로 막지 않는다. 원인을 고치지 않으면 같은 실패가 반복된다 (이슈 #282).
+- 기존 Issue 갱신(`UPDATE`)에서 본문 섹션은 추가됐지만 알림 댓글만 실패하면 티켓은 `UPDATED` + `COMMENT_FAILED` + `retryable=true`로 남는다. 재시도 API는 `FAILED`만 받으므로 이 티켓은 재시도로 댓글을 다시 보낼 수 없다 (이슈 #283).
+- 실패 티켓은 재시도 대신 "수정하려고 검토 대기로 되돌리기"(`TicketService.revise`)도 할 수 있다. 되돌리면 지난 발행 결과는 비우고, 결과 불명이었다는 사실만 `previousOutcomeUnknown`으로 남겨 다음 발행에서 재대조를 강제한다. `MANUAL_CHECK` 실패는 확인 결과를 먼저 남겨야 하므로 되돌리기도 409다.
+- 결과 불명이 남아 있으면(`mustRecheckOnPublish`) 검토 대기에서도 발행 대상을 바꿀 수 없다 (`PUBLISH_TARGET_LOCKED`, 409). 같은 업무가 두 대상에 생기는 것을 막으려는 잠금이며, 본문 수정은 할 수 있다. 그 대상에서 결론(GitHub 재시도 재대조, Notion/Slack 확인 결과)을 내면 풀린다.
 - 확실한 성공이 오면 지난 결과 불명 표시는 풀린다. 실패가 오면 이어진다.
+- 결과 불명 해소 방식은 `PublishTarget.recheckable`로 나뉜다. GitHub는 `true`라 `PublishResolution.RETRY`(다시 시도하면 Agent가 재대조)이고, Notion과 Slack은 `false`라 결과 불명일 때 `MANUAL_CHECK`(확인 결과를 남겨야 함)다. 확인 결과는 담당자만 `POST /api/tickets/{ticketId}/resolve-outcome`으로 남긴다. `applied=true`이면 발행됨으로 끝내고(선택으로 대상의 https 링크 저장), `applied=false`이면 결과 불명 표시를 풀고 `VERIFIED_NOT_APPLIED`(`retryable=true`) 실패로 바꿔 다시 시도하면 차단 없이 발행한다. GitHub 티켓이나 `MANUAL_CHECK`가 아닌 실패는 409다.
 - Agent가 접수하지 않은 것이 확실한 경우(접수 단계 오류)는 티켓을 발행 전 상태(확인 또는 실패)로 되돌려 다시 누를 수 있게 한다.
 
 | 대상 | 결과 불명 뒤 재발행 시 중복 방지 방식 |
 |---|---|
 | GitHub 신규 | 같은 `work_key`로 만들어진 열린 Issue를 검색해 제목까지 같으면 새로 만들지 않고 그 Issue를 결과로 쓴다 |
 | GitHub 연결/갱신 | Issue 본문/댓글에서 숨은 표식(`meettoticket:link meeting=... work_key=...` 또는 `meettoticket:update meeting=... work_key=...`)을 찾는다. 있으면 다시 쓰지 않고 성공으로 처리한다. 댓글이 많아 끝까지 확인하지 못하면 `MARKER_CHECK_INCOMPLETE`로 막는다 |
-| Notion 신규 | 이미 만들어졌는지 찾아볼 도구가 없다. 결과 불명 뒤 재시도는 중복 페이지 방지를 위해 보내지 않고 `NOTION_VERIFY_REQUIRED`로 실패시킨다. 이 실패는 `outcomeUnknown=false`, `retryable=false`인 일반 `FAILED`로 저장되어 화면의 확인 체크박스가 사라지고, 지난 결과 불명 표시(`previousOutcomeUnknown`)는 실패 때 이어지므로 다시 시도하거나 수정으로 되돌려 재발행해도 같은 실패가 반복된다. 이 티켓을 Notion에 다시 발행할 수 있는 경로가 코드에 없다 (알려진 한계 5절 참고). 사용자는 '회의 후속 티켓' 폴더에서 페이지가 이미 있는지 직접 확인할 수 있을 뿐이다 |
-| Slack 신규 | 코드에 재대조가 없다. 결과 불명 뒤 재시도하면 같은 공지가 한 번 더 게시될 수 있다 (재호출하면 메시지가 추가되는 도구). 화면의 확인 체크박스는 재시도 버튼을 켜는 수단일 뿐 중복 게시를 막지 못한다. 게시된 메시지 링크가 비어 있을 수 있어(5절) 사용자가 Slack에서 게시 여부를 확인하기도 어렵다. 즉 완화책이 약하다 |
+| Notion 신규 | 이미 만들어졌는지 찾아볼 도구가 없다. 결과 불명 뒤 재시도는 중복 페이지 방지를 위해 보내지 않고 `NOTION_VERIFY_REQUIRED`로 실패시킨다. 이 실패는 `outcomeUnknown=false`, `retryable=false`지만 해소 방식이 `MANUAL_CHECK`라서, 담당자가 '회의 후속 티켓' 폴더에서 페이지 유무를 확인하고 `resolve-outcome`으로 결과를 남기면 발행됨 또는 재시도 가능으로 풀린다 |
+| Slack 신규 | Notion과 같다. 결과 불명 뒤 재시도는 중복 게시 방지를 위해 보내지 않고 `SLACK_VERIFY_REQUIRED`로 실패시키며, 담당자가 Slack 채널에서 공지 유무를 확인하고 `resolve-outcome`으로 결과를 남겨야 풀린다. 자동으로 반영 여부를 찾아보지는 않는다 |
 
 ## 3. 사용자 노출 상태와 내부 상태 대응
 
@@ -91,7 +93,7 @@
 |---|---|---|---|
 | true | 대개 true | 대상에 반영됐을 수 있음. 확인 후 재시도 | `RESULT_UNKNOWN`, `RESULT_TIMEOUT`, `RESULT_MISSING`(이 둘은 `retryable=false`로 저장됨) |
 | false | true | 대개 반영되지 않은 실패로 재시도 가능 | `GITHUB_RATE_LIMIT`, `NOTION_RATE_LIMIT`. `MCP_UNAVAILABLE`은 조건부(5절 참고) |
-| false | false | 재시도해도 소용없거나 대상에 이미 있을 수 있음. 안전한 재시도가 아니다 | 권한/설정 오류(`GITHUB_FORBIDDEN`, `NOTION_ROOT_MISSING`), 예외: `NOTION_VERIFY_REQUIRED`와 `MARKER_CHECK_INCOMPLETE`는 대상에 이미 반영됐을 수 있는데도 `outcomeUnknown=false` |
+| false | false | 재시도해도 소용없거나 대상에 이미 있을 수 있음. 안전한 재시도가 아니다 | 권한/설정 오류(`GITHUB_FORBIDDEN`, `NOTION_ROOT_MISSING`), 예외: `NOTION_VERIFY_REQUIRED`, `SLACK_VERIFY_REQUIRED`, `MARKER_CHECK_INCOMPLETE`는 대상에 이미 반영됐을 수 있는데도 `outcomeUnknown=false`. 앞의 둘은 `MANUAL_CHECK`로 확인 결과를 남겨야 하고, 확인 결과가 `applied=false`이면 `VERIFIED_NOT_APPLIED`(`outcomeUnknown=false`, `retryable=true`)가 된다 |
 
 ### 3.3 현재 구현과 차이
 
@@ -108,7 +110,8 @@
 - 원인: 쓰기 요청을 보낸 뒤 예외가 난 경우(Agent 내부 `UNKNOWN` 상태), Agent 보고에 빠진 티켓, 기한 안에 보고가 오지 않은 묶음.
 - 저장: 티켓은 `FAILED` + `outcomeUnknown=true`로 저장된다 (`RESULT_UNKNOWN`, `RESULT_MISSING`, `RESULT_TIMEOUT` 등의 오류 코드).
 - 기한 정리: 접수 확인에 실패했거나 Agent가 보고하지 못한 묶음은 기한(`app.publish.result-timeout`, 기본 30분)이 지나면 `PublishBatchExpiry`가 1분(`app.publish.expire-interval-ms`, 기본 60000) 주기로 `RESULT_TIMEOUT` 실패로 끝낸다. 그 전까지 티켓은 발행 중에 머문다.
-- 화면: 실패 카드에 "{도구명}에 이미 반영됐을 수 있습니다. 확인 후 다시 시도하세요"를 보여 주고, "{도구명}에서 반영 여부를 확인했습니다" 체크 후에만 "다시 시도"가 활성화된다. 결과 화면(`PublishBatchResult.tsx`)에는 "{도구명}에 반영됐을 수 있습니다. 다시 시도하기 전에 확인하세요."라는 다른 문구가 있다.
+- 화면(GitHub 등 `RETRY`): 실패 카드에 "{도구명}에 이미 반영됐을 수 있습니다. 확인 후 다시 시도하세요"를 보여 주고, "{도구명}에서 반영 여부를 확인했습니다" 체크 후에만 "다시 시도"가 활성화된다.
+- 화면(Notion/Slack, `MANUAL_CHECK`): 다시 시도 대신 "이미 반영됨"/"반영되지 않음" 버튼과 선택 링크 입력을 보여 준다. 각각 확인 창을 거쳐 `resolve-outcome`을 호출한다. 결과 화면(`PublishBatchResult.tsx`)에는 "{도구명}에 반영됐을 수 있습니다. 다시 시도하기 전에 확인하세요."라는 다른 문구가 있다.
 - 자동 회수(자동으로 반영 여부를 확인해 상태를 바로잡는 것)와 "발행 확인 중" 표시, 5분 뒤 수동 확인 전환은 코드에 없다. 코드가 하는 재대조는 사용자가 다시 시도할 때 대상별로 돌아간다 (2.3 참고).
 
 ### 4.2 정책 목표 (미구현)
@@ -119,19 +122,20 @@
 | 자동 회수 | 시스템이 대상(GitHub, Notion, Slack)에서 반영 여부를 먼저 확인해 발행됨 또는 실패로 확정한다 |
 | 5분 뒤 | 자동 회수로 확정되지 않으면 "확인 필요"로 바꾸고 사용자가 대상에서 직접 확인한 뒤 재시도하게 한다 |
 
-이 목표를 구현하려면 Notion과 Slack에도 반영 여부 조회 수단이 필요하다 (현재 Notion은 조회 도구가 없고 Slack은 재대조가 없다).
+이 목표를 구현하려면 Notion과 Slack에도 반영 여부 조회 수단이 필요하다 (현재 Notion과 Slack은 조회 도구가 없어 담당자 수동 확인에 의존한다).
 
 ## 5. 알려진 한계와 확인 필요 항목
 
 - Slack 공지 일괄 발행은 backend(`PublishService.publishable`)와 Agent(`batch_publish.py` SLACK 분기)에 구현되어 있다.
-- 알려진 결함 (Slack 링크 누락): Agent는 `post_message` 응답의 `url`을 읽지만 MCP 도구는 `permalink`를 돌려준다 (`business-mcp/integrations/slack/api.py`). 실제 연동에서는 `message_url`이 비게 되고, `url`이 없을 때의 가드가 없어 링크 없는 `PUBLISHED`로 저장된다. Agent 테스트는 `url`을 돌려주는 가짜 도구만 쓴다. 별도 이슈로 관리 필요.
-- 알려진 한계 (`MCP_UNAVAILABLE` 오분류): `agent/publisher.py`의 `error_from_exception`은 예외 문구에 `connect` 등이 있으면, 쓰기 요청을 보낸 뒤 발생한 예외도 `ambiguous`가 아닌 `MCP_UNAVAILABLE`로 만든다. 이 경우 `FAILED`, `outcomeUnknown=false`, `retryable=true`로 저장되어 확인 체크박스 없이 재시도되고, 재대조가 없는 Notion/Slack은 중복 페이지/공지가 생길 수 있다. 별도 이슈로 관리 필요.
-- 알려진 한계 (Notion 결과 불명 막다른 경로): 2.3의 Notion 행 참고. 별도 이슈로 관리 필요.
+- 알려진 한계 (`MCP_UNAVAILABLE` 오분류, 이슈 #284): `agent/publisher.py`의 `error_from_exception`은 예외 문구에 `connect` 등이 있으면, 쓰기 요청을 보낸 뒤 발생한 예외도 `ambiguous`가 아닌 `MCP_UNAVAILABLE`로 만든다. 이 경우 `FAILED`, `outcomeUnknown=false`, `retryable=true`로 저장되어 결과 불명 처리(확인 체크박스, `MANUAL_CHECK`) 없이 재시도되고, 재대조가 없는 Notion/Slack은 중복 페이지/공지가 생길 수 있다.
+- 알려진 한계 (`retryable=false` 재시도, 이슈 #282): 2.3 참고.
+- 알려진 한계 (`COMMENT_FAILED` 재시도 경로 없음, 이슈 #283): 2.3 참고.
+- 해소됨: Slack 메시지 링크는 Agent가 MCP 응답의 `permalink`를 읽어 `message_url`로 저장한다 (`batch_publish.py`). Notion/Slack 결과 불명 뒤 재발행 차단과 수동 확인 해소 흐름(`resolve-outcome`)은 2.3에 있다.
 - 결과 화면 링크 허용 도메인은 `frontend/src/batchPublish.ts`의 `safePublishUrl`이 대상별로 검사한다.
 
 ## 6. 정책 수치
 
-중복률 기준, 자동 발행 기준 등 정책 수치는 이 문서에 복제하지 않는다. 단일 기준은 이슈 #266 본문의 "결정 기록" 표다 ([이슈 #266](https://github.com/MCP-Capstone/meet-to-ticket/issues/266)). 평가 문서가 저장소에 생기면 그 문서로 링크를 옮긴다.
+중복률 기준, 자동 발행 기준 등 정책 수치는 이 문서에 복제하지 않는다. 단일 기준은 [평가셋과 회귀 평가](evaluation.md)의 "결정 기록 (목표 지표)" 표다.
 
 ## 7. 신규 발행 대상 추가 체크리스트
 
