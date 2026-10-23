@@ -14,6 +14,7 @@ import type {
   MemberList,
   ProjectList,
   ProjectDetail,
+  ProjectReindex,
   ProjectSaveRequest,
   ProjectRole,
   DirectoryUser,
@@ -64,6 +65,12 @@ export const realApi = {
 
   deleteProject: (projectId: number, confirmName: string) =>
     request<void>(`/projects/${projectId}`, { method: 'DELETE', body: JSON.stringify({ confirmName }) }),
+
+  requestProjectReindex: (projectId: number) =>
+    request<ProjectReindex>(`/projects/${projectId}/reindex`, { method: 'POST' }),
+
+  getProjectReindex: (projectId: number) =>
+    request<ProjectReindex>(`/projects/${projectId}/reindex`),
 
   changeProjectMemberRole: (projectId: number, memberUserId: number, role: ProjectRole) =>
     request<ProjectDetail>(`/projects/${projectId}/members/${memberUserId}/role`, {

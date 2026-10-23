@@ -6,6 +6,8 @@
 - GET  /runs/{task_id}  : 이 프로세스에서 처리한 작업의 상태·결과
                           처리 중이면 {"taskId", "status": "RUNNING", "stage", "progress"}, 끝나면 결과 전체
 - GET  /runs/{task_id}/history : 노드별 실행 기록 (checkpointer)
+- POST /projects/reindex      : GitHub 이슈 전체 RAG 재색인 접수
+- GET  /projects/reindex/{job_id} : 재색인 진행·결과 조회
 - GET  /health
 
 이슈를 발행한 taskId를 다시 POST하면 다시 실행하지 않고 저장된 결과를 돌려준다 (runner.stored_result).
@@ -26,6 +28,7 @@ load_env()
 from reporter import BackendReporter  # noqa: E402
 from runner import history, run, run_publish_batch, stored_result  # noqa: E402
 from permissions import check_members  # noqa: E402
+from reindex import create_router  # noqa: E402
 from publisher import ToolCallError  # noqa: E402
 from schemas import CheckMembersRequest, CheckMembersResponse, PublishBatchRequest, RunRequest  # noqa: E402
 from state import STAGE_EXTRACTING  # noqa: E402
@@ -53,6 +56,10 @@ _tasks: set[asyncio.Task] = set()
 
 def _settings():
     return app.state.overrides.get("settings") or load_settings()
+
+
+# RAG 색인 관리 API는 분석 실행 경로와 상태를 분리한다. 테스트 override도 기존 app.state를 그대로 쓴다.
+app.include_router(create_router(_settings, lambda: app.state.overrides))
 
 
 def _running(task_id: str) -> dict[str, Any]:
