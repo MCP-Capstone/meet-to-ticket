@@ -47,6 +47,22 @@ class RunRequest(CamelModel):
     project: Project = Field(description="대상 저장소·프로젝트")
     project_members: list[ProjectMember] = Field(default_factory=list, description="프로젝트 전체 팀원. 참석자와 동일하지 않을 수 있음")
 
+class CheckMembersRequest(CamelModel):
+    github_owner: str = Field(description="확인할 저장소 소유자")
+    github_repo: str = Field(description="확인할 저장소 이름")
+    github_names: list[str] = Field(description="권한을 확인할 멤버의 GitHub 계정. 계정이 없는 멤버는 보내지 않는다")
+
+
+class MemberPermissionOut(CamelModel):
+    github_name: str
+    permission: Literal["GRANTED", "DENIED", "ERROR"] = Field(
+        description="GRANTED: 이슈 담당자로 지정 가능, DENIED: 불가, ERROR: 이 멤버만 확인 실패")
+
+
+class CheckMembersResponse(CamelModel):
+    members: list[MemberPermissionOut]
+
+
 # ---------------------------------------------------------------- API 출력 (TASK_ITEMS)
 
 Action = Literal["CREATE", "UPDATE", "DUPLICATE", "NEEDS_CHECK"]

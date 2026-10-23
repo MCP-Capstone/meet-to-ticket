@@ -25,10 +25,12 @@ from config import load_env, load_settings  # noqa: E402
 load_env()
 from reporter import BackendReporter  # noqa: E402
 from runner import history, run, stored_result  # noqa: E402
-from schemas import RunRequest  # noqa: E402
+from permissions import check_members  # noqa: E402
+from publisher import ToolCallError  # noqa: E402
+from schemas import CheckMembersRequest, CheckMembersResponse, RunRequest  # noqa: E402
 from state import STAGE_EXTRACTING  # noqa: E402
 from api_docs import (  # noqa: E402
-    DESCRIPTION, HEALTH_RESPONSES, HISTORY_RESPONSES, JOB_RESPONSES, REQUEST_EXAMPLE, RUN_RESPONSES,
+    CHECK_MEMBERS_EXAMPLE, CHECK_MEMBERS_RESPONSES, DESCRIPTION, HEALTH_RESPONSES, HISTORY_RESPONSES, JOB_RESPONSES, REQUEST_EXAMPLE, RUN_RESPONSES,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -39,6 +41,7 @@ app = FastAPI(
     version="1.0",
     description=DESCRIPTION,
     openapi_tags=[{"name": "분석 실행", "description": "Spring에서 호출하는 작업 접수·조회"},
+                  {"name": "프로젝트", "description": "Spring이 프로젝트 저장 때 호출하는 확인 API"},
                   {"name": "상태 확인", "description": "Agent 설정과 실행 상태"}],
 )
 app.state.overrides = {}  # 테스트에서 llm, publisher, reporter, settings를 바꿔 넣는다
@@ -117,6 +120,21 @@ async def create_run(
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return JSONResponse(status_code=202, content={"taskId": req.task_id, "status": "ACCEPTED"})
+
+
+@app.post(
+    "/projects/check-members", tags=["프로젝트"], operation_id="checkProjectMembers",
+    summary="멤버별 저장소 권한 확인", response_model=CheckMembersResponse, responses=CHECK_MEMBERS_RESPONSES,
+    description="프로젝트 저장 때 Spring이 호출한다. LLM 없이 business-mcp의 check_member_permissions를 부른다. "
+                "MCP 전체 오류는 502와 함께 errorCode를 그대로 돌려준다.",
+)
+async def check_project_members(
+    req: CheckMembersRequest = Body(openapi_examples={"members": {"summary": "저장소와 멤버 GitHub 계정", "value": CHECK_MEMBERS_EXAMPLE}}),
+):
+    try:
+        return await check_members(_settings(), req, app.state.overrides.get("mcp_tools"))
+    except ToolCallError as exc:
+        return JSONResponse(status_code=502, content={"errorCode": exc.code, "errorMessage": exc.message})
 
 
 @app.get(
