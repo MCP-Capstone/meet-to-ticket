@@ -4,6 +4,7 @@ import type { MyTicket, MyTicketList, Project } from '../api'
 import { Spinner } from './Spinner'
 import { TicketCard } from './TicketCard'
 import { TicketFailureBanner } from './TicketFailureBanner'
+import { BatchPublishFlow } from './BatchPublishFlow'
 
 interface Props {
   projects: Project[]
@@ -36,9 +37,11 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
   const lifecycle = useRef({ mounted: true, version: 0 })
   const mutationLock = useRef(false)
   const dirtyIds = useRef(new Set<string>())
+  const [hasDirty, setHasDirty] = useState(false)
   const dirtyChange = useCallback((id: string, dirty: boolean) => {
     if (dirty) dirtyIds.current.add(id)
     else dirtyIds.current.delete(id)
+    setHasDirty(dirtyIds.current.size > 0)
     onDirtyChange(dirtyIds.current.size > 0)
   }, [onDirtyChange])
   useEffect(() => {
@@ -159,6 +162,11 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
     }
   }
   const visibleTickets = current?.tickets.filter((ticket) => !onlyFailed || ticket.status === 'FAILED') ?? []
+  const publishLock = useCallback((value: boolean) => {
+    mutationLock.current = value
+    setMutating(value)
+    onBusyChange(value)
+  }, [onBusyChange])
   const busy = mutating || loading
   // 조회 필터 변경 시 기존 프로젝트 카드가 잠깐 표시되지 않게 한다.
   return (
@@ -193,6 +201,7 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
       {notice && <p className="project-success" role="status">{notice}</p>}
       {error && <div className="ticket-error" role="alert"><p className="error">{error}</p><button type="button" className="link" disabled={busy} onClick={() => void manualRefresh()}>목록 다시 시도</button></div>}
       {loading && <p className="inline-status" role="status"><Spinner size="sm" label="내 티켓 조회 중" />내 티켓을 불러오고 있습니다.</p>}
+      {current && current.tickets.length > 0 && <BatchPublishFlow tickets={current.tickets} busy={busy || Boolean(error)} dirty={hasDirty} onLock={publishLock} onRefresh={load} />}
       {current && !onlyFailed && !current.tickets.length && !loading && <p className="card empty">{projectId === undefined ? '아직 나에게 전달된 티켓이 없습니다.' : '이 프로젝트에 내가 담당인 티켓이 없습니다.'}</p>}
       {current && <>
         <div className="ticket-list-heading"><h3 ref={listHeading} tabIndex={-1}>{onlyFailed ? '실패한 티켓' : '티켓 목록'}</h3>

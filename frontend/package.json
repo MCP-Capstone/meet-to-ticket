@@ -11,7 +11,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test:progress": "node --test tests/analysisProgress.test.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:publish": "node --test tests/batchPublish.test.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",

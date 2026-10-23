@@ -23,6 +23,12 @@ public class AgentConfiguration {
 
     @Bean
     @ConditionalOnProperty(name = "agent.mode", havingValue = "live", matchIfMissing = true)
+    public ProjectConnectionGateway liveProjectConnectionGateway(AgentProperties properties) {
+        return new LiveProjectConnectionGateway(agentClient(properties));
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "agent.mode", havingValue = "live", matchIfMissing = true)
     public PublishGateway livePublishGateway(AgentProperties properties) {
         return new LivePublishGateway(agentClient(properties));
     }

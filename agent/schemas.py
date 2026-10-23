@@ -65,6 +65,37 @@ class CheckMembersResponse(CamelModel):
     members: list[MemberPermissionOut]
 
 
+class ProjectConnectionsRequest(CamelModel):
+    """프로젝트 저장 시 LLM 없이 외부 도구 연결을 확인하는 요청."""
+
+    notion_page_url: str | None = Field(None, description="Notion 기획 페이지 URL 또는 ID")
+    slack_channel_id: str | None = Field(None, description="Slack 채널 ID 또는 이름")
+    members: list["SlackUserCheckRequest"] = Field(default_factory=list, description="Slack 이메일을 확인할 멤버")
+
+
+class SlackUserCheckRequest(CamelModel):
+    user_id: int = Field(description="서비스 사용자 ID. 응답을 같은 사용자에게 적용하는 키")
+    email: str = Field(description="조회할 Slack 이메일")
+
+
+class ConnectionCheckOut(CamelModel):
+    status: Literal["CONNECTED", "NOT_CONNECTED", "ERROR"]
+    value: str | None = Field(None, description="성공 시 정규화된 Notion URL 또는 Slack 채널 ID")
+
+
+class ProjectConnectionsResponse(CamelModel):
+    notion: ConnectionCheckOut
+    slack: ConnectionCheckOut
+    members: list["SlackUserCheckOut"]
+
+
+class SlackUserCheckOut(CamelModel):
+    user_id: int
+    email: str
+    status: Literal["CONNECTED", "NOT_CONNECTED", "ERROR"]
+    slack_user_id: str | None = None
+
+
 # ---------------------------------------------------------------- 일괄 발행 API (TASK-034)
 
 ProcessingType = Literal["CREATE", "LINK", "UPDATE"]
