@@ -7,7 +7,9 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -57,6 +59,8 @@ class PublishBatchTest {
 	@Autowired ProjectMemberRepository members;
 	@Autowired MeetingRepository meetings;
 	@Autowired JsonCodec json;
+	@Autowired PublishService publishService;
+	@Autowired PublishBatchRepository batches;
 
 	private User user;
 	private MockHttpSession session;
@@ -338,5 +342,50 @@ class PublishBatchTest {
 		}
 		assertThat(stateOf(a)).isEqualTo(TicketStatus.PUBLISHING);
 		mvc.perform(get("/api/publish-batches/{id}", UUID.randomUUID()).session(session)).andExpect(status().isNotFound());
+	}
+	@Test
+	void 기한_안에_결과가_오지_않은_묶음은_결과_모름으로_끝내고_늦은_보고는_무시한다() throws Exception {
+		TaskItem stale = confirmed(project, "보고 없음");
+		when(gateway.submit(any())).thenThrow(new AgentException(true));
+		UUID batch = publish(null);
+		var saved = batches.findById(batch).orElseThrow();
+		ReflectionTestUtils.setField(saved, "createdAt", OffsetDateTime.now().minusHours(1));
+		batches.save(saved);
+		TaskItem recent = confirmed(project, "방금 보냄");
+		UUID running = publish(null);
+
+		publishService.expireStale(Duration.ofMinutes(30));
+
+		assertThat(stateOf(stale)).isEqualTo(TicketStatus.FAILED);
+		assertThat(stateOf(recent)).isEqualTo(TicketStatus.PUBLISHING);
+		mvc.perform(get("/api/publish-batches/{id}", batch).session(session))
+				.andExpect(jsonPath("$.status").value("FAILED"))
+				.andExpect(jsonPath("$.tickets[0].errorCode").value("RESULT_TIMEOUT"))
+				.andExpect(jsonPath("$.tickets[0].outcomeUnknown").value(true));
+		mvc.perform(get("/api/publish-batches/{id}", running).session(session)).andExpect(jsonPath("$.status").value("RUNNING"));
+
+		report(batch, """
+				{"batchId":"%s","status":"SUCCEEDED","items":[{"ticketId":"%s","processingType":"CREATE","status":"PUBLISHED","githubIssueNumber":3}]}"""
+				.formatted(batch, stale.getId()));
+		assertThat(stateOf(stale)).isEqualTo(TicketStatus.FAILED);
+	}
+
+	@Test
+	void 담당자가_Agent_제안과_다른_처리_유형을_고르면_고친_값으로_알린다() throws Exception {
+		String content = "{\"dedupe\":{\"issue_number\":12,\"issue_state\":\"open\",\"handling\":{\"type\":\"LINK\"}}}";
+		TaskItem kept = ticket(project, member, "제안 그대로", TicketStatus.CONFIRMED, content, "DUPLICATE");
+		TaskItem changed = ticket(project, member, "신규로 바꿈", TicketStatus.CONFIRMED, content, "DUPLICATE");
+		var item = items.findById(changed.getId()).orElseThrow();
+		ReflectionTestUtils.setField(item, "processingType", ProcessingType.CREATE);
+		items.save(item);
+
+		publish(null);
+
+		var captor = ArgumentCaptor.forClass(PublishGateway.Request.class);
+		verify(gateway).submit(captor.capture());
+		var byId = captor.getValue().tickets().stream().collect(java.util.stream.Collectors.toMap(PublishGateway.Ticket::ticketId, x -> x));
+		assertThat(byId.get(kept.getId().toString()).processingTypeEdited()).isFalse();
+		assertThat(byId.get(changed.getId().toString()).processingType()).isEqualTo("CREATE");
+		assertThat(byId.get(changed.getId().toString()).processingTypeEdited()).isTrue();
 	}
 }

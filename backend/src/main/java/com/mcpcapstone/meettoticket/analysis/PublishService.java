@@ -18,6 +18,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import tools.jackson.databind.JsonNode;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.*;
 
@@ -81,6 +82,21 @@ public class PublishService {
             items.findByBatch(batchId).forEach(TaskItem::cancelPublishing);
             batches.findForUpdate(batchId).ifPresent(b -> b.finish(PublishBatchStatus.FAILED, message));
         });
+    }
+
+    // 접수 확인에 실패했거나 Agent가 보고하지 못한 묶음은 기한이 지나면 결과 모름으로 끝낸다.
+    // 그대로 두면 티켓이 발행 중에 묶여 다시 발행할 수 없다. 기한 뒤에 온 보고는 이미 끝난 묶음이라 무시된다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public int expireStale(Duration timeout) {
+        List<UUID> stale = batches.findIdsByStatusCreatedBefore(PublishBatchStatus.RUNNING, OffsetDateTime.now().minus(timeout));
+        PublishGateway.Result timedOut = new PublishGateway.Result(
+                null, "FAILED", null, List.of(), "RESULT_TIMEOUT",
+                "기한 안에 발행 결과를 받지 못했습니다. GitHub에서 발행 여부를 확인한 뒤 다시 시도하세요.");
+        for (UUID id : stale) {
+            log.warn("일괄 발행 {} 결과를 {} 안에 받지 못해 결과 모름으로 끝냄", id, timeout);
+            tx.executeWithoutResult(status -> applyResult(id, timedOut));
+        }
+        return stale.size();
     }
 
     // Agent 보고를 티켓 상태로 옮긴다. 이미 끝난 묶음의 보고는 무시해 중복 보고에도 한 번만 반영한다.
@@ -175,6 +191,8 @@ public class PublishService {
         var project = meeting.getProject();
         JsonNode content = json.read(i.getContentJson());
         ProcessingType type = i.getProcessingType();
+        // 처음 정해진 값(Agent 제안)과 다르면 담당자가 고른 값이다. Agent는 발행 직전 재대조에서 이 선택을 덮어쓰지 않는다.
+        boolean edited = type != ProcessingType.from(i.getAction(), content);
         Integer target = null;
         if (type != ProcessingType.CREATE) {
             JsonNode number = content.path("dedupe").path("issue_number");
@@ -186,7 +204,7 @@ public class PublishService {
                 i.getId().toString(),
                 new PublishGateway.Project(project.getId(), project.getName(), project.getGithubOwner(), project.getGithubRepo()),
                 meeting.getId(), meeting.getTitle(), meeting.getMeetingDate(),
-                i.getTitle(), content, type.name(), target, false, "CONFIRMED");
+                i.getTitle(), content, type.name(), target, edited, "CONFIRMED");
     }
 
     public record Started(
