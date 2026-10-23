@@ -1,0 +1,88 @@
+# 서비스별 테스트와 빌드. 외부 API 키나 시크릿 없이 동작한다.
+# 액션은 커밋 SHA로 고정하고, 주석에 해당 버전을 적는다.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: frontend (lint, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint -- --deny-warnings
+      - run: npm run build
+
+  backend:
+    name: backend (test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      # wrapper jar 체크섬 검증이 기본으로 켜져 있다. 캐시는 오픈소스 방식(basic)을 쓴다.
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-provider: basic
+      # 테스트는 H2(test 프로필)와 mock Agent로 돈다. RabbitMQ 실연동 테스트는
+      # RABBITMQ_REVIEW_TESTS=true일 때만 돌므로 CI에서는 skip된다.
+      - run: ./gradlew build --no-daemon
+
+  python:
+    name: ${{ matrix.service }} (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [agent, mcp-server, rag-mcp]
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.service }}/requirements-dev.txt
+      # 서비스 코드가 .env를 override로 읽으므로 CI에서는 .env를 만들지 않는다.
+      - name: Install
+        run: |
+          uv venv --python 3.12
+          uv pip sync requirements-dev.txt
+      - name: Test
+        run: .venv/bin/python -m pytest -q
