@@ -12,7 +12,10 @@ def test_agent_openapi_matches_implemented_routes():
     with TestClient(main.app) as client:
         assert client.get("/docs").status_code == 200
         doc = client.get("/openapi.json").json()
-    assert set(doc["paths"]) == {"/runs", "/runs/{task_id}", "/runs/{task_id}/history", "/projects/check-members", "/publish", "/health"}
+    assert set(doc["paths"]) == {
+        "/runs", "/runs/{task_id}", "/runs/{task_id}/history", "/projects/check-members",
+        "/projects/reindex", "/projects/reindex/{job_id}", "/publish", "/health",
+    }
     assert not doc.get("security")  # 현 구현에 없는 API 키 인증을 문서에 가장하지 않음
     post = doc["paths"]["/runs"]["post"]
     assert {"200", "202", "409", "422"} <= post["responses"].keys()
