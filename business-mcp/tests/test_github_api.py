@@ -183,6 +183,90 @@ def test_create_issue_retries_without_assignees_on_422():
     assert out["dropped_assignees"] == ["nobody"]
 
 
+# --- 기존 이슈 댓글·갱신 ---
+
+
+def test_add_comment_posts_to_target_issue():
+    # SAME 처리의 댓글은 해당 이슈에만 쓰고, 생성된 댓글의 ID·URL을 돌려준다.
+    seen = {}
+
+    def handler(request):
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json={"id": 33, "html_url": "https://github.com/o/r/issues/7#issuecomment-33"})
+
+    with client_with(handler) as c:
+        out = github.add_comment(c, "o", "r", 7, " 연결 근거 ")
+    assert seen == {"path": "/repos/o/r/issues/7/comments", "body": {"body": "연결 근거"}}
+    assert out == {"status": "commented", "comment_id": 33, "url": "https://github.com/o/r/issues/7#issuecomment-33"}
+
+
+@pytest.mark.parametrize("number,body", [(0, "x"), (-1, "x"), (True, "x"), (1, "  ")])
+def test_add_comment_rejects_invalid_input(number, body):
+    with client_with(lambda r: httpx.Response(201, json={})) as c:
+        with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
+            github.add_comment(c, "o", "r", number, body)
+
+
+def test_update_issue_appends_section_and_only_adds_valid_labels():
+    # PATCH body는 교체형이므로 현재 본문을 먼저 읽어 보존하고, 기존 라벨에 유효한 라벨만 더한다.
+    calls = []
+
+    def handler(request):
+        calls.append((request.method, request.url.path, json.loads(request.content) if request.content else None))
+        if request.method == "GET" and request.url.path == "/repos/o/r/issues/7":
+            return httpx.Response(200, json={"number": 7, "body": "기존 본문", "labels": [{"name": "bug"}]})
+        if request.method == "GET" and request.url.path == "/repos/o/r/labels":
+            return httpx.Response(200, json=labels_json("bug", "enhancement"))
+        if request.method == "PATCH":
+            return httpx.Response(200, json={"number": 7, "html_url": "https://github.com/o/r/issues/7"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+    with client_with(handler) as c:
+        out = github.update_issue(c, "o", "r", 7, "## 회의 변경 사항\n- 범위 확대", ["ENHANCEMENT", "unknown"])
+    assert calls == [
+        ("GET", "/repos/o/r/issues/7", None),
+        ("GET", "/repos/o/r/labels", None),
+        ("PATCH", "/repos/o/r/issues/7", {"body": "기존 본문\n\n## 회의 변경 사항\n- 범위 확대", "labels": ["bug", "enhancement"]}),
+    ]
+    assert out == {
+        "status": "updated", "number": 7, "url": "https://github.com/o/r/issues/7", "dropped_labels": ["unknown"],
+        "comment_id": None, "comment_url": None, "comment_error": None,
+    }
+
+
+def test_update_issue_adds_note_after_patch_and_keeps_update_if_comment_fails():
+    # 갱신 댓글은 PATCH가 끝난 다음 쓴다. 댓글만 실패해도 본문 갱신 성공 결과를 돌려준다.
+    calls = []
+
+    def handler(request):
+        calls.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(200, json={"number": 7, "body": None, "labels": []})
+        if request.method == "PATCH":
+            return httpx.Response(200, json={"number": 7, "html_url": "u"})
+        if request.method == "POST":
+            return httpx.Response(403, json={"message": "no permission"})
+        raise AssertionError("unexpected request")
+
+    with client_with(handler) as c:
+        out = github.update_issue(c, "o", "r", 7, "## 회의 변경 사항", note="갱신했습니다")
+    assert calls == ["GET", "PATCH", "POST"]
+    assert out["status"] == "updated"
+    assert out["comment_id"] is None
+    assert out["comment_error"].startswith("[GITHUB_AUTH]")
+
+
+def test_update_issue_rejects_pr_and_oversized_combined_body():
+    with client_with(lambda r: httpx.Response(200, json={"pull_request": {}})) as c:
+        with pytest.raises(ToolError, match="PR"):
+            github.update_issue(c, "o", "r", 7, "## 변경")
+
+    with client_with(lambda r: httpx.Response(200, json={"body": "a" * github.BODY_MAX})) as c:
+        with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
+            github.update_issue(c, "o", "r", 7, "## 변경")
+
+
 # --- 오류 태그 ---
 
 

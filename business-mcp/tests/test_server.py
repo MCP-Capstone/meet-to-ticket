@@ -30,15 +30,25 @@ def fake_github(monkeypatch):
 
 @pytest.mark.anyio
 async def test_tools_registered_with_annotations():
-    # 도구 5개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
+    # 도구 7개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
     tools_ = {t.name: t.model_dump(by_alias=True) for t in await server.mcp.list_tools()}
-    assert sorted(tools_) == ["check_member_permissions", "create_issue", "list_issues", "list_labels", "search_issues"]
+    assert sorted(tools_) == [
+        "add_comment", "check_member_permissions", "create_issue", "list_issues", "list_labels", "search_issues", "update_issue"
+    ]
 
     create = tools_["create_issue"]
     assert create["annotations"]["readOnlyHint"] is False
     assert create["annotations"]["idempotentHint"] is False
     assert create["annotations"]["title"] == "GitHub 이슈 생성"
     assert set(create["inputSchema"]["required"]) == {"owner", "repo", "title", "body"}
+
+    comment = tools_["add_comment"]
+    assert comment["annotations"]["readOnlyHint"] is False
+    assert set(comment["inputSchema"]["required"]) == {"owner", "repo", "number", "body"}
+
+    update = tools_["update_issue"]
+    assert update["annotations"]["readOnlyHint"] is False
+    assert set(update["inputSchema"]["required"]) == {"owner", "repo", "number", "append_section"}
 
     read = tools_["list_issues"]
     assert read["annotations"]["readOnlyHint"] is True
@@ -78,6 +88,31 @@ def test_tool_creates_issue_without_allowlist(monkeypatch, fake_github):
     assert seen["path"] == "/repos/any-owner/any-repo/issues"
     assert out == {"status": "created", "number": 1, "url": "u", "assignees": [], "dropped_assignees": [],
                    "dropped_labels": []}
+
+
+def test_comment_and_update_tools(monkeypatch, fake_github):
+    # 쓰기 도구도 허용 저장소 검사를 거친 뒤 각 GitHub 경로로 보낸다.
+    monkeypatch.setenv("GITHUB_ALLOWED_REPOS", "a/b")
+
+    def comment_handler(request):
+        assert request.url.path == "/repos/a/b/issues/2/comments"
+        return httpx.Response(201, json={"id": 1, "html_url": "comment-url"})
+
+    fake_github(comment_handler)
+    assert tools.add_comment("a", "b", 2, "same") == {"status": "commented", "comment_id": 1, "url": "comment-url"}
+
+    calls = []
+    def update_handler(request):
+        calls.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(200, json={"body": "old", "labels": []})
+        return httpx.Response(200, json={"number": 2, "html_url": "issue-url"})
+
+    fake_github(update_handler)
+    assert tools.update_issue("a", "b", 2, "## change")["url"] == "issue-url"
+    assert calls == ["GET", "PATCH"]
+    with pytest.raises(ToolError, match="REPOSITORY_NOT_ALLOWED"):
+        tools.add_comment("x", "y", 2, "same")
 
 
 def test_list_labels_tool(monkeypatch, fake_github):
