@@ -87,6 +87,7 @@ class AgentState(TypedDict, total=False):
     original_content: str
     owner: str
     repo: str
+    notion_page_url: str | None
     members: list[dict[str, Any]]
     # 초안 라벨 후보. Agent가 MCP list_labels로 저장소 라벨을 받아 채운다 (도구가 생기면 prepare에서).
     # 비어 있으면 설정 ISSUE_LABELS를 쓴다
@@ -96,6 +97,7 @@ class AgentState(TypedDict, total=False):
     # 프로젝트 맥락 (TASK-019). runner가 그래프 전에 불러온다
     context: dict[str, Any]     # {"issues": 색인 개수, "notionDocs": 기획 문서 수}. 모르면 None
     planning_docs: list[dict[str, str]]  # 읽은 Notion 기획 문서 {"title", "text"}. 초안 작성의 배경으로만 쓴다
+    project_context: dict[str, Any]  # GitHub 기존 이슈·Notion 문서 및 조회 경고
     progress: dict[str, Any]    # 진행 화면용 세부 정보 (step, context, extraction, dedupe)
     decisions: list[dict[str, Any]]  # 결정 사항 (schemas.ExtractedDecision)
     open_questions: list[str]

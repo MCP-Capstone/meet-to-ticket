@@ -86,7 +86,7 @@ async def test_progress_steps_and_details(draft_settings):
     # 중복 검수는 기능이 꺼져 있으면 보이지 않는다 (기획 3.1)
     assert list(dict.fromkeys(steps)) == ["CONTEXT", "EXTRACTING", "DISPATCHING"]
     last = rep.progress_details[-1]
-    assert last["context"] == {"members": 6, "issues": None, "notionDocs": None}
+    assert last["context"] == {"members": 6, "issues": 0, "notionDocs": 0, "warnings": []}
     assert last["extraction"] == {"todos": 8, "decisions": 6, "openQuestions": 2}
     # stage는 백엔드 TaskStage 값 그대로다 (화면 단계는 progress.step)
     assert list(dict.fromkeys(s for _, _, s in rep.progress_calls)) == ["EXTRACTING", "NORMALIZING", "REVIEWING"]
