@@ -11,6 +11,8 @@ Java 21 + Spring Boot 4.1 + Gradle + Spring Data JPA + PostgreSQL
 ./gradlew bootRun
 ```
 
+`bootRun`은 기본으로 `local` 프로파일을 사용한다(기본 DB/RabbitMQ 자격증명 허용). demo/local/test가 아닌 프로파일(미지정 포함)로 jar를 실행하면 `BACKEND_INTERNAL_TOKEN`, `DB_PASSWORD`, `RABBITMQ_PASSWORD`가 비어 있거나 기본값일 때 기동을 거부한다.
+
 http://localhost:8080/api/health 에서 `{"status":"UP"}`가 나오면 정상이다.
 
 ## API 명세 (Swagger)
