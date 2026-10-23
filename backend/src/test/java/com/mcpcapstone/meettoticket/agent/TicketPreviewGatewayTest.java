@@ -7,6 +7,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -32,12 +33,13 @@ class TicketPreviewGatewayTest {
 			properties.setMode("live");
 			properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
 			TicketPreviewGateway gateway = new TicketPreviewGateway(properties);
-			var request = new PublishGateway.Ticket("id", new PublishGateway.Project(1L, "프로젝트", "o", "r", null),
-					2L, "회의", LocalDate.of(2026, 10, 23), "제목", new JsonMapper().readTree("{\"description\":\"저장 본문\"}"), "CREATE", null, false, false, "CONFIRMED");
+			var request = new PublishGateway.Ticket("id", new PublishGateway.Project(1L, "프로젝트", "o", "r", null, null),
+					2L, "회의", LocalDate.of(2026, 10, 23), "제목", new JsonMapper().readTree("{\"description\":\"저장 본문\"}"), "CREATE", null, false, false, "GITHUB", List.of(), "CONFIRMED");
 			assertThat(gateway.render(request).body()).isEqualTo("## 최종 본문");
 			var sent = new JsonMapper().readTree(received.get());
 			assertThat(sent.path("contentJson").path("description").asText()).isEqualTo("저장 본문");
 			assertThat(sent.path("meetingDate").asText()).isEqualTo("2026-10-23");
+			assertThat(sent.path("publishTarget").asText()).isEqualTo("GITHUB");
 			response.set("{\"kind\":\"CREATE\",\"body\":\"invalid missing lists\"}");
 			assertThatThrownBy(() -> gateway.render(request)).isInstanceOf(AgentException.class);
 		} finally { server.stop(0); }

@@ -1,5 +1,6 @@
 package com.mcpcapstone.meettoticket.agent;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import tools.jackson.databind.JsonNode;
 
 import java.time.LocalDate;
@@ -28,9 +29,16 @@ public interface PublishGateway {
             Integer targetIssueNumber,
             boolean processingTypeEdited,
             boolean previousOutcomeUnknown,
+            // GITHUB, NOTION, SLACK. 빠지면 Agent가 GITHUB로 처리하므로 항상 보낸다.
+            String publishTarget,
+            // Slack 공지 멘션 대상. SLACK 대상일 때만 채운다.
+            List<SlackMember> slackMembers,
             String reviewStatus) {}
 
-    record Project(Long projectId, String name, String githubOwner, String githubRepo, String notionPageUrl) {}
+    record Project(Long projectId, String name, String githubOwner, String githubRepo, String notionPageUrl, String slackChannelId) {}
+
+    // Agent는 이 항목을 dict 그대로 읽어 키가 snake_case다.
+    record SlackMember(String name, @JsonProperty("slack_user_id") String slackUserId) {}
 
     record Result(
             String batchId,
