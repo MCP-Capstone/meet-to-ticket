@@ -292,6 +292,7 @@ business-mcp/
 |---|---|
 | `GITHUB_TOKEN` | 서비스 계정 토큰 하나. 모든 프로젝트 저장소에 쓴다 (서비스 계정을 저장소에 초대하고 Issues 읽기·쓰기 권한) |
 | `GITHUB_ALLOWED_REPOS` | 선택. 값이 있으면 이 저장소들만 허용(쉼표 구분 `owner/repo`), 비우면 검사하지 않음 |
+| `NOTION_TOKEN` | Notion Integration 토큰 하나. 기획 상위 페이지를 이 Integration에 공유해야 읽고 하위 티켓 페이지를 만들 수 있음 |
 | `MCP_HOST`, `MCP_PORT` | 선택. 기본 `127.0.0.1`, `8000` |
 
 토큰은 `.env`에만 둡니다. 어느 저장소에 쓸지(`owner`, `repo`)는 백엔드가 프로젝트 정보로 넘기고, Agent 코드가 도구 인자에 넣습니다 (모델에게 보여주지 않음).
@@ -309,6 +310,10 @@ business-mcp/
 | `check_member_permissions` | 프로젝트 저장(멤버 권한 표시) | `owner`, `repo`, `github_names` | `{members: [{github_name, permission}]}` | 예 |
 | `list_issues` | 연결 확인 | `owner`, `repo`, `state="open"`, `limit=10` | `{issues: [{number, title, state, url, assignees}]}` | 예 |
 | `search_issues` | 중복 판단 (키·단어 검색) | `owner`, `repo`, `query`, `state="all"`, `limit=5` | `{issues: [{number, title, state, url, closed_at}]}` | 예 |
+| `check_notion_page` | 프로젝트 저장 시 Notion 연결 확인 | `page_url_or_id` | `{page_id, title, url}` | 예 |
+| `list_pages` | 회의 분석 전 기획 문서 선택 | `root_page_url_or_id` | `{pages: [{page_id, title}]}` | 예 |
+| `read_page` | 선택한 기획 문서 맥락 읽기 | `page_url_or_id`, `max_chars=4000` | `{page_id, title, url, markdown, truncated}` | 예 |
+| `create_page` | Notion 분류 티켓 발행 | `root_page_url_or_id`, `title`, `markdown` | `{status: "created", page_id, url, folder_page_id}` | 아니요 (페이지가 하나 더 생김) |
 
 - `create_issue`: 제목 앞뒤 공백 제거, 256자·본문 65000자 초과분은 자름. 담당자 지정이 거부(422)되면 담당자 없이 한 번 더 생성하고 `dropped_assignees`에 표시합니다.
 - `create_issue` 라벨: 보내기 전에 저장소 라벨 목록과 비교해(대소문자 무시) 없는 라벨은 빼고 `dropped_labels`에 표시합니다. push 권한이 있는 토큰으로 없는 라벨을 넘기면 GitHub가 라벨을 새로 만들 수 있어서입니다. 라벨을 요청하지 않으면 라벨 목록을 조회하지 않습니다.
@@ -318,6 +323,10 @@ business-mcp/
 - `check_member_permissions`: 멤버마다 이 저장소 이슈의 담당자로 지정할 수 있는지 GitHub assignees API로 확인합니다. `permission`은 `GRANTED`(가능), `DENIED`(불가), `ERROR`(확인 실패, 권한 없음으로 보지 않음). 먼저 저장소를 조회해서, 저장소를 볼 수 없으면 멤버별 결과 없이 `[GITHUB_NOT_FOUND]` 같은 오류를 돌려줍니다. 계정은 앞뒤 공백·대소문자 중복을 정리하고 한 번에 100명까지. GitHub 계정이 없는 멤버(`NO_ACCOUNT`)는 백엔드가 판단하고 넘기지 않습니다.
 - `list_issues`: 최신순, PR 제외, `limit` 1~50, `state`는 `open`·`closed`·`all`
 - `search_issues`: 검색 범위(`repo:owner/repo`, `is:issue`, `state:`)는 코드가 붙이고, 검색어에 섞인 `repo:`·`org:`·`is:` 같은 범위 지정은 지웁니다 (GitHub 검색은 `repo:`를 여러 개 주면 OR로 묶어 다른 저장소까지 찾기 때문). `limit` 1~20. 검색 API는 호출 한도가 따로 있습니다(인증 시 분당 30회 정도). 의미가 비슷한 이슈는 `rag-mcp`의 `search_similar_issues`로 찾습니다.
+- `check_notion_page`: Notion URL·UUID를 정규 페이지 ID로 바꾸고 Integration 접근 여부를 확인합니다. 토큰만 넣는 것으로는 부족하며, 해당 상위 페이지를 Integration에 공유해야 합니다.
+- `list_pages`: 기획 상위 페이지의 바로 아래 문서만 돌려줍니다. MCP가 만든 `회의 후속 티켓` 폴더는 분석 맥락에서 제외합니다.
+- `read_page`: 최상위 블록을 Markdown으로 바꾸고 `max_chars`(1~12,000)까지만 돌려줍니다. Agent는 목록에서 필요한 문서를 고른 뒤 읽습니다.
+- `create_page`: 기획 상위 페이지 아래 `회의 후속 티켓` 폴더를 재사용하거나 처음 한 번 만든 뒤, 그 아래 Markdown 티켓 페이지를 만듭니다. 제목·본문은 Agent가 만들고 MCP는 게시만 합니다.
 
 **오류 코드**
 
@@ -332,6 +341,10 @@ business-mcp/
 | `GITHUB_VALIDATION` | 422: GitHub가 요청 값을 거부 |
 | `GITHUB_RATE_LIMIT` | 429 또는 남은 호출 수 0인 403 |
 | `GITHUB_ERROR` | 그 밖의 실패 (5xx 등) |
+| `NOTION_CONFIG_MISSING` | `NOTION_TOKEN`이 설정되지 않음 |
+| `NOTION_AUTH` / `NOTION_FORBIDDEN` | 토큰이 잘못됐거나 Integration에 페이지가 공유되지 않음 |
+| `NOTION_NOT_FOUND` | 페이지를 찾을 수 없음 |
+| `NOTION_VALIDATION` / `NOTION_RATE_LIMIT` / `NOTION_ERROR` | Notion 요청값 오류 / 호출 제한 / 그 밖의 실패 |
 
 연결 실패나 시간 초과는 태그 없이 전달되고, 에이전트는 이를 "결과 모름"으로 처리합니다 (이슈가 만들어졌을 수 있어 다시 보내지 않음).
 
