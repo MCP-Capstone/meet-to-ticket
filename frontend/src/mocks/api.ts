@@ -223,7 +223,7 @@ export const mockApi: typeof realApi = {
     await delay(300)
     requireLogin()
     const items = mockItems.map((item) => ({ ...item, itemId: crypto.randomUUID() }))
-    const count = (key: 'SUCCEEDED' | 'FAILED' | 'UNKNOWN' | 'SKIPPED') => items.filter((i) => i.publishStatus === key).length
+    const count = (key: 'SUCCEEDED' | 'FAILED' | 'UNKNOWN' | 'SKIPPED' | 'DRAFT') => items.filter((i) => i.publishStatus === key).length
     return {
       taskId,
       status: 'COMPLETED',
@@ -237,6 +237,7 @@ export const mockApi: typeof realApi = {
         failed: count('FAILED'),
         unknown: count('UNKNOWN'),
         skipped: count('SKIPPED'),
+        drafts: count('DRAFT'),
       },
     }
   },

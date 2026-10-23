@@ -12,6 +12,7 @@ const publishLabel: Record<PublishStatus, string> = {
   UNKNOWN: '확인 필요',
   SKIPPED: '발행 생략',
   BLOCKED: '발행 제외',
+  DRAFT: '발행 전',
 }
 
 const backgroundText = (item: TaskItem) => item.contentJson?.background ?? item.contentJson?.description ?? null
@@ -116,7 +117,7 @@ export function ResultList({ meeting, participants, result }: Props) {
                   {background && <p>{background}</p>}
                   <div className="meta">
                     <span>
-                      검수 {item.reviewStatus === 'APPROVED' ? '통과' : '반려'}
+                      {item.reviewStatus === 'PENDING' ? '확인 대기' : `검수 ${item.reviewStatus === 'APPROVED' ? '통과' : '반려'}`}
                       {corrections > 0 && ` (보완 ${corrections}회)`}
                     </span>
                     <span>담당 {assigneeText(item)}</span>

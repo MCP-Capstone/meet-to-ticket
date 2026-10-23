@@ -115,11 +115,13 @@ export interface StartAnalysisResponse {
   executionMode: ExecutionMode
 }
 
-export type ReviewStatus = 'APPROVED' | 'REJECTED'
+// PENDING: 발행 전 초안 (담당자 확인 대기)
+export type ReviewStatus = 'APPROVED' | 'REJECTED' | 'PENDING'
 
 // SUCCEEDED: 이슈 생성 / FAILED: 생성 실패 / UNKNOWN: 생성 여부 확인 필요
 // SKIPPED: 모의 실행이라 발행 생략 / BLOCKED: 검수 반려로 발행 제외
-export type PublishStatus = 'SUCCEEDED' | 'FAILED' | 'UNKNOWN' | 'SKIPPED' | 'BLOCKED'
+// DRAFT: 발행 전 초안. 담당자가 확인한 뒤 일괄 발행한다
+export type PublishStatus = 'SUCCEEDED' | 'FAILED' | 'UNKNOWN' | 'SKIPPED' | 'BLOCKED' | 'DRAFT'
 
 // Agent가 정리한 업무 내용. 화면에서 쓰는 필드만 적는다.
 // 백엔드 모의 실행과 실제 Agent(#52)가 쓰는 키가 달라 둘 다 받는다. (읽는 쪽: ResultList)
@@ -171,6 +173,8 @@ export interface TaskSummary {
   failed: number
   unknown: number
   skipped: number
+  // 발행 전 초안 수
+  drafts: number
 }
 
 export interface TaskItemList {
