@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
+import com.mcpcapstone.meettoticket.project.dto.ProjectDeleteRequest;
 import com.mcpcapstone.meettoticket.project.dto.ProjectDetail;
 import com.mcpcapstone.meettoticket.project.dto.ProjectRoleRequest;
 import com.mcpcapstone.meettoticket.project.dto.ProjectSaveRequest;
@@ -33,6 +34,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ProjectController {
     private final ProjectService service;
+    private final ProjectDeletionService deletion;
     private final ExecutionSettings executionSettings;
 
     @Operation(operationId = "listProjects", summary = "내 프로젝트 조회", description = "로그인 사용자가 소속된 프로젝트와 백엔드 실행 모드를 반환한다. MOCK는 실제 Agent·GitHub 호출을 하지 않는다.")
@@ -92,6 +94,25 @@ public class ProjectController {
             @Valid @RequestBody ProjectSaveRequest request,
             @Parameter(hidden = true) @SessionAttribute(SessionConst.LOGIN_USER_ID) Long userId) {
         return service.update(projectId, request, userId);
+    }
+
+    @Operation(operationId = "deleteProject", summary = "프로젝트 삭제", description = "관리자만 할 수 있고, 프로젝트 이름을 입력해 확인한다. 멤버, 회의 기록, 분석 작업과 티켓을 지우고, 이미 발행한 GitHub 이슈, Slack 메시지, Notion 페이지는 그대로 둔다. 처리 중인 회의록이 있으면 409.")
+    @ApiResponse(responseCode = "204", description = "삭제 완료")
+    @ApiResponse(responseCode = "400", description = "이름 미입력 (VALIDATION_FAILED) 또는 이름 불일치 (PROJECT_NAME_MISMATCH)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_PROJECT_NAME_MISMATCH)))
+    @ApiResponse(responseCode = "401", description = "로그인 세션 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_UNAUTHORIZED)))
+    @ApiResponse(responseCode = "403", description = "프로젝트 소속 아님 (PROJECT_ACCESS_DENIED) 또는 관리자 아님 (PROJECT_ADMIN_REQUIRED)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_PROJECT_ADMIN_REQUIRED)))
+    @ApiResponse(responseCode = "409", description = "처리 중인 회의록이 있음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_PROJECT_ANALYSIS_IN_PROGRESS)))
+    @DeleteMapping("/api/projects/{projectId}")
+    public ResponseEntity<Void> delete(
+            @Parameter(description = "프로젝트 ID", example = "1", required = true) @PathVariable Long projectId,
+            @Valid @RequestBody ProjectDeleteRequest request,
+            @Parameter(hidden = true) @SessionAttribute(SessionConst.LOGIN_USER_ID) Long userId) {
+        deletion.delete(projectId, request.confirmName(), userId);
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(operationId = "changeProjectMemberRole", summary = "프로젝트 관리자 지정/해제", description = "관리자만 할 수 있다. 자기 자신도 해제할 수 있지만 관리자는 항상 1명 이상 남아야 한다.")
