@@ -121,6 +121,8 @@ MOCK 메모리 작업은 재시작하면 사라져 진행 중 작업이 실패�
 
 ## Agent 내부 API — 현재 구현
 
+Agent 요청의 `project.notionPageUrl`에는 프로젝트의 Notion 기획 페이지를 담는다 (TASK-019). Notion을 연결하지 않았거나 연결 오류가 확인된 프로젝트는 `null`이고, Agent는 Notion 맥락 없이 처리한다.
+
 | Method | 경로 | 응답 |
 |---|---|---|
 | POST | /runs | 기본 202 `{taskId, status: ACCEPTED}` |

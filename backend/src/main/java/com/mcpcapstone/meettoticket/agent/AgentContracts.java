@@ -27,7 +27,9 @@ public final class AgentContracts {
             String originalFilename,
             String originalContent) {}
 
-    public record ProjectData(Long projectId, String name, String githubOwner, String githubRepo) {}
+    // notionPageUrl: Agent가 맥락으로 읽을 Notion 기획 페이지 (TASK-019). 없거나 연결 오류면 null
+    public record ProjectData(
+            Long projectId, String name, String githubOwner, String githubRepo, String notionPageUrl) {}
 
     public record MemberData(Long projectMemberId, Long userId, String name, String githubName) {}
 

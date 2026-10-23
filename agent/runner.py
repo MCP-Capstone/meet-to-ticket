@@ -11,12 +11,13 @@ from typing import Any
 
 import prompts
 from config import Settings
+from context import ProjectContext, load_notion
 from issue_tools import IssueTools
 from nodes import AgentNodes, run_metrics
 from publisher import DryRunPublisher, McpPublisher
 from reporter import BackendReporter
 from schemas import PublishBatchRequest, PublishBatchResult, RunRequest, RunResult
-from state import MCP_UNAVAILABLE, STAGE_EXTRACTING, STATUS_FAILED, AgentState
+from state import MCP_UNAVAILABLE, STAGE_EXTRACTING, STATUS_FAILED, STATUS_RUNNING, STEP_CONTEXT, AgentState
 
 log = logging.getLogger("agent.runner")
 
@@ -159,9 +160,41 @@ async def make_issue_tools(
         reader=read_resource,
         sync_tool=rag.get("sync_issues"),
         index_tool=rag.get("index_issue"),
+        status_tool=rag.get("index_status"),
         max_chars=settings.tool_result_max_chars,
     )
     return tools, "ready"
+
+
+async def report_context_started(req: RunRequest, reporter: Any) -> None:
+    progress = {"step": STEP_CONTEXT,
+                "context": {"members": len(req.project_members), "issues": None, "notionDocs": None}}
+    try:
+        await reporter.progress(req.task_id, STATUS_RUNNING, STAGE_EXTRACTING, progress)
+    except Exception as exc:  # noqa: BLE001 - 보고 실패로 작업을 멈추지 않는다
+        log.warning("진행 보고 실패: %s", exc)
+
+
+async def load_context(
+    req: RunRequest, settings: Settings, issue_tools: IssueTools | None, notion_tools: dict[str, Any] | None
+) -> ProjectContext:
+    """프로젝트 맥락을 불러온다 (TASK-019). 시간 안에 끝나지 않으면 그때까지 얻은 값만 쓴다."""
+    ctx = ProjectContext()
+
+    async def work() -> None:
+        if issue_tools is not None:
+            ctx.issues = await issue_tools.count()
+        tools = notion_tools or {}
+        if req.project.notion_page_url and "list_pages" in tools and "read_page" in tools:
+            # 읽는 대로 ctx에 담으므로 시간 한도로 멈춰도 그때까지 읽은 문서는 남는다
+            await load_notion(
+                ctx, tools["list_pages"], tools["read_page"], req.project.notion_page_url, req.meeting.original_content)
+
+    try:
+        await asyncio.wait_for(work(), timeout=settings.context_timeout_seconds)
+    except asyncio.TimeoutError:
+        log.warning("맥락을 %s초 안에 불러오지 못해 얻은 값만 씀", settings.context_timeout_seconds)
+    return ctx
 
 
 async def sync_index(tools: IssueTools, settings: Settings) -> dict[str, Any] | None:
@@ -245,6 +278,7 @@ async def run(
     publisher: Any | None = None,
     reporter: Any | None = None,
     issue_tools: IssueTools | None = None,
+    notion_tools: dict[str, Any] | None = None,
 ) -> RunResult:
     """요청 1건을 하나의 trace로 실행한다.
 
@@ -278,7 +312,7 @@ async def run(
         tags=["meet-to-ticket"],
     ) as run_tree:
         result = await _run(req, settings, trace_id, metadata, llm=llm, publisher=publisher, reporter=reporter,
-                            issue_tools=issue_tools)
+                            issue_tools=issue_tools, notion_tools=notion_tools)
         run_tree.end(outputs={"status": result.status, "errorCode": result.error_code, "summary": result.summary})
     log.info("작업 끝 task=%s trace=%s status=%s error=%s %sms", req.task_id, trace_id,
              result.status, result.error_code, result.metrics.get("durationMs"))
@@ -295,6 +329,7 @@ async def _run(
     publisher: Any | None,
     reporter: Any | None,
     issue_tools: IssueTools | None = None,
+    notion_tools: dict[str, Any] | None = None,
 ) -> RunResult:
     state = initial_state(req, trace_id, settings.task_deadline_seconds)
     publisher_was_injected = publisher is not None  # 테스트에서 가짜 발행 도구를 넣은 경우
@@ -332,7 +367,22 @@ async def _run(
             settings, req.project.github_owner, req.project.github_repo, github)
     else:
         rag_status = "ready"
+    # 색인 갱신과 맥락 불러오기는 오래 걸릴 수 있어(각 최대 30초) 진행 화면에 "맥락 파악"을 먼저 보고한다.
+    # 불러온 개수는 prepare가 다시 보고한다
+    await report_context_started(req, reporter)
     state["rag"] = {"status": rag_status, "sync": await sync_index(issue_tools, settings) if issue_tools else None}
+
+    if notion_tools is None and req.project.notion_page_url and not publisher_was_injected:
+        # Notion 도구(list_pages, read_page)도 business-mcp에 있다. dry run이면 아직 연결하지 않았을 수 있다
+        if github is None:
+            try:
+                github = await github_tools(settings)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("business-mcp에 연결하지 못해 Notion 맥락 없이 진행: %s", exc)
+        notion_tools = github
+    ctx = await load_context(req, settings, issue_tools, notion_tools)
+    state["context"] = {"issues": ctx.issues, "notionDocs": ctx.notion_docs}
+    state["planning_docs"] = ctx.docs
 
     from graph import build_graph
 

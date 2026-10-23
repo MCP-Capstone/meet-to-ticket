@@ -64,6 +64,7 @@ class IssueTools:
         reader: ResourceReader | None = None,  # rag-mcp Resource 읽기
         sync_tool: Any | None = None,    # rag-mcp sync_issues
         index_tool: Any | None = None,   # rag-mcp index_issue
+        status_tool: Any | None = None,  # rag-mcp index_status (색인 개수)
         max_chars: int = 2000,
     ):
         self.owner = owner
@@ -73,6 +74,7 @@ class IssueTools:
         self._reader = reader
         self._sync = sync_tool
         self._index = index_tool
+        self._status = status_tool
         self.max_chars = max_chars
 
     # ------------------------------------------------------------ 모델용
@@ -157,6 +159,18 @@ class IssueTools:
         except ToolCallError as exc:
             log.warning("색인 갱신 실패 %s/%s: [%s] %s", self.owner, self.repo, exc.code, exc.message)
             return None
+
+    async def count(self) -> int | None:
+        """색인된 기존 이슈 수 (진행 화면의 맥락 파악). 모르면 None."""
+        if self._status is None:
+            return None
+        try:
+            out = await self._call(self._status, {})
+        except ToolCallError as exc:
+            log.warning("색인 개수 조회 실패 %s/%s: [%s] %s", self.owner, self.repo, exc.code, exc.message)
+            return None
+        count = out.get("count")
+        return count if isinstance(count, int) else None
 
     async def index(self, number: int) -> bool:
         """새로 발행한 이슈를 색인에 추가한다. 실패해도 발행 결과에는 영향이 없다."""

@@ -93,6 +93,9 @@ class AgentState(TypedDict, total=False):
     label_candidates: list[str]
     background: str
     meeting_title: str          # Slack 공지 제목에 쓴다
+    # 프로젝트 맥락 (TASK-019). runner가 그래프 전에 불러온다
+    context: dict[str, Any]     # {"issues": 색인 개수, "notionDocs": 기획 문서 수}. 모르면 None
+    planning_docs: list[dict[str, str]]  # 읽은 Notion 기획 문서 {"title", "text"}. 초안 작성의 배경으로만 쓴다
     progress: dict[str, Any]    # 진행 화면용 세부 정보 (step, context, extraction, dedupe)
     decisions: list[dict[str, Any]]  # 결정 사항 (schemas.ExtractedDecision)
     open_questions: list[str]
