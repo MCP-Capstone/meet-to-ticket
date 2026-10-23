@@ -190,6 +190,45 @@ public final class ApiExamples {
             }
             """;
 
+    public static final String TICKET_DETAIL = """
+            {"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정",
+             "body":"## 작업 내용\\n필터 결과가 0건이면 헤더만 있는 CSV를 내려준다.\\n\\n## 완료 조건\\n- 0건, 1건 결과를 확인한다\\n",
+             "status":"PENDING_REVIEW","processingType":"CREATE",
+             "assignee":{"memberId":3,"name":"최윤경","githubName":"yoonkyung-c"},"mentionedAssignees":["최윤경"],
+             "due":{"date":"2026-10-23","time":"17:00","text":"내일 오후 5시"},
+             "labels":["bug"],"evidenceQuotes":["최윤경이 내일 오후 5시까지 수정하고 0건·1건 결과를 확인하기로 했다."],
+             "openQuestions":[],"warnings":[],"dedupe":null,"edited":false,
+             "projectId":1,"projectName":"CSV 내보내기","meetingId":2,"meetingTitle":"CSV 중간 점검",
+             "taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81","createdAt":"2026-10-22T10:31:00+09:00"}""";
+
+    public static final String ERROR_TICKET_NOT_FOUND = """
+            {
+              "code": "TICKET_NOT_FOUND",
+              "message": "티켓을 찾을 수 없습니다."
+            }
+            """;
+
+    public static final String ERROR_TICKET_ACCESS_DENIED = """
+            {
+              "code": "TICKET_ACCESS_DENIED",
+              "message": "내가 담당인 티켓만 보고 고칠 수 있습니다."
+            }
+            """;
+
+    public static final String ERROR_TICKET_STATE_CONFLICT = """
+            {
+              "code": "TICKET_STATE_CONFLICT",
+              "message": "지금 상태에서는 할 수 없는 작업입니다. 티켓을 다시 불러와 주세요."
+            }
+            """;
+
+    public static final String ERROR_INVALID_TICKET_ASSIGNEE = """
+            {
+              "code": "INVALID_TICKET_ASSIGNEE",
+              "message": "같은 프로젝트의 멤버만 담당자로 지정할 수 있습니다."
+            }
+            """;
+
     public static final String MY_TICKETS = """
             {"counts":{"pendingReview":1,"confirmed":0,"rejected":0},
              "tickets":[{"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5","title":"CSV 빈 결과 오류 수정",

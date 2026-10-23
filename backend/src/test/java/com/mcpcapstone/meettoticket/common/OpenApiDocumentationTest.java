@@ -28,7 +28,7 @@ class OpenApiDocumentationTest {
     @Test
     void 공개_API와_세션인증을_문서화하고_내부_서버_API를_섞지_않는다() throws Exception {
         JsonNode doc = document();
-        assertThat(doc.path("paths").size()).isEqualTo(17);
+        assertThat(doc.path("paths").size()).isEqualTo(22);
         for (var entry : doc.path("paths").properties()) {
             assertThat(entry.getKey()).startsWith("/api/");
             for (var operation : entry.getValue().properties()) {
@@ -43,6 +43,13 @@ class OpenApiDocumentationTest {
                 .path("name").asText()).isEqualTo("JSESSIONID");
         assertThat(doc.at("/paths/~1api~1auth~1login/post/security").size()).isZero();
         assertThat(doc.at("/paths/~1api~1auth~1me/get/security/0/sessionCookie").isArray()).isTrue();
+        // 티켓 API는 공통 오류 응답(403·404)과 상태 충돌(409)을 문서에 남긴다
+        assertThat(doc.at("/paths/~1api~1tickets~1{ticketId}/get/responses").has("403")).isTrue();
+        assertThat(doc.at("/paths/~1api~1tickets~1{ticketId}/patch/responses").has("409")).isTrue();
+        assertThat(doc.at("/paths/~1api~1tickets~1{ticketId}~1confirm/post/responses").has("409")).isTrue();
+        // 예시는 문자열이 아니라 JSON 객체로 들어가야 Swagger에서 보기 좋다
+        assertThat(doc.at("/paths/~1api~1tickets~1{ticketId}/get/responses/200/content/application~1json/example/body").asText()).startsWith("## 작업 내용\n");
+        assertThat(doc.at("/paths/~1api~1tickets~1{ticketId}~1confirm/post/responses/404/content/application~1json/example/code").asText()).isEqualTo("TICKET_NOT_FOUND");
         JsonNode projectSecurity = doc.at("/paths/~1api~1projects/get").has("security")
                 ? doc.at("/paths/~1api~1projects/get/security") : doc.path("security");
         assertThat(projectSecurity.path(0).path("sessionCookie").isArray()).isTrue();

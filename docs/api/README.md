@@ -29,6 +29,9 @@
 | GET | /api/users?keyword= | 200 | 멤버로 고를 가입 사용자 검색 |
 | GET | /api/projects/{projectId}/members | 200 | 팀원·GitHub 계정 |
 | GET | /api/tickets/me | 200 | 내 티켓 (담당자별, `projectId` 필터, 상태별 건수) |
+| GET | /api/tickets/{ticketId} | 200 | 티켓 상세 (카드에 보일 값, 담당자만) |
+| PATCH | /api/tickets/{ticketId} | 200 | 카드 수정: 제목·본문·담당자·기한 (검토 대기에서만) |
+| POST | /api/tickets/{ticketId}/confirm·reject·reopen·restore | 200 | 확인·거절·다시 열기·되돌리기 |
 | POST | /api/projects/{projectId}/analysis-tasks | 202 | 회의록 처리 요청 (회의 저장 + 분석 접수, 기획_v16) |
 | POST | /api/projects/{projectId}/meetings | 201 | multipart file 업로드·회의 저장 |
 | GET | /api/meetings/{meetingId} | 200 | 본문을 제외한 회의 메타데이터 |
@@ -56,6 +59,31 @@ Authorize에 쿠키를 직접 넣기보다 login API를 실행한다. 세션 사
 
 Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤버와 연결한다(REQ-010). 멤버 정확히 1명과 연결되면 `PENDING_REVIEW`(검토 대기), 담당자가 없거나 여러 명이거나 멤버와 연결되지 않으면 `ASSIGNEE_REQUIRED`(담당 지정 필요)이다. GitHub 계정이 없는 멤버도 담당자로 연결하며, 이름만 보고 GitHub 로그인명을 추정하지 않는다. 처리 유형은 상태와 별도로 `CREATE`/`LINK`/`UPDATE`이다.
 `GET /api/tickets/me`는 로그인 사용자가 담당인 티켓만 반환한다. `projectId`로 거르면 `counts`(`pendingReview`, `confirmed`, `rejected`)도 같은 범위로 센다. 기존 결과 조회 API(`/api/analysis-tasks/{id}/items`)는 바뀌지 않는다.
+
+### 카드 상세·수정과 확인/거절 (#167)
+
+담당자가 카드에서 티켓을 보고, 고치고, 확인하거나 거절한다 (REQ-014). 모든 티켓 API는 그 티켓의 담당자만 쓸 수 있다 (아니면 403 `TICKET_ACCESS_DENIED`, 없는 티켓은 404 `TICKET_NOT_FOUND`). 응답은 모두 바뀐 뒤의 티켓 상세다.
+
+- `GET /api/tickets/{ticketId}`: 제목, 본문(Markdown), 담당자(`memberId`, `name`, `githubName`), 회의록에 적힌 담당자 이름, 기한(`date`, `time`, 원문 `text`), 라벨, 근거, 미결 질문, 카드 경고, 중복 판단 결과, 상태, 처리 유형. 담당자가 고친 값이 있으면 그 값을 보여주고 `edited`가 `true`다. 본문을 HTML로 그릴 때는 sanitize한다.
+- `PATCH /api/tickets/{ticketId}`: 보낸 칸만 고친다. 검토 대기에서만 고칠 수 있다 (아니면 409 `TICKET_STATE_CONFLICT`).
+
+  | 필드 | 내용 |
+  |---|---|
+  | `title` | 공백 불가, 255자 이하 |
+  | `body` | 이슈 본문 Markdown, 20000자 이하 |
+  | `assigneeMemberId` | 같은 프로젝트 멤버 ID (아니면 400 `INVALID_TICKET_ASSIGNEE`). 바꾸면 그 멤버의 내 티켓으로 옮겨 간다 |
+  | `due` | `{"date": "2026-10-25", "time": "18:00"}`. `date`를 `null`로 보내면 기한 없음. 시각만 보내면 400 |
+
+- 상태 전이 (기획 4.2). 표에 없는 전이는 409 `TICKET_STATE_CONFLICT`다.
+
+  | 요청 | 전이 |
+  |---|---|
+  | `POST .../confirm` | 검토 대기 → 확인 |
+  | `POST .../reject` | 검토 대기 → 거절 |
+  | `POST .../reopen` | 확인 → 검토 대기 |
+  | `POST .../restore` | 거절 → 검토 대기 |
+
+일괄 발행(TASK-034)은 카드에 보이는 값(고친 값이 있으면 고친 값)으로 확인(`CONFIRMED`)된 티켓만 처리 유형대로 발행한다.
 
 ### 회의록 처리 요청 (#153)
 

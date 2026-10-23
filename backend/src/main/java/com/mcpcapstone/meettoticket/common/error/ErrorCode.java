@@ -31,7 +31,11 @@ public enum ErrorCode {
 	TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "분석 작업을 찾을 수 없습니다."),
 	TASK_NOT_FINISHED(HttpStatus.CONFLICT, "처리 중입니다. 진행 상태를 계속 조회해 주세요."),
 	ANALYSIS_ALREADY_REQUESTED(HttpStatus.CONFLICT, "이미 분석을 요청한 회의입니다."),
-	AGENT_ACCEPTANCE_FAILED(HttpStatus.BAD_GATEWAY, "Agent 실행 접수를 확인하지 못했습니다.");
+	AGENT_ACCEPTANCE_FAILED(HttpStatus.BAD_GATEWAY, "Agent 실행 접수를 확인하지 못했습니다."),
+	TICKET_NOT_FOUND(HttpStatus.NOT_FOUND, "티켓을 찾을 수 없습니다."),
+	TICKET_ACCESS_DENIED(HttpStatus.FORBIDDEN, "내가 담당인 티켓만 보고 고칠 수 있습니다."),
+	TICKET_STATE_CONFLICT(HttpStatus.CONFLICT, "지금 상태에서는 할 수 없는 작업입니다. 티켓을 다시 불러와 주세요."),
+	INVALID_TICKET_ASSIGNEE(HttpStatus.BAD_REQUEST, "같은 프로젝트의 멤버만 담당자로 지정할 수 있습니다.");
 
 	private final HttpStatus status;
 	private final String message;

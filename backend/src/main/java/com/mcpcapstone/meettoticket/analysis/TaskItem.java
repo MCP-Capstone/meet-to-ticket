@@ -71,6 +71,11 @@ public class TaskItem {
     @Column(name = "processing_type", nullable = false, length = 10)
     private ProcessingType processingType = ProcessingType.CREATE;
 
+    // 담당자가 카드에서 고친 값 {"body": 본문, "due": {"date", "time"}}. 고친 칸만 들어 있고, 없으면 Agent 결과를 쓴다.
+    // 제목과 담당 멤버는 각 칸을 바로 고친다 (REQ-014, TASK-028). 일괄 발행은 고친 값을 쓴다.
+    @Column(name = "edited_json", columnDefinition = "text")
+    private String editedJson;
+
     public TaskItem(
             AnalysisTask task,
             com.mcpcapstone.meettoticket.agent.AgentContracts.Item item,
@@ -88,6 +93,18 @@ public class TaskItem {
         this.githubIssueUrl = item.githubIssueUrl();
         this.errorMessage = item.errorMessage();
         this.processingType = ProcessingType.fromAgentAction(item.action());
+    }
+
+    // 카드 수정. 상태 확인은 TicketReviewService가 한다.
+    public void edit(String title, String editedJson, ProjectMember assignee) {
+        this.title = title;
+        this.editedJson = editedJson;
+        this.assignee = assignee;
+    }
+
+    // 확인, 거절, 다시 열기, 되돌리기. 허용되는 전이인지는 TicketReviewService가 확인한다 (기획 4.2).
+    public void changeStatus(TicketStatus status) {
+        this.ticketStatus = status;
     }
 
     // 담당 멤버가 정해지면 검토 대기, 아니면 담당 지정 필요.
