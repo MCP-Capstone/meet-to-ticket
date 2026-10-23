@@ -32,7 +32,7 @@ class TicketPreviewGatewayTest {
 			properties.setMode("live");
 			properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
 			TicketPreviewGateway gateway = new TicketPreviewGateway(properties);
-			var request = new PublishGateway.Ticket("id", new PublishGateway.Project(1L, "프로젝트", "o", "r"),
+			var request = new PublishGateway.Ticket("id", new PublishGateway.Project(1L, "프로젝트", "o", "r", null),
 					2L, "회의", LocalDate.of(2026, 10, 23), "제목", new JsonMapper().readTree("{\"description\":\"저장 본문\"}"), "CREATE", null, false, false, "CONFIRMED");
 			assertThat(gateway.render(request).body()).isEqualTo("## 최종 본문");
 			var sent = new JsonMapper().readTree(received.get());

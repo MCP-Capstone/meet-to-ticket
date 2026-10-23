@@ -27,7 +27,7 @@ public class MockPublishGateway implements PublishGateway {
                                     case "UPDATE" -> "UPDATED";
                                     default -> "PUBLISHED";
                                 },
-                                null, null, null, List.of(), null, null, false))
+                                null, null, null, List.of(), null, null, false, null, null))
                         .toList();
         return Optional.of(new Result(request.batchId(), "SUCCEEDED", Map.of("total", items.size()), items, null, null));
     }

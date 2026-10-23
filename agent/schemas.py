@@ -116,7 +116,7 @@ class PublishTicket(CamelModel):
     target_issue_number: int | None = Field(None, ge=1, description="LINK/UPDATE 대상 기존 이슈 번호")
     processing_type_edited: bool = Field(False, description="담당자가 처리 유형을 직접 바꿨으면 재대조가 덮어쓰지 않는다")
     previous_outcome_unknown: bool = Field(False, description="지난 발행이 결과 모름이었다. 처리 유형을 직접 바꿨어도 재대조를 하고, 이미 반영된 이슈, 댓글, 섹션이 있으면 다시 만들지 않는다")
-    publish_target: PublishTarget = Field("GITHUB", description="GitHub 이슈 또는 회의 결과 Slack 공지")
+    publish_target: PublishTarget = Field("GITHUB", description="GitHub 이슈, Notion 페이지 또는 회의 결과 Slack 공지")
     slack_members: list[dict[str, str]] = Field(default_factory=list, description="name과 slack_user_id가 있는 연결 완료 Slack 사용자. 공지 멘션에만 쓴다")
     review_status: Literal["CONFIRMED"] = Field(description="백엔드는 CONFIRMED 티켓만 보낸다")
 
@@ -134,6 +134,8 @@ class PublishItemResult(CamelModel):
     github_issue_url: str | None = None
     comment_url: str | None = Field(None, description="LINK 댓글 또는 UPDATE 알림 댓글 URL")
     message_url: str | None = Field(None, description="Slack 공지 메시지 링크")
+    notion_page_id: str | None = Field(None, description="NOTION 대상으로 만든 페이지 ID")
+    notion_page_url: str | None = Field(None, description="NOTION 대상으로 만든 페이지 URL")
     dropped_labels: list[str] = Field(default_factory=list)
     error_code: str | None = None
     error_message: str | None = None

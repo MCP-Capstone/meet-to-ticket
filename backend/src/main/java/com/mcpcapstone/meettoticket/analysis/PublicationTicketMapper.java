@@ -27,7 +27,7 @@ public class PublicationTicketMapper {
 		}
 		return new PublishGateway.Ticket(
 				i.getId().toString(),
-				new PublishGateway.Project(project.getId(), project.getName(), project.getGithubOwner(), project.getGithubRepo()),
+				new PublishGateway.Project(project.getId(), project.getName(), project.getGithubOwner(), project.getGithubRepo(), project.getNotionPageUrl()),
 				meeting.getId(), meeting.getTitle(), meeting.getMeetingDate(),
 				i.getTitle(), content, type.name(), target, edited, i.mustRecheckOnPublish(), "CONFIRMED");
 	}
