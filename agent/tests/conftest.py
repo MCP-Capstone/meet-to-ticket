@@ -77,7 +77,8 @@ class FakeLLM:
                  decisions: list[DecisionOut] | None = None, open_questions: list[str] | None = None,
                  excluded: list[str] | None = None,
                  bad_quote_for: set[str] | None = None, always: set[str] | None = None,
-                 skip_draft: dict[str, int] | None = None, draft_questions: list[str] | None = None):
+                 skip_draft: dict[str, int] | None = None, skip_revise: dict[str, int] | None = None,
+                 draft_questions: list[str] | None = None):
         self.always = always or set()
         self.review_plan = review_plan or {}
         self.review_round: dict[str, int] = {}
@@ -88,6 +89,7 @@ class FakeLLM:
         self.excluded = excluded or []
         self.bad_quote_for = bad_quote_for or set()
         self.skip_draft = dict(skip_draft or {})  # work_key → 초안을 빠뜨릴 횟수
+        self.skip_revise = dict(skip_revise or {})  # work_key → 보완 초안을 빠뜨릴 횟수
         self.draft_questions = draft_questions or []  # 초안마다 돌려줄 미결 질문
         self.draft_contexts: list[Any] = []
         self.draft_calls: list[list[dict[str, Any]]] = []
@@ -113,6 +115,9 @@ class FakeLLM:
         for it in items:
             if self.skip_draft.get(it["work_key"], 0) > 0:
                 self.skip_draft[it["work_key"]] -= 1  # 초안을 빠뜨리는 LLM 흉내
+                continue
+            if "feedback" in it and self.skip_revise.get(it["work_key"], 0) > 0:
+                self.skip_revise[it["work_key"]] -= 1
                 continue
             quote = it["action"]
             if it["work_key"] in self.bad_quote_for and "feedback" not in it:

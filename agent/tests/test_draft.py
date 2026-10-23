@@ -42,6 +42,17 @@ async def test_missing_draft_is_written_again(settings):
     assert [it["work_key"] for it in retry] == ["10m1-a1"] and "current_draft" not in retry[0]
 
 
+async def test_missing_revise_draft_is_not_reviewed_again(settings):
+    """보완 중이던 초안이 빠지면 이전 초안을 다시 검수하지 않고 같은 피드백으로 다시 쓴다."""
+    llm = FakeLLM(review_plan={"10m1-a1": [[(4, "원문에 없음")]]}, skip_revise={"10m1-a1": 1})
+    state, _ = await run_review(AgentNodes(llm, FakePublisher(), FakeReporter(), settings), make_state())
+    a1 = by_key(state)["10m1-a1"]
+    assert llm.review_round["10m1-a1"] == 2  # 첫 초안, 다시 쓴 초안만 검수
+    assert a1["revisions"] == 2 and a1["review_status"] == "APPROVED" and a1["title"].endswith("(수정)")
+    retries = [it for call in llm.draft_calls[1:] for it in call if it["work_key"] == "10m1-a1"]
+    assert all(it["feedback"] == retries[0]["feedback"] for it in retries) and len(retries) == 2
+
+
 async def test_draft_missing_until_limit_falls_back(settings):
     llm = FakeLLM(skip_draft={"10m1-a1": 99})
     state, _ = await run_review(AgentNodes(llm, FakePublisher(), FakeReporter(), settings), make_state())

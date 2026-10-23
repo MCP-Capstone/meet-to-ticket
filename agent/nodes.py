@@ -267,11 +267,13 @@ class AgentNodes:
                     t["review_status"] = REVIEW_PENDING
                 if d is not None:
                     self._apply_draft(t, d, labels, state["original_content"], context["open_questions"])
-                elif not t["title"] and t["revisions"] < self.settings.max_revisions:
-                    # 초안이 빠진 할 일은 다시 작성하게 한다. 한도에 닿으면 검수의 빈 칸 점검(9번)이 처리한다
+                elif t["revisions"] < self.settings.max_revisions:
+                    # 초안이 빠진 할 일은 검수로 보내지 않고 다시 작성한다 (보완 한도를 같이 쓴다).
+                    # 보완 중이던 티켓은 같은 피드백으로 다시 쓴다. 한도에 닿으면 검수가 처리한다
                     log.warning("초안 작성 결과에 %s가 빠짐 (보완 %d회)", t["work_key"] or t["task_item_id"], t["revisions"])
                     t["review_status"] = REVIEW_REVISE
-                    t["feedback"] = [MISSING_DRAFT_FEEDBACK]
+                    if not t["title"]:
+                        t["feedback"] = [MISSING_DRAFT_FEEDBACK]
         return {"tickets": tickets}
 
     @staticmethod
