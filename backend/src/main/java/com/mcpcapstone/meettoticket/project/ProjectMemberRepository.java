@@ -13,6 +13,17 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, Lo
     @Query("select m.project from ProjectMember m where m.user.id = :userId order by m.project.id")
     List<Project> findProjectsForUser(Long userId);
 
+	@Query("select m from ProjectMember m join fetch m.project where m.user.id = :userId order by m.project.id")
+	List<ProjectMember> findMembershipsForUser(Long userId);
+
+	@Query("select m.project.id as projectId, count(m) as memberCount from ProjectMember m where m.project.id in :projectIds group by m.project.id")
+	List<MemberCount> countMembersByProjectIds(List<Long> projectIds);
+
+	interface MemberCount {
+		Long getProjectId();
+		long getMemberCount();
+	}
+
     @EntityGraph(attributePaths = {"user"})
     List<ProjectMember> findByProjectIdOrderById(Long projectId);
 

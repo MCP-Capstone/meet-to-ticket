@@ -33,6 +33,14 @@ export interface Project {
 
 // TASK-007: TASK-005·006에 전달한 프로젝트 편집 API 계약.
 export type ConnectionStatus = 'CONNECTED' | 'NOT_CONNECTED' | 'ERROR'
+export interface ProjectSummary extends Project {
+  githubOwner: string
+  githubRepo: string
+  connections: { github: ConnectionStatus | null; notion: ConnectionStatus | null; slack: ConnectionStatus | null }
+  memberCount: number
+  lastMeetingDate: string | null
+  canEdit: boolean
+}
 export type RepositoryPermission = 'GRANTED' | 'DENIED' | 'NO_ACCOUNT' | null
 
 export interface DirectoryUser {
@@ -77,7 +85,7 @@ export interface ProjectDetail extends Project {
 }
 
 export interface ProjectList {
-  projects: Project[]
+  projects: ProjectSummary[]
   executionMode: ExecutionMode
 }
 
@@ -277,7 +285,6 @@ export interface ApiError {
 }
 
 // TASK-026·028·029 서버 계약. 분석 결과의 reviewStatus와 구분한다.
-export type TicketStatus = 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'REJECTED' | 'PUBLISHING' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'FAILED'
 export type TicketAction = 'confirm' | 'reject' | 'reopen' | 'restore' | 'revise'
 export interface TicketDue { text: string | null; date: string | null; time: string | null }
 // 발행에 실패한 티켓의 사유. outcomeUnknown이면 GitHub에 이미 반영됐을 수 있다.

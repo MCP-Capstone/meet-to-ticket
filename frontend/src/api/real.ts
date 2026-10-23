@@ -62,6 +62,9 @@ export const realApi = {
   updateProject: (projectId: number, body: ProjectSaveRequest) =>
     request<ProjectDetail>(`/projects/${projectId}`, { method: 'PUT', body: JSON.stringify(body) }),
 
+  deleteProject: (projectId: number, confirmName: string) =>
+    request<void>(`/projects/${projectId}`, { method: 'DELETE', body: JSON.stringify({ confirmName }) }),
+
   changeProjectMemberRole: (projectId: number, memberUserId: number, role: ProjectRole) =>
     request<ProjectDetail>(`/projects/${projectId}/members/${memberUserId}/role`, {
       method: 'PUT', body: JSON.stringify({ role }),

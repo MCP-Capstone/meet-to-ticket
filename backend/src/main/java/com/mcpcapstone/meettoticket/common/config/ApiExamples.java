@@ -9,7 +9,10 @@ public final class ApiExamples {
               "projects": [
                 {
                   "projectId": 1,
-                  "name": "CSV 내보내기"
+                  "name": "CSV 내보내기",
+                  "githubOwner": "MCP-Capstone", "githubRepo": "mcp-capstone",
+                  "connections": {"github": "CONNECTED", "notion": "NOT_CONNECTED", "slack": null},
+                  "memberCount": 6, "lastMeetingDate": "2026-10-23", "canEdit": true
                 }
               ],
               "executionMode": "MOCK"

@@ -33,6 +33,10 @@ function read(user: User): StoredTicket[] {
   return seed
 }
 const write = (tickets: StoredTicket[]) => sessionStorage.setItem(KEY, JSON.stringify(tickets))
+export function deleteMockProjectTickets(projectId: number) {
+  const raw = sessionStorage.getItem(KEY)
+  if (raw) write((JSON.parse(raw) as StoredTicket[]).filter((ticket) => ticket.projectId !== projectId))
+}
 const view = ({ assigneeUserId: _owner, ...ticket }: StoredTicket): MyTicket => structuredClone(ticket)
 export function listMockTickets(user: User, projectId?: number): MyTicketList {
   const tickets = read(user).filter((ticket) => ticket.assigneeUserId === user.userId && (projectId === undefined || ticket.projectId === projectId))
