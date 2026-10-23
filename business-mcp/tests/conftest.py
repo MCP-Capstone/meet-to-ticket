@@ -12,6 +12,8 @@ import pytest
 @pytest.fixture(autouse=True)
 def block_real_github(monkeypatch):
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    # Notion·Slack 도구가 추가돼도 테스트가 실제 서비스로 나가지 않게 같은 전송 계층을 막는다.
+    monkeypatch.delenv("NOTION_TOKEN", raising=False)
 
     def refuse(self, request):
         raise RuntimeError(f"테스트에서 실제 네트워크 호출 금지: {request.method} {request.url}")

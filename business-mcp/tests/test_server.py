@@ -9,6 +9,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 import server
 from integrations.github import api, tools
+from integrations.notion import api as notion_api
+from integrations.notion import tools as notion_tools
 
 
 @pytest.fixture
@@ -28,12 +30,25 @@ def fake_github(monkeypatch):
     return use
 
 
+@pytest.fixture
+def fake_notion(monkeypatch):
+    """Notion 클라이언트도 MockTransport로 바꾼다."""
+    real = notion_api.make_client
+    monkeypatch.setenv("NOTION_TOKEN", "test-token")
+
+    def use(handler):
+        monkeypatch.setattr(notion_api, "make_client", lambda: real(transport=httpx.MockTransport(handler)))
+
+    return use
+
+
 @pytest.mark.anyio
 async def test_tools_registered_with_annotations():
-    # 도구 7개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
+    # GitHub 7개 + Notion 4개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
     tools_ = {t.name: t.model_dump(by_alias=True) for t in await server.mcp.list_tools()}
     assert sorted(tools_) == [
-        "add_comment", "check_member_permissions", "create_issue", "list_issues", "list_labels", "search_issues", "update_issue"
+        "add_comment", "check_member_permissions", "check_notion_page", "create_issue", "create_page", "list_issues", "list_labels",
+        "list_pages", "read_page", "search_issues", "update_issue"
     ]
 
     create = tools_["create_issue"]
@@ -65,6 +80,14 @@ async def test_tools_registered_with_annotations():
     search = tools_["search_issues"]
     assert search["annotations"]["readOnlyHint"] is True
     assert set(search["inputSchema"]["required"]) == {"owner", "repo", "query"}
+
+    page = tools_["check_notion_page"]
+    assert page["annotations"]["readOnlyHint"] is True
+    assert set(page["inputSchema"]["required"]) == {"page_url_or_id"}
+
+    create_page = tools_["create_page"]
+    assert create_page["annotations"]["readOnlyHint"] is False
+    assert set(create_page["inputSchema"]["required"]) == {"root_page_url_or_id", "title", "markdown"}
 
 
 def test_tool_rejects_not_allowed_repo(monkeypatch):
@@ -154,3 +177,16 @@ def test_check_member_permissions_tool(monkeypatch, fake_github):
     }
     with pytest.raises(ToolError, match="REPOSITORY_NOT_ALLOWED"):
         tools.check_member_permissions("x", "y", ["alice"])
+
+
+def test_notion_tools(fake_notion):
+    def handler(request):
+        if request.url.path.endswith("/children"):
+            return httpx.Response(200, json={"results": [], "has_more": False})
+        if request.method == "POST":
+            return httpx.Response(200, json={"id": "page-id", "url": "page-url"})
+        return httpx.Response(200, json={"id": "page-id", "url": "page-url", "properties": {"이름": {"type": "title", "title": []}}})
+
+    fake_notion(handler)
+    assert notion_tools.check_notion_page("11111111111111111111111111111111")["page_id"] == "page-id"
+    assert notion_tools.list_pages("11111111111111111111111111111111") == {"pages": []}
