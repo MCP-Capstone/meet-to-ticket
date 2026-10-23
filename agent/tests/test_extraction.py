@@ -5,7 +5,7 @@ from extraction import MAX_QUOTES, from_llm, from_table, keep_verbatim
 from nodes import AgentNodes
 from parsing import parse_summary
 from resolve import normalize_ws
-from schemas import ActionRowOut, Extraction
+from schemas import ActionRowOut, ActionRowsOut, DecisionOut, Extraction
 
 NO_TABLE = (
     "# 회의 요약\n\n- 회의 ID: x\n- 회의 일시: 2026-10-19 10:00\n\n"
@@ -48,21 +48,23 @@ def test_llm_extraction_same_schema():
         ActionRowOut(action="로그 정리", assignees="박서연, 김민준", due="내일"),
         ActionRowOut(action="원문에 없는 할 일", assignees="", due="다음 주 수요일"),
     ]
-    ex = from_llm(parse_summary(NO_TABLE), rows, "x", NO_TABLE)
+    ex = from_llm(parse_summary(NO_TABLE), ActionRowsOut(rows=rows), "x", NO_TABLE)
     assert isinstance(ex, Extraction) and ex.source == "llm"
     first, second = ex.todos
     assert first.work_key == "x-auto1" and first.assignees == ["박서연", "김민준"]
     assert first.evidence_quotes == ["로그 정리"] and first.warnings == []
     # 원문에 없는 할 일 문장은 근거로 쓰지 않고, 원문과 다른 기한은 확인 메모를 붙인다
     assert second.evidence_quotes == [] and second.assignees == []
-    assert second.warnings == ["기한 '다음 주 수요일'이(가) 원문 표현과 달라 확인 필요"]
+    assert second.warnings == ["기한 '다음 주 수요일'이(가) 원문 표현과 달라 확인 필요",
+                               "회의록 원문에서 근거를 찾지 못해 확인 필요"]
     assert [d.content for d in ex.decisions] == ["로그는 30일 보관한다."]
     assert ex.open_questions == ["보관 기간을 늘릴지"]
 
 
 def test_table_and_llm_results_have_same_fields():
     table = from_table(parse_summary(sample("10min_1"))).model_dump()
-    llm = from_llm(parse_summary(NO_TABLE), [ActionRowOut(action="로그 정리", assignees="", due="")], "x", NO_TABLE).model_dump()
+    out = ActionRowsOut(rows=[ActionRowOut(action="로그 정리", assignees="", due="")])
+    llm = from_llm(parse_summary(NO_TABLE), out, "x", NO_TABLE).model_dump()
     assert table.keys() == llm.keys()
     assert table["todos"][0].keys() == llm["todos"][0].keys()
 
@@ -93,3 +95,66 @@ async def test_prepare_llm_path_keeps_warnings(settings):
     assert t["source"] == "llm" and t["assignee_names"] == ["박서연"]
     assert t["warnings"] == ["기한 '모레'이(가) 원문 표현과 달라 확인 필요"]
     assert len(out["decisions"]) == 1
+
+
+FREE_FORM = sample("csv_check")
+
+
+def test_free_form_notes_use_llm_extraction():
+    """섹션 없는 구간별 메모: 결정·미결 질문·제외 항목을 LLM 결과에서 가져오고 근거는 원문과 대조한다."""
+    out = ActionRowsOut(
+        rows=[
+            ActionRowOut(action="빈 결과 CSV 500 오류 수정", assignees="최윤경", due="내일 오후 5시",
+                         evidence_quotes=["최윤경이 내일 오후 5시까지 수정하고 0건·1건 결과를",
+                                          "지어낸 근거 문장"]),
+            ActionRowOut(action="API 업무 기한 변경", assignees="", due="내일 오후 6시",
+                         evidence_quotes=["담당자와 구현 범위는 유지하고, 기한을 내일 오후 6시로"]),
+        ],
+        decisions=[
+            DecisionOut(content="다운로드 이력 화면은 이번 구현에서 제외한다",
+                        evidence_quotes=["않아 이번 구현에서는 제외하기로 했다."]),
+            DecisionOut(content="  ", evidence_quotes=[]),
+        ],
+        open_questions=["다운로드 이력의 권한과 보관 방식", " "],
+        excluded=["다운로드 이력 화면"],
+    )
+    ex = from_llm(parse_summary(FREE_FORM), out, "csv_check", FREE_FORM)
+    fix, api = ex.todos
+    assert fix.assignees == ["최윤경"] and fix.due == "내일 오후 5시"
+    assert fix.evidence_quotes == ["최윤경이 내일 오후 5시까지 수정하고 0건·1건 결과를"]
+    assert fix.warnings == ["원문과 다른 근거 인용 1개를 제외함"]
+    assert api.evidence_quotes and api.warnings == []
+    assert [d.content for d in ex.decisions] == ["다운로드 이력 화면은 이번 구현에서 제외한다"]
+    assert ex.decisions[0].evidence_quotes == ["않아 이번 구현에서는 제외하기로 했다."]
+    assert ex.open_questions == ["다운로드 이력의 권한과 보관 방식"]
+    assert ex.excluded == ["다운로드 이력 화면"]
+
+
+def test_summary_sections_win_over_llm():
+    """회의록에 결정·미결 질문 섹션이 있으면 코드로 읽은 값을 쓴다."""
+    out = ActionRowsOut(rows=[], decisions=[DecisionOut(content="LLM 결정", evidence_quotes=[])],
+                        open_questions=["LLM 질문"], excluded=["LLM 제외"])
+    ex = from_llm(parse_summary(NO_TABLE), out, "x", NO_TABLE)
+    assert [d.content for d in ex.decisions] == ["로그는 30일 보관한다."]
+    assert ex.open_questions == ["보관 기간을 늘릴지"]
+    assert ex.excluded == ["LLM 제외"]  # 제외 섹션이 없으므로 LLM 값
+
+
+def test_llm_quote_falls_back_to_action_text():
+    out = ActionRowsOut(rows=[ActionRowOut(action="로그 정리", assignees="", due="", evidence_quotes=["없는 문장"])])
+    todo = from_llm(parse_summary(NO_TABLE), out, "x", NO_TABLE).todos[0]
+    assert todo.evidence_quotes == ["로그 정리"]
+    assert todo.warnings == ["원문과 다른 근거 인용 1개를 제외함"]
+
+
+@pytest.mark.anyio
+async def test_prepare_passes_llm_excluded_to_review(settings):
+    """자유 형식 회의록에서도 LLM이 뽑은 제외 항목이 검수 2번(제외·보류 항목 아님)의 기준이 된다."""
+    llm = FakeLLM(rows=[ActionRowOut(action="빈 결과 오류 수정", assignees="최윤경", due="내일 오후 5시")],
+                  decisions=[DecisionOut(content="이력 화면 제외", evidence_quotes=[])],
+                  excluded=["다운로드 이력 화면"])
+    nodes = AgentNodes(llm, FakePublisher(), FakeReporter(), settings)
+    out = await nodes.prepare(make_state("csv_check", FREE_FORM))
+    assert out["excluded"] == ["다운로드 이력 화면"]
+    assert out["decisions"] == [{"content": "이력 화면 제외", "evidence_quotes": []}]
+    assert out["tickets"][0]["source"] == "llm"

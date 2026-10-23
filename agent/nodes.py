@@ -188,10 +188,10 @@ class AgentNodes:
             extraction = from_table(parsed)
         else:
             try:
-                rows = await self.llm.extract_rows(state["original_content"])
+                out = await self.llm.extract(state["original_content"])
             except AgentFatal as exc:
                 return {"error_code": exc.code, "error_message": exc.message, "stage": STAGE_EXTRACTING}
-            extraction = from_llm(parsed, rows, state["meeting_id"], state["original_content"])
+            extraction = from_llm(parsed, out, state["meeting_id"], state["original_content"])
         if extraction.todos:
             await self._progress(state, STAGE_NORMALIZING)
         members = [ProjectMember(**m) for m in state.get("members", [])]

@@ -14,7 +14,7 @@ from typing import Any
 
 import prompts
 from config import Settings
-from schemas import ActionRowOut, ActionRowsOut, DraftBatch, DraftTicket, ReviewBatch, TicketReview
+from schemas import ActionRowsOut, DraftBatch, DraftTicket, ReviewBatch, TicketReview
 from state import LLM_ERROR, AgentFatal
 
 log = logging.getLogger("agent.llm")
@@ -161,11 +161,11 @@ class OpenAILLM:
                 raise AgentFatal(LLM_ERROR, f"LLM {what} 호출 실패 (대체 모델 {fallback['model']} 포함): {exc}") from exc
         raise AgentFatal(LLM_ERROR, f"LLM {what} 호출 실패: {last}")
 
-    async def extract_rows(self, summary: str) -> list[ActionRowOut]:
-        out = await self._call(
-            "rows", [("system", prompts.ROWS_SYSTEM), ("user", summary)], "액션 아이템 추출"
+    async def extract(self, summary: str) -> ActionRowsOut:
+        """표가 없는 회의록에서 할 일·결정·미결 질문·제외 항목을 뽑는다."""
+        return await self._call(
+            "rows", [("system", prompts.ROWS_SYSTEM), ("user", summary)], "회의록 추출"
         )
-        return out.rows
 
     async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None) -> list[DraftTicket]:
         user = prompts.DRAFT_USER.format(

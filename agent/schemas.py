@@ -111,15 +111,26 @@ class Extraction(BaseModel):
 
 
 class ActionRowOut(BaseModel):
-    """액션 아이템 표가 없을 때 LLM이 대신 뽑는 행."""
+    """액션 아이템 표가 없을 때 LLM이 대신 뽑는 할 일."""
 
     action: str = Field(description="할 일 한 문장")
     assignees: str = Field(description="담당자 이름. 여러 명이면 쉼표로 구분. 없으면 빈 문자열")
     due: str = Field(description="기한 원문 표현. 없으면 빈 문자열")
+    evidence_quotes: list[str] = Field(default_factory=list, description="이 할 일의 근거가 되는 회의록 원문 문장을 글자 그대로 1~3개")
+
+
+class DecisionOut(BaseModel):
+    content: str = Field(description="회의에서 결정된 사항 한 문장")
+    evidence_quotes: list[str] = Field(default_factory=list, description="근거가 되는 회의록 원문 문장을 글자 그대로 1~3개")
 
 
 class ActionRowsOut(BaseModel):
-    rows: list[ActionRowOut]
+    """표가 없는 회의록의 LLM 추출 결과. extraction.from_llm이 schemas.Extraction으로 바꾼다."""
+
+    rows: list[ActionRowOut] = Field(description="하기로 정한 일")
+    decisions: list[DecisionOut] = Field(default_factory=list, description="결정 사항")
+    open_questions: list[str] = Field(default_factory=list, description="정해지지 않아 남은 질문. 원문 표현 그대로")
+    excluded: list[str] = Field(default_factory=list, description="이번 범위에서 제외하거나 보류하기로 한 일. 원문 표현 그대로")
 
 
 class DraftTicket(BaseModel):
