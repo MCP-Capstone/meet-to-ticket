@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, ApiRequestError } from '../api'
 import type { ConnectionStatus, DirectoryUser, ProjectDetail, ProjectEditorMember, ProjectRole, ProjectSaveRequest } from '../api'
+import { ProjectReindex } from './ProjectReindex'
 import { Spinner } from './Spinner'
 
 interface Props {
@@ -205,6 +206,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
             <textarea value={description} rows={3} onChange={(e) => { setDescription(e.target.value); markChanged() }} />
           </label>
         </section>
+        {projectId !== null && <ProjectReindex projectId={projectId} canEdit={canEdit} />}
         <section className="card">
           <h2>도구 연결 정보</h2>
           <p className="muted">‘확인되지 않음’은 아직 확인하지 않았거나 확인에 실패한 상태입니다.</p>

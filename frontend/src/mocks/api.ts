@@ -1,10 +1,7 @@
 import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
-
-import type { AnalysisTask, DirectoryUser, DispatchResult, ExecutionMode, Meeting, StartAnalysisResponse, TaskStage, User } from '../api/types'
-import { listMockTickets, editMockTicket, changeMockTicket, retryMockTicket, deleteMockProjectTickets } from './tickets'
-import { publishMockTickets, getMockPublishResult } from './tickets'
-
+import type { AnalysisTask, DirectoryUser, DispatchResult, ExecutionMode, Meeting, ProjectReindex, StartAnalysisResponse, TaskStage, User } from '../api/types'
+import { listMockTickets, editMockTicket, changeMockTicket, retryMockTicket, deleteMockProjectTickets, publishMockTickets, getMockPublishResult } from './tickets'
 import { mockItems } from './data'
 import { countOf, makeMockDispatch } from './dispatch'
 import { readMeetingFile, validateMeetingText, validMeetingDate } from '../meetingInput'
@@ -27,6 +24,7 @@ const tasks = new Map<string, { meetingId: number; startedAt: number }>()
 const dispatches = new Map<string, DispatchResult>()
 const analyzedMeetings = new Set<number>()
 const meetingMemberCounts = new Map<number, number>()
+const reindexes = new Map<number, ProjectReindex>()
 
 // 분석 단계별 소요 시간 (ms). 합계가 지나면 COMPLETED
 const stageDurations: { step: ProgressStep; stage: TaskStage; ms: number }[] = [
@@ -225,6 +223,26 @@ export const mockApi: typeof realApi = {
   async updateProject(projectId, body) {
     await delay(400)
     return saveMockProject(body, requireLogin(), directory(), projectId)
+  },
+
+  async requestProjectReindex(projectId) {
+    requireLogin()
+    await delay(350)
+    const result: ProjectReindex = {
+      projectId, status: 'SUCCEEDED', requestedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+      errorMessage: null, progressMessage: '재색인이 완료되었습니다.', indexed: 0, skipped: 0, total: 0, indexCount: 0, lastSyncedAt: new Date().toISOString(),
+    }
+    reindexes.set(projectId, result)
+    return result
+  },
+
+  async getProjectReindex(projectId) {
+    requireLogin()
+    await delay(100)
+    return reindexes.get(projectId) ?? {
+      projectId, status: null, requestedAt: null, finishedAt: null, errorMessage: null, progressMessage: null,
+      indexed: null, skipped: null, total: null, indexCount: null, lastSyncedAt: null,
+    }
   },
 
   async changeProjectMemberRole(projectId, memberUserId, role) {
