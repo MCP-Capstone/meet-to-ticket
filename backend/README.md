@@ -50,7 +50,7 @@ Windows는 `gradlew.bat`을 사용한다.
 - 모든 API는 `/api`로 시작한다. 프론트의 Vite 프록시가 `/api`만 백엔드로 전달한다.
 - 패키지 기준: `com.mcpcapstone.meettoticket`
 - DB 접속 정보는 `application.yml`의 기본값을 쓰고, 다르면 환경 변수(`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`)로 덮어쓴다.
-- 테이블은 `ddl-auto: update`로 엔티티 기준 자동 생성된다.
+- 스키마는 Flyway 마이그레이션(`src/main/resources/db/migration`)이 만들고, Hibernate는 `ddl-auto: validate`로 엔티티와 일치하는지만 검증한다. 절차는 `scripts/db/README.md` 참고.
 
 ## 로그인 (세션)
 
