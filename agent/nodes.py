@@ -21,6 +21,7 @@ from typing import Any
 import prompts
 from config import Settings
 from context import planning_text
+from guard import SUSPICIOUS_WARNING, scan_draft
 from extraction import NO_EVIDENCE_WARNING, from_llm, from_table, keep_verbatim
 from parsing import parse_summary
 from publisher import ToolCallError, build_issue_body, build_notion_page, build_slack_notice, pick_labels
@@ -69,7 +70,9 @@ INDEX_TIMEOUT_SECONDS = 10
 # 초안 단계 카드 경고 (초안을 다시 쓸 때마다 지우고 새로 붙인다)
 LABEL_WARNING = "라벨 후보에 없어 뺀 라벨"
 DRAFT_QUOTE_WARNING = "초안의 근거 인용 중 원문과 다른"
-DRAFT_WARNING_PREFIXES = (LABEL_WARNING, DRAFT_QUOTE_WARNING)
+DRAFT_LENGTH_WARNING = "초안이 길이 한도를 넘어 잘라냄"
+DRAFT_WARNING_PREFIXES = (LABEL_WARNING, DRAFT_QUOTE_WARNING, SUSPICIOUS_WARNING, DRAFT_LENGTH_WARNING)
+MAX_TITLE, MAX_DESCRIPTION, MAX_LIST = 60, 1500, 5
 # 초안 저장 모드에서 보완 한도 후에도 남은 검수 지적 (상세는 content_json.review.notes)
 REVIEW_LEFT_WARNING = "자동 검수 지적"
 MISSING_DRAFT_FEEDBACK = "[9] 초안 작성 결과에 이 할 일이 빠짐 → 이 할 일의 초안을 작성"
@@ -336,6 +339,16 @@ class AgentNodes:
         t["description"] = d.description.strip()
         t["tasks"] = [x.strip() for x in d.tasks if x.strip()]
         t["acceptance_criteria"] = [c.strip() for c in d.acceptance_criteria if c.strip()]
+        # 출력 검증: 길이 한도를 넘는 초안은 잘라내고, 회의록에 없던 URL/코드블록/명령어는 경고한다 (프롬프트 인젝션 방어)
+        clipped = (len(t["title"]) > MAX_TITLE or len(t["description"]) > MAX_DESCRIPTION
+                   or len(t["tasks"]) > MAX_LIST or len(t["acceptance_criteria"]) > MAX_LIST)
+        if clipped:
+            t["title"], t["description"] = t["title"][:MAX_TITLE], t["description"][:MAX_DESCRIPTION]
+            t["tasks"], t["acceptance_criteria"] = t["tasks"][:MAX_LIST], t["acceptance_criteria"][:MAX_LIST]
+            t["warnings"].append(DRAFT_LENGTH_WARNING)
+        found = scan_draft([t["title"], t["description"], *t["tasks"], *t["acceptance_criteria"]], source)
+        if found:
+            t["warnings"].append(f"{SUSPICIOUS_WARNING}: {', '.join(found)[:200]}")
         t["labels"], dropped_labels = pick_labels(d.labels, labels)
         if dropped_labels:
             t["warnings"].append(f"{LABEL_WARNING}: {', '.join(dropped_labels)}")
