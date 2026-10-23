@@ -14,6 +14,7 @@ from typing import Any
 
 import prompts
 from config import Settings
+from guard import ISSUES_TAG, MEETING_TAG, NOTION_TAG, wrap_data
 from schemas import ActionRowsOut, DraftBatch, DraftTicket, ReviewBatch, TicketReview
 from state import LLM_ERROR, AgentFatal
 
@@ -22,6 +23,18 @@ log = logging.getLogger("agent.llm")
 
 def _bullet_list(items: list[str]) -> str:
     return "\n".join(f"- {x}" for x in items) or "- 없음"
+
+
+def _context_text(context: dict[str, Any] | None) -> str:
+    """프로젝트 맥락(기존 이슈, Notion 문서)을 각각 데이터 태그로 감싼다. 둘 다 외부에서 온 데이터다."""
+    context = context or {}
+    dump = lambda v: json.dumps(v, ensure_ascii=False, indent=2)  # noqa: E731
+    rest = {k: v for k, v in context.items() if k not in ("issues", "notionDocs")}
+    parts = [wrap_data(ISSUES_TAG, dump(context.get("issues") or [])),
+             wrap_data(NOTION_TAG, dump(context.get("notionDocs") or []))]
+    if rest:
+        parts.append(dump(rest))
+    return "\n".join(parts)
 
 
 def _status_code(exc: Exception) -> int | None:
@@ -168,7 +181,7 @@ class OpenAILLM:
     async def extract(self, summary: str) -> ActionRowsOut:
         """표가 없는 회의록에서 할 일·결정·미결 질문·제외 항목을 뽑는다."""
         return await self._call(
-            "extract", [("system", prompts.EXTRACT_SYSTEM), ("user", summary)], "회의록 추출"
+            "extract", [("system", prompts.EXTRACT_SYSTEM), ("user", wrap_data(MEETING_TAG, summary))], "회의록 추출"
         )
 
     async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None,
@@ -177,10 +190,10 @@ class OpenAILLM:
         프로젝트 맥락 (project_context: 기존 GitHub 이슈와 Notion 문서, TASK-019)."""
         context = context or {}
         user = prompts.DRAFT_USER.format(
-            summary=summary,
+            summary=wrap_data(MEETING_TAG, summary),
             decisions=_bullet_list(context.get("decisions", [])),
             open_questions=_bullet_list(context.get("open_questions", [])),
-            project_context=json.dumps(context.get("project_context") or {}, ensure_ascii=False, indent=2),
+            project_context=_context_text(context.get("project_context")),
             labels=_bullet_list(labels or []),
             items=json.dumps(items, ensure_ascii=False, indent=2),
         )
@@ -190,10 +203,10 @@ class OpenAILLM:
     async def review(self, summary: str, drafts: list[dict[str, Any]], context: dict[str, Any] | None = None) -> list[TicketReview]:
         context = context or {}
         user = prompts.REVIEW_USER.format(
-            summary=summary,
+            summary=wrap_data(MEETING_TAG, summary),
             source_note=context.get("source_note", ""),
             excluded=_bullet_list(context.get("excluded_or_held", [])),
-            project_context=json.dumps(context.get("project_context") or {}, ensure_ascii=False, indent=2),
+            project_context=_context_text(context.get("project_context")),
             drafts=json.dumps(drafts, ensure_ascii=False, indent=2),
         )
         out = await self._call("review", [("system", prompts.REVIEW_SYSTEM), ("user", user)], "검수")
