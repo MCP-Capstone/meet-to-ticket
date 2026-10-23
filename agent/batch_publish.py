@@ -121,6 +121,9 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
                 raise ToolCallError("INVALID_ARGUMENT", "Slack 공지 문구가 비어 있습니다")
             reviewer_names = {r.get("name") for r in notice.get("reviewers") or []}
             mentions = [member for member in source.slack_members if member.get("name") in reviewer_names and member.get("slack_user_id")]
+            # post_message는 비멱등이고 이미 게시됐는지 찾아볼 도구가 없다. 결과를 모르는 재시도는 같은 공지를 또 올리므로 보내지 않는다.
+            if source.previous_outcome_unknown:
+                raise ToolCallError("SLACK_VERIFY_REQUIRED", "이전 Slack 공지 결과를 알 수 없어 중복 게시를 막기 위해 다시 보내지 않았습니다. Slack 채널에서 공지가 올라갔는지 확인하세요")
             sent = True
             out = await publisher.post_message(channel_id=channel_id, text=text, mentions=mentions)
             return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="POSTED",
