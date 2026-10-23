@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse
 from config import load_env, load_settings  # noqa: E402
 
 load_env()
+load_settings()  # 승인(ALLOW_AUTO_PUBLISH) 없는 자동 발행 설정이면 기동하지 않는다
 from reporter import BackendReporter  # noqa: E402
 from runner import history, run, run_publish_batch, stored_result  # noqa: E402
 from permissions import check_members  # noqa: E402

@@ -29,10 +29,10 @@ async def test_10min_publish_and_report(settings):
     published = [i for i in result["items"] if i["publish_status"] == "SUCCEEDED"]
     assert len(published) == 6 and len(pub.calls) == 6
     assert all(i["action"] == "CREATE" and i["github_issue_url"] for i in published)
-    # 다중 담당자: 정하늘은 github_name이 없어 비움
-    assert items["10m1-a7"]["content_json"]["assignees"]["unresolved"] == ["정하늘"]
+    # 다중 담당자: 기본 요청은 전원 매핑돼 있다 (미확정 담당자는 test_unconfirmed_publish)
+    assert items["10m1-a7"]["content_json"]["assignees"]["unresolved"] == []
     call = next(c for c in pub.calls if "통합 QA" in c["title"])
-    assert call["assignees"] == ["minjun-k", "seoyeon-p", "doyun-l", "yujin-c", "jihoon-o"]
+    assert call["assignees"] == ["minjun-k", "seoyeon-p", "doyun-l", "yujin-c", "haneul-j", "jihoon-o"]
     assert "회의: 10min_1 · work_key: 10m1-a7" in call["body"]
     assert "2026-10-22 14:00" in call["body"]
     # 진행 보고와 결과 보고

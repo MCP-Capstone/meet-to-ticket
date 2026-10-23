@@ -66,6 +66,8 @@ class Settings:
     # 기본은 초안 저장에서 멈추고, 담당자가 확인한 티켓만 일괄 발행한다 (기획_v16, TASK-012)
     publish_on_run: bool = False
     fallback_publish: bool = True       # 보완 한도 초과 시 기본 초안으로 발행할지 (False면 NEEDS_CHECK)
+    # publish_on_run을 켜려면 환경과 무관하게 명시적 승인(allow_auto_publish)이 함께 있어야 한다 (validate_settings)
+    allow_auto_publish: bool = False
 
 
 def _str(name: str, default: str) -> str:
@@ -74,8 +76,21 @@ def _str(name: str, default: str) -> str:
     return raw or default
 
 
-def load_settings() -> Settings:
-    return Settings(
+class SettingsError(RuntimeError):
+    """기동을 막아야 하는 안전하지 않은 설정."""
+
+
+def validate_settings(settings: Settings) -> None:
+    """사람 확인 없는 자동 발행(PUBLISH_ON_RUN)은 환경과 무관하게 ALLOW_AUTO_PUBLISH 승인 없이 쓰지 못한다 (fail-closed).
+
+    DRY_RUN이면 외부에 쓰지 않으므로 막지 않는다 (평가 실행기가 cli --dry-run을 쓴다).
+    """
+    if settings.publish_on_run and not settings.dry_run and not settings.allow_auto_publish:
+        raise SettingsError("PUBLISH_ON_RUN=true는 ALLOW_AUTO_PUBLISH=true 승인 없이 사용할 수 없습니다 (DRY_RUN=true면 예외)")
+
+
+def load_settings(validate: bool = True) -> Settings:
+    settings = Settings(
         openai_model=_str("OPENAI_MODEL", "gpt-5.4-nano"),
         review_model=_str("OPENAI_REVIEW_MODEL", "gpt-5.4-mini"),
         reasoning_effort=_str("OPENAI_REASONING_EFFORT", "none"),
@@ -106,4 +121,8 @@ def load_settings() -> Settings:
         dry_run=_bool("DRY_RUN", False),
         publish_on_run=_bool("PUBLISH_ON_RUN", False),
         fallback_publish=_bool("FALLBACK_PUBLISH", True),
+        allow_auto_publish=_bool("ALLOW_AUTO_PUBLISH", False),
     )
+    if validate:
+        validate_settings(settings)
+    return settings
