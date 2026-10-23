@@ -92,7 +92,7 @@ async def test_default_roles():
     client = llm.OpenAILLM(Settings())
     # 추출·초안은 추론을 끄고 temperature 0, 검수·중복 판단은 모델 기본 추론
     assert FakeChat.built == [WRITER, REVIEWER, DEDUPER]
-    await client.extract_rows("요약")
+    await client.extract("요약")
     await client.draft("요약", [])
     await client.review("요약", [])
     assert FakeChat.calls == ["gpt-5.4-nano", "gpt-5.4-nano", "gpt-5.4-mini"]
@@ -101,7 +101,7 @@ async def test_default_roles():
 async def test_model_rejecting_temperature_uses_default():
     FakeChat.reject = {("gpt-5.4-nano", "temperature")}
     client = llm.OpenAILLM(Settings())
-    assert await client.extract_rows("요약") == []
+    assert (await client.extract("요약")).rows == []
     # 거부한 writer만 temperature 없이 다시 만들고, 재시도 없이 바로 다시 보낸다
     assert FakeChat.calls == ["gpt-5.4-nano", "gpt-5.4-nano"]
     assert FakeChat.built[-3:] == [{"model": "gpt-5.4-nano", **LIMITS, "reasoning_effort": "none"}, REVIEWER, DEDUPER]
@@ -113,7 +113,7 @@ async def test_model_rejecting_temperature_uses_default():
 async def test_model_rejecting_reasoning_none_drops_it():
     FakeChat.reject = {("gpt-5.4-nano", "reasoning_effort")}
     client = llm.OpenAILLM(Settings())
-    assert await client.extract_rows("요약") == []
+    assert (await client.extract("요약")).rows == []
     assert FakeChat.calls == ["gpt-5.4-nano", "gpt-5.4-nano"]
     assert FakeChat.built[-3] == {"model": "gpt-5.4-nano", **LIMITS, "temperature": 0}
 
@@ -123,7 +123,7 @@ async def test_unrecognized_argument_wording_drops_reasoning_effort(message):
     # reasoning_effort를 모르는 모델(gpt-4o-mini 등)은 "Unsupported"가 아닌 다른 문구로 거부한다
     FakeChat.script = {"gpt-5.4-nano": [message]}
     client = llm.OpenAILLM(Settings())
-    assert await client.extract_rows("요약") == []
+    assert (await client.extract("요약")).rows == []
     assert FakeChat.calls == ["gpt-5.4-nano", "gpt-5.4-nano"]  # 빼고 바로 다시 보냄, 치명 오류 아님
     assert FakeChat.built[-3] == {"model": "gpt-5.4-nano", **LIMITS, "temperature": 0}
     assert client.stats["droppedSettings"] == ["gpt-5.4-nano:reasoning_effort"]
@@ -133,7 +133,7 @@ async def test_other_request_errors_fail_without_retry_or_drop():
     FakeChat.error = "Error code: 400 - {'error': {'message': 'Invalid schema'}}"
     client = llm.OpenAILLM(Settings(llm_retries=1))
     with pytest.raises(AgentFatal, match="요청 오류"):
-        await client.extract_rows("요약")
+        await client.extract("요약")
     assert FakeChat.calls == ["gpt-5.4-nano"]  # 같은 요청은 다시 보내도 같아서 재시도하지 않음
     assert FakeChat.built == [WRITER, REVIEWER, DEDUPER]  # 설정을 빼고 다시 만들지 않음
 
@@ -141,7 +141,7 @@ async def test_other_request_errors_fail_without_retry_or_drop():
 async def test_stats_count_calls_retries_and_dropped_settings():
     FakeChat.reject = {("gpt-5.4-nano", "temperature")}
     client = llm.OpenAILLM(Settings(llm_retries=1))
-    await client.extract_rows("요약")  # 거부 → 설정 빼고 재호출 (재시도 아님)
+    await client.extract("요약")  # 거부 → 설정 빼고 재호출 (재시도 아님)
     assert client.stats == {"llmCalls": 2, "llmRetries": 0, "fallbackUsed": 0,
                             "errors": {"transient": 0, "request": 0, "auth": 0},
                             "droppedSettings": ["gpt-5.4-nano:temperature"]}
@@ -170,7 +170,7 @@ UNAUTHORIZED = "Error code: 401 - {'error': {'code': 'invalid_api_key'}}"
 async def test_transient_errors_are_retried():
     FakeChat.script = {"gpt-5.4-nano": [RATE_LIMIT, RATE_LIMIT, None]}
     client = llm.OpenAILLM(Settings())
-    assert await client.extract_rows("요약") == []
+    assert (await client.extract("요약")).rows == []
     assert FakeChat.calls == ["gpt-5.4-nano"] * 3
     assert client.stats["llmRetries"] == 2 and client.stats["errors"]["transient"] == 2
 

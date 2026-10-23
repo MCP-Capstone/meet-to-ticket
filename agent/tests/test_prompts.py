@@ -26,7 +26,7 @@ def test_user_templates_have_placeholders():
 
 def test_system_prompts_have_no_placeholders():
     # system 프롬프트는 format하지 않으므로 중괄호가 들어가면 그대로 모델에 전달된다
-    for text in (prompts.ROWS_SYSTEM, prompts.DRAFT_SYSTEM, prompts.REVIEW_SYSTEM, prompts.DEDUPE_SYSTEM):
+    for text in (prompts.EXTRACT_SYSTEM, prompts.DRAFT_SYSTEM, prompts.REVIEW_SYSTEM, prompts.DEDUPE_SYSTEM):
         assert not re.search(r"\{\w+\}", text)
 
 

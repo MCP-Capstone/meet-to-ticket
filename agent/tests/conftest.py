@@ -7,7 +7,7 @@ import pytest
 
 from config import Settings
 from publisher import ToolCallError
-from schemas import ActionRowOut, DraftTicket, Meeting, Project, ProjectMember, ReviewCheck, RunRequest, TicketReview
+from schemas import ActionRowOut, ActionRowsOut, DecisionOut, DraftTicket, Meeting, Project, ProjectMember, ReviewCheck, RunRequest, TicketReview
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 
@@ -74,22 +74,28 @@ class FakeLLM:
 
     def __init__(self, review_plan: dict[str, list[list[tuple[int, str]]]] | None = None,
                  fail_on: str | None = None, rows: list[ActionRowOut] | None = None,
+                 decisions: list[DecisionOut] | None = None, open_questions: list[str] | None = None,
+                 excluded: list[str] | None = None,
                  bad_quote_for: set[str] | None = None, always: set[str] | None = None):
         self.always = always or set()
         self.review_plan = review_plan or {}
         self.review_round: dict[str, int] = {}
         self.fail_on = fail_on
         self.rows = rows or []
+        self.decisions = decisions or []
+        self.open_questions = open_questions or []
+        self.excluded = excluded or []
         self.bad_quote_for = bad_quote_for or set()
         self.draft_calls: list[list[dict[str, Any]]] = []
         self.draft_labels: list[list[str] | None] = []
         self.review_contexts: list[Any] = []
 
-    async def extract_rows(self, summary: str) -> list[ActionRowOut]:
-        if self.fail_on == "rows":
+    async def extract(self, summary: str) -> ActionRowsOut:
+        if self.fail_on == "extract":
             from state import AgentFatal
             raise AgentFatal("LLM_ERROR", "boom")
-        return self.rows
+        return ActionRowsOut(rows=self.rows, decisions=self.decisions,
+                             open_questions=self.open_questions, excluded=self.excluded)
 
     async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None) -> list[DraftTicket]:
         if self.fail_on == "draft":
