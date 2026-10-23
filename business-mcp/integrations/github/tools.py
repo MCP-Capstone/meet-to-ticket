@@ -29,6 +29,13 @@ def create_issue(
         return api.create_issue(client, owner, repo, title, body, labels, assignees)
 
 
+def list_labels(owner: str, repo: str) -> dict[str, Any]:
+    """저장소 라벨 목록을 {"labels": [{name, description}]}로 돌려준다."""
+    api.check_allowed(owner, repo)
+    with api.make_client() as client:
+        return {"labels": api.list_labels(client, owner, repo)}
+
+
 def list_issues(owner: str, repo: str, state: str = "open", limit: int = 10) -> dict[str, Any]:
     """최근 이슈 목록을 {"issues": [...]}로 돌려준다. 에이전트의 MCP 연결 확인에 쓴다."""
     api.check_allowed(owner, repo)
@@ -50,11 +57,16 @@ def register(mcp: MCPServer) -> None:
     mcp.tool(
         description=(
             "GitHub 저장소에 새 이슈를 만든다. "
-            "담당자 지정이 거부되면 담당자 없이 생성하고 dropped_assignees로 알려 준다. "
+            "저장소에 없는 라벨은 빼고 만들고 dropped_labels로, "
+            "담당자 지정이 거부되면 담당자 없이 만들고 dropped_assignees로 알려 준다. "
             "다시 부르면 이슈가 하나 더 생긴다."
         ),
         annotations=titled(WRITE, "GitHub 이슈 생성"),
     )(create_issue)
+    mcp.tool(
+        description="GitHub 저장소에 있는 라벨 목록(이름, 설명)을 조회한다. 이슈에 붙일 라벨을 이 안에서 고른다.",
+        annotations=titled(READ, "GitHub 라벨 목록 조회"),
+    )(list_labels)
     mcp.tool(
         description="GitHub 저장소의 최근 이슈 목록을 조회한다 (PR 제외).",
         annotations=titled(READ, "GitHub 이슈 목록 조회"),

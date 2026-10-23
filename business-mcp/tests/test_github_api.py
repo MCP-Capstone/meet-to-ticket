@@ -53,11 +53,18 @@ def test_check_allowed_rejects_blank():
 # --- 이슈 생성 ---
 
 
+def labels_json(*names):
+    """GitHub 라벨 목록 응답."""
+    return [{"name": n, "description": f"{n} 설명"} for n in names]
+
+
 def test_create_issue_success():
     # 요청 경로·본문이 GitHub API 형식에 맞고, 제목 앞뒤 공백은 제거된다
     seen = {}
 
     def handler(request):
+        if request.method == "GET":
+            return httpx.Response(200, json=labels_json("mtt"))
         seen["path"] = request.url.path
         seen["body"] = json.loads(request.content)
         return httpx.Response(201, json=issue_json(12, ["alice"]))
@@ -70,6 +77,79 @@ def test_create_issue_success():
     assert out["number"] == 12
     assert out["url"].endswith("/12")
     assert out["dropped_assignees"] == []
+    assert out["dropped_labels"] == []
+
+
+def test_create_issue_drops_unknown_labels():
+    # 저장소에 없는 라벨은 GitHub에 보내지 않고(새로 만들어지지 않게) dropped_labels로 알린다.
+    # 대소문자가 달라도 저장소 표기로 맞춰 보내고, 같은 라벨이 두 번 와도 한 번만 보낸다
+    seen = {}
+
+    def handler(request):
+        if request.method == "GET":
+            return httpx.Response(200, json=labels_json("Backlog", "bug"))
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json=issue_json(3))
+
+    with client_with(handler) as c:
+        out = github.create_issue(c, "o", "r", "t", "b", ["backlog", "BACKLOG", "새라벨", "bug", "새라벨"])
+    assert seen["body"]["labels"] == ["Backlog", "bug"]
+    assert out["dropped_labels"] == ["새라벨"]
+
+
+def test_create_issue_all_labels_unknown():
+    # 요청한 라벨이 모두 없으면 labels 없이 만든다
+    seen = {}
+
+    def handler(request):
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json=issue_json(4))
+
+    with client_with(handler) as c:
+        out = github.create_issue(c, "o", "r", "t", "b", ["없음"])
+    assert "labels" not in seen["body"]
+    assert out["dropped_labels"] == ["없음"]
+
+
+def test_create_issue_without_labels_skips_label_lookup():
+    # 라벨을 요청하지 않으면 라벨 목록을 조회하지 않는다
+    methods = []
+
+    def handler(request):
+        methods.append(request.method)
+        return httpx.Response(201, json=issue_json(5))
+
+    with client_with(handler) as c:
+        out = github.create_issue(c, "o", "r", "t", "b", ["", "  "])
+    assert methods == ["POST"]
+    assert out["dropped_labels"] == []
+
+
+def test_list_labels_follows_pages():
+    # 라벨이 많으면 Link 헤더의 다음 페이지까지 모두 받는다
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        if "page=2" in str(request.url):
+            return httpx.Response(200, json=labels_json("c"))
+        next_url = "https://api.github.com/repos/o/r/labels?per_page=100&page=2"
+        return httpx.Response(200, json=labels_json("a", "b"), headers={"Link": f'<{next_url}>; rel="next"'})
+
+    with client_with(handler) as c:
+        out = github.list_labels(c, "o", "r")
+    assert [label["name"] for label in out] == ["a", "b", "c"]
+    assert out[0] == {"name": "a", "description": "a 설명"}
+    assert "per_page=100" in calls[0] and len(calls) == 2
+
+
+def test_list_labels_error_tag():
+    # 라벨 조회 실패도 같은 에러 태그로 돌려준다 (이슈 생성 전에 실패하면 이슈는 만들어지지 않음)
+    with client_with(lambda r: httpx.Response(404, json={"message": "Not Found"})) as c:
+        with pytest.raises(ToolError, match=r"^\[GITHUB_NOT_FOUND\]"):
+            github.create_issue(c, "o", "r", "t", "b", ["bug"])
 
 
 def test_create_issue_silently_dropped_assignee():

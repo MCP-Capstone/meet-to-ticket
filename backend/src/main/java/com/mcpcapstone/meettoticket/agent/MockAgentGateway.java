@@ -94,6 +94,8 @@ public class MockAgentGateway implements AgentGateway {
                                                 .participantIds()
                                                 .contains(m.projectMemberId()))
                         .findFirst()
+                        // 처리 요청 API는 참석자를 받지 않는다. 그때는 프로젝트의 첫 멤버를 모의 담당자로 쓴다
+                        .or(() -> request.projectMembers().stream().findFirst())
                         .orElseThrow();
         boolean rejected = publish.equals("BLOCKED");
         String title = "[모의 실행] 후속 업무 " + (index + 1);

@@ -39,11 +39,7 @@ public class AnalysisStore {
         var all = members.findByProjectIdOrderById(m.getProject().getId());
         List<Long> participantIds = new ArrayList<>();
         json.read(m.getParticipantsJson()).forEach(n -> participantIds.add(n.longValue()));
-        if (mode.equals("LIVE")
-                && all.stream()
-                        .filter(x -> participantIds.contains(x.getId()))
-                        .anyMatch(x -> x.getGithubName() == null || x.getGithubName().isBlank()))
-            throw new BusinessException(ErrorCode.MEMBER_GITHUB_UNLINKED);
+        // GitHub 계정이 없는 멤버도 분석한다. 이슈 본문에 이름만 적고 GitHub 담당자 지정은 건너뛴다 (REQ-010)
         var project = m.getProject();
         var request =
                 new AgentContracts.StartRequest(

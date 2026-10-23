@@ -27,6 +27,41 @@ export interface Project {
   name: string
 }
 
+// TASK-007: TASK-005·006에 전달한 프로젝트 편집 API 계약.
+export type ConnectionStatus = 'CONNECTED' | 'NOT_CONNECTED' | 'ERROR'
+export type RepositoryPermission = 'GRANTED' | 'DENIED' | 'NO_ACCOUNT' | null
+
+export interface DirectoryUser {
+  userId: number
+  name: string
+  githubName: string | null
+}
+
+export interface ProjectEditorMember extends DirectoryUser {
+  repositoryPermission: RepositoryPermission
+}
+
+export interface ProjectSaveRequest {
+  name: string
+  description: string | null
+  githubOwner: string
+  githubRepo: string
+  notionPageUrl: string | null
+  slackChannelId: string | null
+  memberUserIds: number[]
+}
+
+export interface ProjectDetail extends Project {
+  description: string | null
+  githubOwner: string
+  githubRepo: string
+  notionPageUrl: string | null
+  slackChannelId: string | null
+  members: ProjectEditorMember[]
+  connections: { github: ConnectionStatus | null; notion: ConnectionStatus; slack: ConnectionStatus }
+  canEdit: boolean
+}
+
 export interface ProjectList {
   projects: Project[]
   executionMode: ExecutionMode

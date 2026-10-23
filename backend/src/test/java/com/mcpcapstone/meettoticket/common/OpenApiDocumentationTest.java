@@ -54,6 +54,10 @@ class OpenApiDocumentationTest {
         JsonNode upload = doc.at("/paths/~1api~1projects~1{projectId}~1meetings/post");
         assertThat(upload.path("requestBody").path("content").has("multipart/form-data")).isTrue();
         assertThat(upload.path("responses").has("201")).isTrue();
+        JsonNode request = doc.at("/paths/~1api~1projects~1{projectId}~1analysis-tasks/post");
+        assertThat(request.path("requestBody").path("content").has("multipart/form-data")).isTrue();
+        assertThat(request.path("responses").has("202")).isTrue();
+        assertThat(request.at("/responses/400").toString()).contains("INVALID_MEETING_INPUT");
         JsonNode start = doc.at("/paths/~1api~1meetings~1{meetingId}~1analysis-tasks/post");
         assertThat(start.path("responses").has("202")).isTrue();
         assertThat(start.path("responses").has("409")).isTrue();
