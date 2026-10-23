@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { AnalysisProgress } from './components/AnalysisProgress'
 import { AuthForm } from './components/AuthForm'
 import { ResultList } from './components/ResultList'
+import { ProjectEditor } from './components/ProjectEditor'
 import { Spinner } from './components/Spinner'
 import { Stepper } from './components/Stepper'
 import { UploadForm } from './components/UploadForm'
 import { api, ApiRequestError, onUnauthorized, useMock } from './api'
-import type { AnalysisTask, ExecutionMode, Meeting, Project, ProjectMember, TaskItemList, User } from './api'
+import type { AnalysisTask, ExecutionMode, Meeting, Project, ProjectDetail, ProjectMember, TaskItemList, User } from './api'
 
 type Step = 'upload' | 'analyzing' | 'result'
 
@@ -22,7 +23,13 @@ function App() {
   const [authNotice, setAuthNotice] = useState<string | null>(null)
   // 401 처리기 안에서 최신 로그인 상태를 보려고 ref에도 둔다.
   const loggedIn = useRef(false)
-  // 프로젝트 선택 화면 전까지는 첫 번째 프로젝트를 쓴다.
+  const [page, setPage] = useState<'workflow' | 'project-editor'>('workflow')
+  const [projects, setProjects] = useState<Project[]>([])
+  const [projectsLoading, setProjectsLoading] = useState(true)
+  const [editorProjectId, setEditorProjectId] = useState<number | null>(null)
+  const [projectSavedMessage, setProjectSavedMessage] = useState<string | null>(null)
+  const [projectSaving, setProjectSaving] = useState(false)
+  // 업로드 프로젝트 선택은 TASK-010에서 확장한다.
   const [project, setProject] = useState<Project | null>(null)
   const [members, setMembers] = useState<ProjectMember[]>([])
   const [executionMode, setExecutionMode] = useState<ExecutionMode | null>(null)
@@ -57,9 +64,10 @@ function App() {
         const list = await api.listProjects()
         if (cancelled) return
         setExecutionMode(list.executionMode)
+        setProjects(list.projects)
         const first = list.projects[0]
         if (!first) {
-          setProjectError('참여 중인 프로젝트가 없습니다. 관리자에게 프로젝트 등록을 요청해 주세요.')
+          setProjectError('참여 중인 프로젝트가 없습니다. 프로젝트 설정에서 새 프로젝트를 등록할 수 있습니다.')
           return
         }
         const memberList = await api.listMembers(first.projectId)
@@ -68,6 +76,8 @@ function App() {
         setMembers(memberList.members)
       } catch (e) {
         if (!cancelled && !isUnauthorized(e)) setProjectError(toMessage(e))
+      } finally {
+        if (!cancelled) setProjectsLoading(false)
       }
     }
     void load()
@@ -127,6 +137,9 @@ function App() {
       if (loggedIn.current) setAuthNotice('로그인이 만료되었습니다. 다시 로그인해 주세요.')
       reset()
       setProject(null)
+      setProjects([])
+      setPage('workflow')
+      setProjectSavedMessage(null)
       setMembers([])
       setUser(null)
     })
@@ -136,6 +149,7 @@ function App() {
   const handleLogin = (loggedInUser: User) => {
     setAuthNotice(null)
     setProjectError(null)
+    setProjectsLoading(true)
     setUser(loggedInUser)
   }
 
@@ -143,8 +157,27 @@ function App() {
     await api.logout().catch(() => undefined)
     reset()
     setProject(null)
+    setProjects([])
+    setPage('workflow')
+    setProjectSavedMessage(null)
     setMembers([])
     setUser(null)
+  }
+
+  const handleProjectSaved = (detail: ProjectDetail) => {
+    const entry = { projectId: detail.projectId, name: detail.name }
+    setProjects((current) => current.some((item) => item.projectId === detail.projectId)
+      ? current.map((item) => item.projectId === detail.projectId ? entry : item) : [...current, entry])
+    setEditorProjectId(detail.projectId)
+    setProjectSavedMessage('프로젝트를 저장했습니다.')
+    if (!project || project.projectId === detail.projectId) {
+      setProject(entry)
+      setProjectError(null)
+      // 기존 회의록 업로드의 참여자 표시는 기존 멤버 조회 API를 재사용한다.
+      api.listMembers(detail.projectId).then((result) => setMembers(result.members)).catch((e: unknown) => {
+        if (!isUnauthorized(e)) setProjectError(toMessage(e))
+      })
+    }
   }
 
   return (
@@ -164,7 +197,7 @@ function App() {
           {user && (
             <>
               <span className="user-name">{user.name}님</span>
-              <button className="link" onClick={handleLogout}>
+              <button className="link" onClick={handleLogout} disabled={projectSaving}>
                 로그아웃
               </button>
             </>
@@ -180,15 +213,43 @@ function App() {
 
       {user === null && <AuthForm onLogin={handleLogin} notice={authNotice} />}
 
-      {user && projectError && <p className="error">{projectError}</p>}
+      {user && (
+        <nav className="workspace-nav" aria-label="서비스 메뉴">
+          <button type="button" aria-current={page === 'workflow' ? 'page' : undefined} disabled={projectSaving} onClick={() => setPage('workflow')}>회의록 업로드</button>
+          <button type="button" aria-current={page === 'project-editor' ? 'page' : undefined} disabled={projectsLoading || step === 'analyzing' || starting || projectSaving} onClick={() => {
+            setEditorProjectId(project?.projectId ?? projects[0]?.projectId ?? null)
+            setProjectSavedMessage(null)
+            setPage('project-editor')
+          }}>프로젝트 설정</button>
+        </nav>
+      )}
 
-      {user && !project && !projectError && (
+      {user && page === 'project-editor' && <>
+        <div className="project-toolbar">
+          <label>편집할 프로젝트
+            <select value={editorProjectId ?? ''} disabled={projectSaving} onChange={(e) => {
+              setEditorProjectId(e.target.value === '' ? null : Number(e.target.value))
+              setProjectSavedMessage(null)
+            }}>
+              <option value="">새 프로젝트 등록</option>
+              {projects.map((item) => <option key={item.projectId} value={item.projectId}>{item.name}</option>)}
+            </select>
+          </label>
+        </div>
+        {projectSavedMessage && <p className="project-success" role="status">{projectSavedMessage}</p>}
+        <ProjectEditor key={editorProjectId ?? 'new'} projectId={editorProjectId}
+          onSaved={handleProjectSaved} onSavingChange={setProjectSaving} onChange={() => setProjectSavedMessage(null)} onCancel={() => setPage('workflow')} />
+      </>}
+
+      {user && page === 'workflow' && projectError && <p className="error">{projectError}</p>}
+
+      {user && page === 'workflow' && !project && !projectError && (
         <p className="loading">
           <Spinner size="sm" label="프로젝트 불러오는 중" /> 프로젝트를 불러오고 있습니다...
         </p>
       )}
 
-      {user && project && (
+      {user && page === 'workflow' && project && (
         <>
           <Stepper current={stepIndex[step]} />
 
