@@ -3,6 +3,10 @@ import type {
   DispatchResult,
   DispatchTicket,
   AnalysisTask,
+  MyTicket,
+  MyTicketList,
+  TicketEditRequest,
+  TicketAction,
   LoginRequest,
   Meeting,
   MeetingAnalysisInput,
@@ -31,6 +35,15 @@ export const realApi = {
 
   // 로그인하지 않았으면 401 UNAUTHORIZED
   me: () => request<User>('/auth/me'),
+
+  listMyTickets: (projectId?: number) =>
+    request<MyTicketList>(`/tickets/me${projectId === undefined ? '' : `?projectId=${projectId}`}`),
+
+  editTicket: (ticketId: string, body: TicketEditRequest) =>
+    request<MyTicket>(`/tickets/${encodeURIComponent(ticketId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  changeTicketStatus: (ticketId: string, action: TicketAction) =>
+    request<MyTicket>(`/tickets/${encodeURIComponent(ticketId)}/${action}`, { method: 'POST' }),
 
   // 내 프로젝트 목록과 백엔드 실행 모드(MOCK / LIVE)
   listProjects: () => request<ProjectList>('/projects'),
