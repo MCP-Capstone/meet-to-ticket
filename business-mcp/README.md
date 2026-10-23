@@ -26,6 +26,9 @@ GitHub 이슈 도구를 제공하는 MCP 서버의 **파이썬 환경 설정** �
 | `Dockerfile` | 컨테이너 이미지 설정 (11번) | 올림 |
 | `.dockerignore` | 이미지에 넣지 않을 파일 목록 (`.env`, `.venv/`, `tests/` 등) | 올림 |
 | `.venv/` | 가상환경 폴더. 설치된 패키지가 들어 있다 | **안 올림** |
+| `server.py` | 서버를 만들고 서비스별 도구를 등록해 실행 | 올림 |
+| `common.py` | 서비스 공통: `.env` 값, `[코드] 메시지` 오류, httpx 클라이언트, 도구 어노테이션 | 올림 |
+| `integrations/<서비스>/` | 서비스별 `api.py`(외부 API 호출), `tools.py`(MCP 도구 등록). 지금은 `github/` | 올림 |
 
 커밋하지 않을 파일(`.env`, `.venv/` 등)의 규칙은 이 폴더가 아니라 저장소 루트의 `.gitignore`가 담당합니다.
 
@@ -122,7 +125,7 @@ Windows (PowerShell):
 Copy-Item .env.example .env
 ```
 
-`.env`를 열어 `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO` 값을 채웁니다. 이 파일은 절대 커밋하지 않습니다.
+`.env`를 열어 `GITHUB_TOKEN` 값을 채웁니다. 이 파일은 절대 커밋하지 않습니다.
 
 **6) 설치 확인**
 
@@ -267,48 +270,61 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 - `.env`와 실제 토큰을 커밋하거나 메신저, 이슈에 붙여넣지 않는다.
 - 패키지 추가와 compile을 환경 담당이 아닌 사람이 임의로 하지 않는다.
 
-## 10. 1차 구현 (이슈 생성·목록 조회·키워드 검색 도구)
+## 10. 도구와 Agent 연동 계약
 
-1차 범위에서는 도구가 **`create_issue`, `list_issues`, `search_issues` 3개**입니다. 기존 이슈 수정·닫기 도구는 2차에서 추가합니다. 의미가 비슷한 이슈 검색은 `rag-mcp`의 `search_similar_issues`가 맡습니다.
+**구조**
 
-**추가 패키지**: `httpx`, `python-dotenv` (`requirements.in`과 `.txt`에 반영됨). 이 변경을 받은 뒤에는 한 번 다시 맞춥니다.
-
-```bash
-uv pip sync requirements-dev.txt
 ```
+business-mcp/
+├── server.py                  서버 생성, 서비스별 register(mcp), 실행
+├── common.py                  .env 값, "[코드] 메시지" 오류, httpx 클라이언트, READ/WRITE 어노테이션
+└── integrations/
+    └── github/
+        ├── api.py             GitHub REST 호출과 오류 코드 변환 (MCP를 모름)
+        └── tools.py           MCP 도구 정의와 register(mcp)
+```
+
+서비스(Notion, Slack)를 추가할 때는 `integrations/<서비스>/`에 `api.py`, `tools.py`를 두고 `server.py`에서 `register(mcp)`만 부릅니다.
 
 **환경 변수 (`.env`)**
 
 | 이름 | 설명 |
 |---|---|
-| `GITHUB_TOKEN` | 대상 저장소 이슈 쓰기 권한이 있는 토큰 |
-| `GITHUB_OWNER`, `GITHUB_REPO` | 이슈를 만들 저장소 (기본 허용 대상) |
-| `GITHUB_ALLOWED_REPOS` | 선택. 여러 저장소를 허용할 때 쉼표 구분 `owner/repo` |
+| `GITHUB_TOKEN` | 서비스 계정 토큰 하나. 모든 프로젝트 저장소에 쓴다 (서비스 계정을 저장소에 초대하고 Issues 읽기·쓰기 권한) |
+| `GITHUB_ALLOWED_REPOS` | 선택. 값이 있으면 이 저장소들만 허용(쉼표 구분 `owner/repo`), 비우면 검사하지 않음 |
 | `MCP_HOST`, `MCP_PORT` | 선택. 기본 `127.0.0.1`, `8000` |
 
-**실행**: `python server.py` → `http://127.0.0.1:8000/mcp`
+토큰은 `.env`에만 둡니다. 어느 저장소에 쓸지(`owner`, `repo`)는 백엔드가 프로젝트 정보로 넘기고, Agent 코드가 도구 인자에 넣습니다 (모델에게 보여주지 않음).
 
-**도구 `create_issue(owner, repo, title, body, labels=None, assignees=None)`**
-- 허용 저장소가 아니면 `[REPOSITORY_NOT_ALLOWED]`
-- 성공: `{status: "created", number, url, assignees, dropped_assignees, retried_without_assignees}`
-- 담당자 지정이 거부(422)되면 담당자 없이 한 번 더 생성하고 `dropped_assignees`에 표시
-- 오류 태그: `INVALID_ARGUMENT`, `GITHUB_AUTH`(401·403), `GITHUB_RATE_LIMIT`, `GITHUB_NOT_FOUND`, `GITHUB_VALIDATION`(422), `GITHUB_ERROR`
-- 에이전트 쪽에는 `Error executing tool create_issue: [코드] 메시지` 형태로 전달됩니다.
+**연결**: `python server.py` → `http://127.0.0.1:8000/mcp` (Streamable HTTP)
 
-**도구 `list_issues(owner, repo, state="open", limit=10)`** (읽기 전용)
-- 최근 이슈를 최신순으로 돌려줍니다. PR은 빼고, `limit`은 1~50개로 제한합니다.
-- `state`: `open`, `closed`, `all` 중 하나 (그 외는 `[INVALID_ARGUMENT]`)
-- 성공: `{issues: [{number, title, state, url, assignees}]}`
-- 허용 저장소 검사와 오류 태그는 `create_issue`와 같습니다.
-- 에이전트의 MCP 연결과 토큰 권한을 확인할 때 씁니다.
+**도구**
 
-**도구 `search_issues(owner, repo, query, state="all", limit=5)`** (읽기 전용)
-- 저장소 안에서 검색어가 들어간 이슈를 찾습니다 (GitHub 검색 API, PR 제외). 회의록의 이슈 키(예: `AUTH-112`)나 정확한 단어로 찾을 때 씁니다.
-- 검색 범위(`repo:owner/repo`, `is:issue`, `state:`)는 코드가 붙입니다. 검색어에 섞인 `repo:`, `org:`, `is:` 같은 범위 지정은 지웁니다 (GitHub 검색은 `repo:`를 여러 개 주면 OR로 묶어 다른 저장소까지 찾기 때문).
-- `limit`은 1~20개, `state`는 `open`, `closed`, `all` 중 하나 (그 외나 빈 검색어는 `[INVALID_ARGUMENT]`)
-- 성공: `{issues: [{number, title, state, url, closed_at}]}`
-- 검색 API는 호출 한도가 따로 있어(인증 시 분당 30회 정도) 넘으면 `[GITHUB_RATE_LIMIT]`입니다.
-- 의미가 비슷한 이슈는 `rag-mcp`의 `search_similar_issues`로 찾습니다.
+| 도구 | 부르는 시점 | 입력 | 결과 | 다시 불러도 되나 |
+|---|---|---|---|---|
+| `create_issue` | 발행 (신규) | `owner`, `repo`, `title`, `body`, `labels`, `assignees` | `{status: "created", number, url, assignees, dropped_assignees}` | 아니요 (이슈가 하나 더 생김) |
+| `list_issues` | 연결 확인 | `owner`, `repo`, `state="open"`, `limit=10` | `{issues: [{number, title, state, url, assignees}]}` | 예 |
+| `search_issues` | 중복 판단 (키·단어 검색) | `owner`, `repo`, `query`, `state="all"`, `limit=5` | `{issues: [{number, title, state, url, closed_at}]}` | 예 |
+
+- `create_issue`: 제목 앞뒤 공백 제거, 256자·본문 65000자 초과분은 자름. 담당자 지정이 거부(422)되면 담당자 없이 한 번 더 생성하고 `dropped_assignees`에 표시합니다.
+- `list_issues`: 최신순, PR 제외, `limit` 1~50, `state`는 `open`·`closed`·`all`
+- `search_issues`: 검색 범위(`repo:owner/repo`, `is:issue`, `state:`)는 코드가 붙이고, 검색어에 섞인 `repo:`·`org:`·`is:` 같은 범위 지정은 지웁니다 (GitHub 검색은 `repo:`를 여러 개 주면 OR로 묶어 다른 저장소까지 찾기 때문). `limit` 1~20. 검색 API는 호출 한도가 따로 있습니다(인증 시 분당 30회 정도). 의미가 비슷한 이슈는 `rag-mcp`의 `search_similar_issues`로 찾습니다.
+
+**오류 코드**
+
+실패는 `[코드] 메시지` 형식이고, Agent에는 `Error executing tool create_issue: [코드] 메시지`로 전달됩니다. 화면에 보여 줄 문구는 백엔드가 코드로 정합니다.
+
+| 코드 | 원인 |
+|---|---|
+| `INVALID_ARGUMENT` | 입력값 오류 (빈 제목, 빈 owner/repo, 잘못된 state) |
+| `REPOSITORY_NOT_ALLOWED` | `GITHUB_ALLOWED_REPOS`에 값이 있는데 그 안에 없는 저장소 |
+| `GITHUB_AUTH` | 401·403: 토큰이 없거나, 서비스 계정에 그 저장소 권한이 없음 |
+| `GITHUB_NOT_FOUND` | 404: 저장소가 없거나 토큰으로 볼 수 없음 |
+| `GITHUB_VALIDATION` | 422: GitHub가 요청 값을 거부 |
+| `GITHUB_RATE_LIMIT` | 429 또는 남은 호출 수 0인 403 |
+| `GITHUB_ERROR` | 그 밖의 실패 (5xx 등) |
+
+연결 실패나 시간 초과는 태그 없이 전달되고, 에이전트는 이를 "결과 모름"으로 처리합니다 (이슈가 만들어졌을 수 있어 다시 보내지 않음).
 
 **테스트**: `pytest` (실제 GitHub 호출 없음, `httpx.MockTransport` 사용)
 
@@ -339,7 +355,7 @@ docker run --rm -p 127.0.0.1:8000:8000 --env-file business-mcp/.env meet-to-tick
 |---|---|
 | 기반 이미지 | `python:3.12-slim` |
 | 설치 패키지 | `requirements.txt` (실행용 잠금 파일. 테스트 도구는 넣지 않음) |
-| 들어가는 소스 | `server.py`, `github.py` |
+| 들어가는 소스 | `server.py`, `common.py`, `integrations/` |
 | 서버 주소 | 컨테이너 안에서 `0.0.0.0:8000` (`MCP_HOST`, `MCP_PORT` 기본값) |
 | 실행 사용자 | root가 아닌 `app` |
 

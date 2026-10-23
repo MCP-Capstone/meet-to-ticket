@@ -50,6 +50,12 @@ def test_check_allowed(monkeypatch):
         github.check_allowed("", "r")
 
 
+def test_check_allowed_empty_list_allows_any(monkeypatch):
+    # 허용 목록이 비어 있으면 검사하지 않는다 (저장소는 백엔드가 프로젝트 정보로 넘긴다)
+    monkeypatch.setenv("GITHUB_ALLOWED_REPOS", "")
+    github.check_allowed("any", "repo")
+
+
 @pytest.mark.parametrize(
     "status,headers,code",
     [

@@ -64,11 +64,10 @@ public class WebConfig implements WebMvcConfigurer {
 
 티켓(GitHub Issue) 생성 테스트는 **`MCP-Capstone/mcp-capstone`** 저장소에서 한다. 이 저장소(`meet-to-ticket`)에는 테스트 이슈를 만들지 않는다.
 
-`business-mcp/.env`:
+로컬에서는 `business-mcp/.env`에 허용 목록을 두어, 실수로 다른 저장소에 이슈가 생기지 않게 한다 (비우면 저장소를 검사하지 않음):
 
 ```
-GITHUB_OWNER=MCP-Capstone
-GITHUB_REPO=mcp-capstone
+GITHUB_ALLOWED_REPOS=MCP-Capstone/mcp-capstone
 ```
 
 ## 실행 순서

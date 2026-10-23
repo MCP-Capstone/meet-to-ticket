@@ -1,4 +1,4 @@
-"""github.py 테스트. httpx.MockTransport로 GitHub 응답을 흉내 내며, 실제 요청은 보내지 않는다."""
+"""integrations/github/api.py 테스트. httpx.MockTransport로 GitHub 응답을 흉내 내며, 실제 요청은 보내지 않는다."""
 
 import json
 
@@ -6,7 +6,7 @@ import httpx
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-import github
+from integrations.github import api as github
 
 
 def client_with(handler):
@@ -35,22 +35,19 @@ def test_check_allowed(monkeypatch):
         github.check_allowed("other", "repo")
 
 
-def test_check_allowed_empty_list(monkeypatch):
-    # 허용 목록이 비어 있으면 어떤 저장소도 쓸 수 없다
-    for name in ("GITHUB_ALLOWED_REPOS", "GITHUB_OWNER", "GITHUB_REPO"):
-        monkeypatch.delenv(name, raising=False)
-    with pytest.raises(ToolError, match="REPOSITORY_NOT_ALLOWED"):
-        github.check_allowed("o", "r")
-
-
-def test_check_allowed_from_owner_repo(monkeypatch):
-    # GITHUB_ALLOWED_REPOS가 없으면 GITHUB_OWNER/GITHUB_REPO 하나만 허용한다
+def test_check_allowed_empty_list_allows_any(monkeypatch):
+    # 허용 목록이 비어 있으면 검사하지 않는다 (저장소는 백엔드가 프로젝트 정보로 넘긴다)
+    # GITHUB_OWNER/GITHUB_REPO는 더 이상 허용 목록으로 쓰지 않는다
     monkeypatch.delenv("GITHUB_ALLOWED_REPOS", raising=False)
     monkeypatch.setenv("GITHUB_OWNER", "MCP-Capstone")
     monkeypatch.setenv("GITHUB_REPO", "mcp-capstone")
-    github.check_allowed("MCP-Capstone", "mcp-capstone")
-    with pytest.raises(ToolError, match="REPOSITORY_NOT_ALLOWED"):
-        github.check_allowed("MCP-Capstone", "meet-to-ticket")
+    github.check_allowed("MCP-Capstone", "meet-to-ticket")
+
+
+def test_check_allowed_rejects_blank():
+    # owner나 repo가 비어 있으면 GitHub를 부르기 전에 막는다
+    with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
+        github.check_allowed(" ", "r")
 
 
 # --- 이슈 생성 ---
@@ -73,7 +70,6 @@ def test_create_issue_success():
     assert out["number"] == 12
     assert out["url"].endswith("/12")
     assert out["dropped_assignees"] == []
-    assert out["retried_without_assignees"] is False
 
 
 def test_create_issue_silently_dropped_assignee():
@@ -104,7 +100,6 @@ def test_create_issue_retries_without_assignees_on_422():
         out = github.create_issue(c, "o", "r", "t", "b", None, ["nobody"])
     assert len(calls) == 2
     assert "assignees" not in calls[1]
-    assert out["retried_without_assignees"] is True
     assert out["dropped_assignees"] == ["nobody"]
 
 

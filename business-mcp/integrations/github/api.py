@@ -1,35 +1,28 @@
 """GitHub REST 래퍼.
 
-MCP 도구(server.py)가 이 모듈을 통해서만 GitHub를 호출한다.
-- 허용 저장소 검사: GITHUB_ALLOWED_REPOS(쉼표 구분 owner/repo)
+MCP 도구(tools.py)가 이 모듈을 통해서만 GitHub를 호출한다. 이 모듈은 MCP 도구 등록을 모른다.
+- 토큰: business-mcp/.env의 GITHUB_TOKEN 하나(서비스 계정)를 모든 저장소에 쓴다.
+- 저장소: 백엔드가 프로젝트 정보로 넘긴 owner/repo를 에이전트가 도구 인자로 넣는다.
+  GITHUB_ALLOWED_REPOS에 값이 있으면 그 저장소만 허용하고, 비어 있으면 검사하지 않는다 (로컬 테스트용 안전장치).
 - 오류는 "[코드] 메시지" 형식의 ToolError로 바꿔 에이전트가 코드로 구분할 수 있게 한다.
 - 테스트에서는 make_client(transport=httpx.MockTransport(...))로 실제 요청 없이 검증한다.
-
-저장소와 토큰을 정하는 방식
-- 현재(1차): 토큰(GITHUB_TOKEN)과 쓸 수 있는 저장소 목록은 business-mcp/.env에서 읽는다.
-  어느 저장소에 만들지(owner, repo)는 도구를 부를 때 인자로 받지만, .env에 허용된 저장소가 아니면 거부한다.
-  즉 토큰 하나로, 미리 정해 둔 저장소에만 이슈를 만든다.
-- 추후: 백엔드 API에서 프로젝트별 저장소와 연동 정보(토큰 등)를 받아,
-  .env를 고치지 않고도 프로젝트가 연결한 저장소에 이슈를 만들 수 있게 바꾼다.
-  그때는 allowed_repos()와 make_client()의 토큰 읽는 부분을 그 방식으로 교체하면 된다.
 """
 
 from __future__ import annotations
 
-import os
 import re
 from typing import Any
 
 import httpx
-from mcp.server.mcpserver.exceptions import ToolError
+
+from common import INVALID_ARGUMENT, env, make_http_client, tool_error
 
 API_BASE = "https://api.github.com"
 TITLE_MAX = 256  # GitHub 이슈 제목 최대 길이
 BODY_MAX = 65000  # GitHub 본문 한도(65536자)보다 조금 작게 잡아 생략 안내 문구 자리를 남긴다
 
-# 에러 태그 (에이전트의 call_tool이 대괄호 안의 코드를 읽는다)
-REPOSITORY_NOT_ALLOWED = "REPOSITORY_NOT_ALLOWED"  # 허용 목록에 없는 저장소
-INVALID_ARGUMENT = "INVALID_ARGUMENT"  # 도구 입력값 오류 (예: 빈 제목)
+# 에러 태그 (에이전트가 대괄호 안의 코드를 읽는다)
+REPOSITORY_NOT_ALLOWED = "REPOSITORY_NOT_ALLOWED"  # GITHUB_ALLOWED_REPOS에 없는 저장소
 GITHUB_AUTH = "GITHUB_AUTH"  # 401/403: 토큰이 없거나 권한 부족
 GITHUB_NOT_FOUND = "GITHUB_NOT_FOUND"  # 404: 저장소가 없거나 토큰으로 볼 수 없음
 GITHUB_VALIDATION = "GITHUB_VALIDATION"  # 422: GitHub가 요청 값을 거부
@@ -37,30 +30,18 @@ GITHUB_RATE_LIMIT = "GITHUB_RATE_LIMIT"  # 429 또는 남은 호출 수 0인 403
 GITHUB_ERROR = "GITHUB_ERROR"  # 그 밖의 실패 (5xx 등)
 
 
-def tool_error(code: str, message: str) -> ToolError:
-    """에이전트에 돌려줄 ToolError를 "[코드] 메시지" 형식으로 만든다."""
-    return ToolError(f"[{code}] {message}")
-
-
 def allowed_repos() -> set[str]:
-    """허용 저장소 목록. GITHUB_ALLOWED_REPOS가 없으면 GITHUB_OWNER/GITHUB_REPO 하나만 허용한다.
-
-    현재는 .env 값으로 고정한다. 추후 백엔드 API에서 프로젝트별 저장소를 받으면 이 함수를 교체한다.
-    """
-    raw = os.environ.get("GITHUB_ALLOWED_REPOS", "")
+    """GITHUB_ALLOWED_REPOS(쉼표 구분 owner/repo). 비어 있으면 빈 집합 = 검사하지 않음."""
     # GitHub는 owner/repo 대소문자를 구분하지 않으므로 소문자로 맞춰 비교한다
-    repos = {item.strip().lower() for item in raw.split(",") if item.strip()}
-    owner = os.environ.get("GITHUB_OWNER", "").strip()
-    repo = os.environ.get("GITHUB_REPO", "").strip()
-    if owner and repo:
-        repos.add(f"{owner}/{repo}".lower())
-    return repos
+    return {item.strip().lower() for item in env("GITHUB_ALLOWED_REPOS").split(",") if item.strip()}
 
 
 def check_allowed(owner: str, repo: str) -> None:
-    """허용되지 않은 저장소면 REPOSITORY_NOT_ALLOWED를 던진다. GitHub를 호출하기 전에 부른다."""
-    full = f"{owner}/{repo}".strip().lower()
-    if full not in allowed_repos():
+    """저장소 값을 확인하고, 허용 목록이 있으면 그 안에 있는지 본다. GitHub를 호출하기 전에 부른다."""
+    if not owner.strip() or not repo.strip():
+        raise tool_error(INVALID_ARGUMENT, "owner와 repo를 모두 입력해야 합니다")
+    allowed = allowed_repos()
+    if allowed and f"{owner}/{repo}".strip().lower() not in allowed:
         raise tool_error(REPOSITORY_NOT_ALLOWED, f"{owner}/{repo}는 허용되지 않은 저장소입니다")
 
 
@@ -71,11 +52,10 @@ def make_client(transport: httpx.BaseTransport | None = None) -> httpx.Client:
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "meet-to-ticket-mcp",  # GitHub API는 User-Agent가 없으면 요청을 거부한다
     }
-    # 현재는 .env의 GITHUB_TOKEN 하나를 모든 저장소에 쓴다 (추후 프로젝트별 토큰으로 교체 예정)
-    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    token = env("GITHUB_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    return httpx.Client(base_url=API_BASE, headers=headers, timeout=20.0, transport=transport)
+    return make_http_client(API_BASE, headers, transport)
 
 
 def _message(resp: httpx.Response) -> str:
@@ -110,6 +90,18 @@ def raise_for_status(resp: httpx.Response) -> None:
     raise tool_error(GITHUB_ERROR, msg)
 
 
+def request(client: httpx.Client, method: str, path: str, *, check: bool = True, **kwargs: Any) -> httpx.Response:
+    """GitHub를 호출하고 실패 응답을 에러 태그로 바꾼다.
+
+    check=False면 실패 응답도 그대로 돌려준다 (호출한 쪽이 응답을 보고 다시 시도할지 정할 때).
+    연결 실패·시간 초과는 태그 없이 그대로 올라가고, 에이전트는 이를 "결과 모름"으로 처리한다.
+    """
+    resp = client.request(method, path, **kwargs)
+    if check:
+        raise_for_status(resp)
+    return resp
+
+
 def _is_assignee_error(resp: httpx.Response) -> bool:
     """422 응답이 담당자 지정 때문인지 확인한다 (저장소에 권한이 없는 사용자를 지정한 경우 등)."""
     if resp.status_code != 422:
@@ -133,12 +125,13 @@ def list_issues(
         raise tool_error(INVALID_ARGUMENT, "state는 open, closed, all 중 하나입니다")
     # 응답이 너무 커지지 않도록 1~50개로 제한한다
     limit = max(1, min(int(limit), 50))
-    resp = client.get(
+    resp = request(
+        client,
+        "GET",
         f"/repos/{owner}/{repo}/issues",
         # GitHub 이슈 API는 PR도 함께 돌려주므로, PR을 빼고도 limit개가 남도록 넉넉히 받는다
         params={"state": state, "per_page": min(100, limit * 2), "sort": "created", "direction": "desc"},
     )
-    raise_for_status(resp)
     out = []
     for item in resp.json():
         # PR에는 pull_request 키가 있다
@@ -177,8 +170,7 @@ def search_issues(
     limit = max(1, min(int(limit), SEARCH_LIMIT_MAX))
 
     q = " ".join([*words, f"repo:{owner}/{repo}", "is:issue"] + ([f"state:{state}"] if state != "all" else []))
-    resp = client.get("/search/issues", params={"q": q, "per_page": limit})
-    raise_for_status(resp)
+    resp = request(client, "GET", "/search/issues", params={"q": q, "per_page": limit})
 
     repo_url = f"{API_BASE}/repos/{owner}/{repo}".lower()
     out = []
@@ -229,13 +221,11 @@ def create_issue(
         payload["assignees"] = requested
 
     path = f"/repos/{owner}/{repo}/issues"
-    resp = client.post(path, json=payload)
-    retried_without_assignees = False
+    resp = request(client, "POST", path, check=False, json=payload)
     # 담당자 때문에 이슈 자체가 안 만들어지는 것보다, 담당자 없이라도 만드는 쪽을 택한다
     if requested and _is_assignee_error(resp):
         payload.pop("assignees", None)
-        resp = client.post(path, json=payload)
-        retried_without_assignees = True
+        resp = request(client, "POST", path, check=False, json=payload)
     raise_for_status(resp)
 
     data = resp.json()
@@ -248,5 +238,4 @@ def create_issue(
         "url": data.get("html_url"),
         "assignees": applied,
         "dropped_assignees": dropped,
-        "retried_without_assignees": retried_without_assignees,
     }

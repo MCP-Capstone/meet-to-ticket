@@ -33,7 +33,7 @@ class Settings:
     github_token: str
     github_owner: str
     github_repo: str
-    github_allowed_repos: str  # 쉼표 구분 owner/repo. 비어 있으면 github_owner/github_repo만 허용
+    github_allowed_repos: str  # 쉼표 구분 owner/repo. 비어 있으면 저장소를 검사하지 않음 (로컬 테스트용 안전장치)
     openai_api_key: str
     embedding_model: str
     chroma_path: Path
