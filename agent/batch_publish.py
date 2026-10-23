@@ -45,6 +45,35 @@ def marker(kind: str, source: PublishTicket, ticket: dict[str, Any]) -> str:
     return f"<!-- meettoticket:{kind} meeting={source.meeting_id} work_key={ticket.get('work_key')} -->"
 
 
+def publication_preview(source: PublishTicket) -> dict[str, Any]:
+    """발행과 조회가 공유하는 순수 본문 생성. LLM/MCP/외부 쓰기를 호출하지 않는다."""
+    if source.publish_target != "GITHUB":
+        raise ValueError("현재 최종 발행 본문 미리보기는 GitHub만 지원합니다")
+    ticket = _ticket(source)
+    kind = source.processing_type
+    date = source.meeting_date.isoformat() if source.meeting_date else ""
+    secondary = None
+    if kind == "CREATE":
+        body = build_issue_body(ticket, str(source.meeting_id), ticket.get("background", ""))
+    else:
+        if not source.target_issue_number:
+            raise ValueError("연결·갱신 대상 이슈 번호가 없습니다")
+        if kind == "LINK":
+            body = link_comment(ticket, meeting_date=date, meeting_title=source.meeting_title)
+        else:
+            body = change_section(ticket, meeting_date=date, meeting_title=source.meeting_title)
+            secondary = change_note(meeting_date=date, meeting_title=source.meeting_title)
+        # 원문은 보존하면서 담당자가 저장한 설명도 실제 댓글/추가 섹션에 반영한다.
+        description = (ticket.get("description") or "").strip()
+        if description and description != (ticket.get("action_text") or "").strip():
+            body += "\n\n## 작업 내용\n" + description
+        body += "\n\n" + marker("link" if kind == "LINK" else "update", source, ticket)
+    return {"kind": kind, "body": body, "secondaryBody": secondary,
+            "labels": (ticket.get("labels") or []) if kind != "LINK" else [],
+            "githubAssignees": (ticket.get("assignees") or []) if kind == "CREATE" else [],
+            "targetIssueNumber": source.target_issue_number}
+
+
 async def _already_applied(publisher: Any, source: PublishTicket, number: int, text: str) -> dict[str, Any] | None:
     """표식이 이슈 본문이나 댓글에 이미 있으면 그 위치를 돌려준다. 확인하지 못하면 예외로 막아 중복 쓰기를 피한다."""
     out = await publisher.find_marker(owner=source.project.github_owner, repo=source.project.github_repo,
@@ -80,7 +109,6 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
     handling = ticket["handling"]
     kind = handling["type"]
     number = handling.get("issue_number")
-    meeting_date = source.meeting_date.isoformat() if source.meeting_date else ""
     sent = False  # GitHub 쓰기 요청을 보낸 뒤의 예외는 결과를 모르므로 UNKNOWN으로 남긴다
     try:
         if source.publish_target == "SLACK":
@@ -117,7 +145,7 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             if not number:
                 raise ToolCallError("INVALID_ARGUMENT", "LINK 처리에는 target_issue_number가 필요합니다")
             tag = marker("link", source, ticket)
-            body = f"{link_comment(ticket, meeting_date=meeting_date, meeting_title=source.meeting_title)}\n\n{tag}"
+            body = publication_preview(source)["body"]
             if source.previous_outcome_unknown:
                 found = await _already_applied(publisher, source, number, tag)
                 if found:
@@ -136,7 +164,8 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             if not number:
                 raise ToolCallError("INVALID_ARGUMENT", "UPDATE 처리에는 target_issue_number가 필요합니다")
             tag = marker("update", source, ticket)
-            section = f"{change_section(ticket, meeting_date=meeting_date, meeting_title=source.meeting_title)}\n\n{tag}"
+            preview = publication_preview(source)
+            section = preview["body"]
             if source.previous_outcome_unknown:
                 # update_issue는 본문 끝에 덧붙이는 비멱등 쓰기라, 같은 회의의 섹션이 이미 있으면 덧붙이지 않는다
                 found = await _already_applied(publisher, source, number, tag)
@@ -144,7 +173,7 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
                     return PublishItemResult(ticket_id=source.ticket_id, processing_type=kind, status="UPDATED",
                                              github_issue_number=number,
                                              github_issue_url=f"https://github.com/{source.project.github_owner}/{source.project.github_repo}/issues/{number}")
-            note = change_note(meeting_date=meeting_date, meeting_title=source.meeting_title)
+            note = preview["secondaryBody"]
             sent = True
             out = await publisher.update_issue(
                 owner=source.project.github_owner, repo=source.project.github_repo, number=number,
@@ -164,7 +193,7 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             if existing:
                 return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="PUBLISHED",
                                          github_issue_number=existing.get("number"), github_issue_url=existing.get("url"))
-        body = build_issue_body(ticket, str(source.meeting_id), ticket.get("background", ""))
+        body = publication_preview(source)["body"]
         sent = True
         out = await publisher.create_issue(
             owner=source.project.github_owner, repo=source.project.github_repo, title=source.title, body=body,

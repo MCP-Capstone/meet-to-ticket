@@ -12,7 +12,9 @@
     "lint": "oxlint",
     "test:progress": "node --test tests/analysisProgress.test.mjs",
     "preview": "vite preview",
-    "test:publish": "node --test tests/batchPublish.test.mjs"
+    "test:publish": "node --test tests/batchPublish.test.mjs",
+    "test:dedupe": "node --test tests/ticketDedupe.test.mjs",
+    "test:preview": "node --test tests/ticketPreview.test.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",

@@ -313,6 +313,18 @@ export interface PublishFailure {
   outcomeUnknown: boolean
 }
 export interface PublishStarted { batchId: string; count: number }
+// GET /tickets/me의 읽기 전용 중복 판단 정보 (TASK-032).
+export interface TicketDedupe {
+  judged: boolean
+  skipped: string | null
+  relation: 'SAME' | 'CHANGE' | 'RELATED' | 'UNRELATED' | null
+  issue: { number: number; title: string | null; state: 'open' | 'closed' | null; url: string } | null
+  overlap: boolean
+  reason: string | null
+  before: string | null
+  after: string | null
+  changedByRecheck: boolean
+}
 export interface MyTicket {
   ticketId: string
   title: string
@@ -325,6 +337,8 @@ export interface MyTicket {
   meetingTitle: string
   taskId: string
   createdAt: string
+  // 이전 mock 저장 데이터와 구버전 응답에서 누락될 수 있다. 판단 안 됨과 구분한다.
+  dedupe?: TicketDedupe | null
   description: string | null
   due: TicketDue
   assignee: { projectMemberId: number; name: string } | null
@@ -359,4 +373,15 @@ export interface PublishBatchResult {
   finishedAt: string | null
   summary: { total: number; published: number; linked: number; updated: number; failed: number; publishing: number }
   tickets: PublishResultEntry[]
+}
+
+
+export interface TicketPublicationPreview {
+  ticketId: string
+  title: string
+  status: TicketStatus
+  publishTarget: PublishTarget
+  executionMode: ExecutionMode
+  publication: { kind: ProcessingType; body: string; secondaryBody: string | null; labels: string[]; githubAssignees: string[]; targetIssueNumber: number | null } | null
+  backlog: { description: string | null; tasks: string[]; acceptanceCriteria: string[]; evidenceQuotes: string[]; openQuestions: string[] }
 }

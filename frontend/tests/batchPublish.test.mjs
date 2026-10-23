@@ -61,11 +61,14 @@ test('결과 패널을 닫아도 목록 조회로 mock 발행이 완료된다', 
   const selected = () => mockTickets.listMockTickets(user).tickets.filter((item) => ids.includes(item.ticketId))
   assert.ok(selected().every((item) => item.status === 'PUBLISHING'))
   now += 2000
-  assert.ok(selected().every((item) => item.status === 'PUBLISHED'))
+  const expectedStatus = { CREATE: 'PUBLISHED', LINK: 'LINKED', UPDATE: 'UPDATED' }
+  assert.deepEqual(selected().map((item) => [item.ticketId, item.status]), confirmed.map((item) => [item.ticketId, expectedStatus[item.processingType]]))
   assert.doesNotMatch(publishSelection(mockTickets.listMockTickets(user).tickets).reason, /발행 중/)
   const result = mockTickets.getMockPublishResult(user, started.batchId)
   assert.equal(result.status, 'SUCCEEDED')
   assert.equal(result.summary.publishing, 0)
-  assert.equal(result.summary.published, ids.length)
+  assert.equal(result.summary.published, confirmed.filter((item) => item.processingType === 'CREATE').length)
+  assert.equal(result.summary.linked, confirmed.filter((item) => item.processingType === 'LINK').length)
+  assert.equal(result.summary.updated, confirmed.filter((item) => item.processingType === 'UPDATE').length)
   assert.deepEqual(mockTickets.getMockPublishResult(user, started.batchId), result)
 })

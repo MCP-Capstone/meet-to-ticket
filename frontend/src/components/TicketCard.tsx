@@ -3,6 +3,8 @@ import { api, ApiRequestError } from '../api'
 import type { MyTicket, ProjectMember, TicketAction, TicketEditRequest, TicketStatus } from '../api'
 import { validMeetingDate } from '../meetingInput'
 import { failureGuide, needsPermissionFix } from '../publishFailure'
+import { TicketDedupeDetails } from './TicketDedupeDetails'
+import { TicketPublicationPreview } from './TicketPublicationPreview'
 
 const ticketStatusLabel: Record<TicketStatus, string> = {
   ASSIGNEE_REQUIRED: '담당 지정 필요', PENDING_REVIEW: '검토 대기', CONFIRMED: '확인', REJECTED: '거절',
@@ -20,9 +22,10 @@ interface Props {
   onCommit: (ticket: MyTicket, run: () => Promise<MyTicket>, transferred: boolean) => Promise<void>
   onRefresh: () => Promise<boolean>
   onDirtyChange: (id: string, dirty: boolean) => void
+  onOpenProjectSettings: (projectId: number) => void
 }
 
-export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange }: Props) {
+export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, onOpenProjectSettings }: Props) {
   const [editing, setEditing] = useState(false)
   const [description, setDescription] = useState('')
   const [assignee, setAssignee] = useState('')
@@ -129,6 +132,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange }:
         <span className={`badge ticket-status ${ticket.status.toLowerCase()}`}>{ticketStatusLabel[ticket.status] ?? ticket.status}</span>
       </div>
       <p className="meta">{({ GITHUB: 'GitHub', SLACK: 'Slack', NOTION: 'Notion' })[ticket.publishTarget]} · {({ CREATE: '신규 발행', LINK: '기존 이슈 연결', UPDATE: '기존 이슈 갱신' })[ticket.processingType]}</p>
+      <TicketDedupeDetails ticket={ticket} />
       {editing ? (
         <fieldset className="ticket-fields" disabled={busy || pending || blocked}>
           <legend className="sr-only">티켓 수정</legend>
@@ -158,6 +162,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange }:
           </dl>
         </>
       )}
+      <TicketPublicationPreview ticket={ticket} dirty={dirty} />
       {ticket.status === 'FAILED' && ticket.publishFailure && (
         <div className="publish-failure" role="alert">
           <p className="error">{failureGuide(ticket.publishFailure)}</p>
@@ -165,7 +170,10 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange }:
             <p className="notice">GitHub에 이미 반영됐을 수 있습니다. 확인 후 다시 시도하세요.</p>
             <label className="check"><input type="checkbox" checked={checked} disabled={busy || pending} onChange={(e) => setChecked(e.target.checked)} />GitHub에서 반영 여부를 확인했습니다</label>
           </>}
-          {needsPermissionFix(ticket.publishFailure) && <p className="muted">저장소 권한은 프로젝트 관리자가 프로젝트 설정에서 풀 수 있습니다.</p>}
+          {needsPermissionFix(ticket.publishFailure) && <>
+            <p className="muted">저장소 권한은 프로젝트 관리자가 프로젝트 설정에서 확인해야 합니다. 현재 권한을 확인한 뒤 설정으로 이동합니다.</p>
+            <button type="button" className="secondary" disabled={busy || pending} onClick={() => onOpenProjectSettings(ticket.projectId)}>프로젝트 설정 확인</button>
+          </>}
         </div>
       )}
       {error && <p className="error" role="alert">{error}</p>}

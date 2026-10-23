@@ -31,6 +31,7 @@
 | GET | /api/tickets/me | 200 | 내 티켓 (담당자별, `projectId` 필터, 상태별 건수) |
 | GET | /api/analysis-tasks/{taskId}/tickets | 200 | 전송 결과: 티켓별 발행 대상·받은 사람·상태, 건수 요약, GitHub 이슈 미리보기 (같은 프로젝트 멤버) |
 | PUT | /api/tickets/{ticketId}/assignee | 200 | 대표 담당 지정: 담당 지정 필요 티켓을 팀원에게 보냄 (회의록을 올린 사람만) |
+| GET | /api/tickets/{ticketId}/preview | 200 | 저장된 최종 발행 본문·상세 백로그 조회 (담당자만, 상태 변경 없음) |
 | PATCH | /api/tickets/{ticketId} | 200 | 티켓 카드 수정: 본문, 담당 멤버, 기한 (담당자만, 검토 대기에서만) |
 | PATCH | /api/tickets/{ticketId}/publication | 200 | 발행 대상과 처리 유형 변경 (담당자만, 검토 대기에서만) |
 | POST | /api/tickets/{ticketId}/confirm | 200 | 확인: 검토 대기 -> 확인 |
@@ -248,3 +249,26 @@ curl --fail http://localhost:8001/openapi.json -o /tmp/agent-openapi.json
 Spring 테스트는 생성된 스키마·인증·업로드·상태 코드·예시를 검증한다.
 Agent 테스트는 실제 경로·스키마·200/202/404/409/422와 가짜 의존성 실행을 확인한다. 실제 GitHub에 생성하지 않는다.
 문서가 코드에서 생성되므로 내려받은 JSON을 수동 편집해 별도 원본으로 유지하지 않는다.
+
+### 내 티켓 최종 발행 본문·상세 백로그 조회 (#245)
+
+`GET /api/tickets/{ticketId}/preview` → 200. 로그인한 현재 담당자·프로젝트 멤버만 가능하다.
+
+```json
+{
+  "ticketId": "uuid", "title": "저장된 제목", "status": "PENDING_REVIEW",
+  "publishTarget": "GITHUB", "executionMode": "LIVE",
+  "publication": {
+    "kind": "CREATE", "body": "## 작업 내용\n저장된 설명",
+    "secondaryBody": null, "labels": [], "githubAssignees": [], "targetIssueNumber": null
+  },
+  "backlog": {
+    "description": "저장된 설명", "tasks": ["상세 작업"],
+    "acceptanceCriteria": ["완료 조건"], "evidenceQuotes": ["회의록 근거"], "openQuestions": []
+  }
+}
+```
+
+`kind`는 CREATE(이슈 본문), LINK(댓글), UPDATE(기존 본문에 추가할 섹션)이다. UPDATE의 `secondaryBody`는 알림 댓글이다. 현재 발행과 같은 저장값 변환·본문 생성 함수를 사용하며, 숨은 중복 발행 확인 표식도 반환될 수 있다. 발행 직전 재대조로 유형·대상이 달라질 수 있다. 과거 발행 원문이 아니라 현재 저장값의 미리보기이다. GitHub 이외에는 `publication: null`, 백로그는 그대로 반환한다. 미제공된 상세 배열은 빈 배열이다. MOCK 문안은 실제 문안과 다를 수 있다.
+
+조회로 승인·발행·내용 수정은 일어나지 않는다. 오류: 401(미로그인), 403 `TICKET_ASSIGNEE_REQUIRED` 또는 `PROJECT_ACCESS_DENIED`, 404 `TICKET_NOT_FOUND`, 502 `TICKET_PREVIEW_UNAVAILABLE`(Agent 조회 실패).
