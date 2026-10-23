@@ -13,6 +13,7 @@ from eval.reference import load_manifest, question_ids
 MODELS = {"OPENAI_MODEL": "m1", "OPENAI_REVIEW_MODEL": "m2", "OPENAI_DEDUPE_MODEL": "m3", "OPENAI_FALLBACK_MODEL": ""}
 MANIFEST = load_manifest()
 REAL_MODEL_IDS = run_eval.model_ids  # 픽스처가 바꾸기 전의 원본
+REAL_FINDINGS = run_eval.env_file_findings
 
 
 @pytest.fixture
@@ -21,6 +22,7 @@ def agent_dir(tmp_path):
     (d / "prompts").mkdir(parents=True)
     (d / "prompts" / "extract_system.md").write_text("추출 프롬프트", encoding="utf-8")
     (d / "nodes.py").write_text("x = 1\n", encoding="utf-8")
+    (d / "config.py").write_text((run_eval.AGENT_DIR / "config.py").read_text(encoding="utf-8"), encoding="utf-8")
     return d
 
 
@@ -29,6 +31,7 @@ def tmp_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(run_eval, "CACHE_DIR", tmp_path / "cache")
     monkeypatch.setattr(run_eval, "RESULTS_ROOT", tmp_path / "results")
     monkeypatch.setattr(run_eval, "model_ids", lambda env=None, agent_dir=None: MODELS)
+    monkeypatch.setattr(run_eval, "env_file_findings", lambda agent_dir=None, env=None: [])  # 개발자 .env에 영향받지 않게
 
 
 class FakeExecutor:
@@ -57,8 +60,9 @@ def test_command_always_dry_run_and_dedupe_uses_eval_repo(tmp_path, agent_dir):
     assert len(ex.calls) == 4
     assert all("--dry-run" in c for c in ex.calls)
     assert all(e["DRY_RUN"] == "true" for e in ex.envs)
-    repos = [c[c.index("--repo") + 1] for c in ex.calls if "--repo" in c]
-    assert repos == ["meet-to-ticket-eval"] * 2
+    # 추출 문항도 실제 저장소가 아니라 대조 저장소를 명시한다 (RAG_ENABLED가 켜져 있어도 안전)
+    repos = [c[c.index("--repo") + 1] for c in ex.calls]
+    assert repos == ["meet-to-ticket-eval"] * 4
     assert not any(str(p) for c in ex.calls for p in c if "references" in str(p))  # 정답은 에이전트에 넘기지 않는다
     assert all("/inputs/" in c[2] for c in ex.calls)
 
@@ -220,3 +224,125 @@ def test_cache_key_includes_settings_and_seed(tmp_path, agent_dir, monkeypatch):
     ds = run_eval.dataset_dir("v2.1")
     args = (ds / "inputs" / "ev41_same_open_summary.md", ds / "members.json", "r", "p", MODELS, "c", 1, {})
     assert run_eval.cache_key(*args, "seed-a") != run_eval.cache_key(*args, "seed-b")
+
+
+# ---------------------------------------------------------------- 설정 키, 실패 기록, 회차, 캐시 손상, 사전 검증
+
+
+def test_cache_key_covers_every_env_var_config_reads():
+    text = (run_eval.AGENT_DIR / "config.py").read_text(encoding="utf-8")
+    read = set(run_eval.ENV_NAME_RE.findall(text))
+    covered = set(run_eval.setting_env_names()) | run_eval.SETTING_EXCLUDE | set(run_eval.MODEL_ENV)
+    assert read == covered  # config.py에 변수가 늘면 자동으로 키에 들어간다
+    for name in ("PUBLISH_ON_RUN", "CONDITIONAL_AS_NEEDS_CHECK", "FALLBACK_PUBLISH", "MCP_SERVER_URL", "RAG_MCP_URL",
+                 "BACKEND_BASE_URL", "RAG_ENABLED", "DEDUPE_MAX_TOOL_CALLS"):
+        assert name in run_eval.setting_env_names(), name
+    assert "BACKEND_INTERNAL_TOKEN" not in run_eval.setting_env_names()  # 비밀 값은 키에 넣지 않는다
+
+
+@pytest.mark.parametrize("name,value", [("PUBLISH_ON_RUN", "true"), ("FALLBACK_PUBLISH", "false"),
+                                         ("CONDITIONAL_AS_NEEDS_CHECK", "false"), ("MCP_SERVER_URL", "http://x/mcp")])
+def test_cache_key_changes_with_each_setting(tmp_path, agent_dir, monkeypatch, name, value):
+    base = jobs_for(tmp_path, agent_dir, questions=("ev11_relative_due",), runs=1)[0]["key"]
+    monkeypatch.setenv(name, value)
+    assert jobs_for(tmp_path, agent_dir, questions=("ev11_relative_due",), runs=1)[0]["key"] != base
+
+
+def test_agent_dotenv_overrides_process_env_in_key(tmp_path, agent_dir, monkeypatch):
+    monkeypatch.setenv("PUBLISH_ON_RUN", "false")
+    base = jobs_for(tmp_path, agent_dir, questions=("ev11_relative_due",), runs=1)[0]["key"]
+    (agent_dir / ".env").write_text("PUBLISH_ON_RUN=true\n", encoding="utf-8")  # cli.py는 .env를 우선해 읽는다
+    assert jobs_for(tmp_path, agent_dir, questions=("ev11_relative_due",), runs=1)[0]["key"] != base
+
+
+def test_failed_runs_are_recorded_and_counted(tmp_path, agent_dir):
+    from eval import score
+
+    jobs = jobs_for(tmp_path, agent_dir, questions=("ev21_zero_action",), runs=2)
+    stats = run_eval.run_jobs(jobs, FakeExecutor(code=3), agent_dir=agent_dir)
+    assert len(stats["failed"]) == 2
+    assert all(j["out"].exists() for j in jobs)  # 지우지 않고 FAILED 결과로 남긴다
+    assert score.score_dir(tmp_path / "out")["extract"]["failed_runs"] == 2
+
+
+def test_exit_zero_with_failed_status_counts_as_failed():
+    ex = FakeExecutor(status="FAILED", code=0)
+    assert run_eval.main(["--questions", "ev21_zero_action", "--runs", "1", "--label", "z"], executor=ex) == 1
+
+
+def test_lower_runs_prunes_stale_run_files():
+    run_eval.main(["--questions", "ev21_zero_action", "--runs", "3", "--label", "p"], executor=FakeExecutor())
+    d = run_eval.RESULTS_ROOT / "v2.1" / "p"
+    assert len(list(d.glob("ev21_zero_action_r*.json"))) == 3
+    run_eval.main(["--questions", "ev21_zero_action", "--runs", "1", "--label", "p"], executor=FakeExecutor())
+    assert [f.name for f in d.glob("ev21_zero_action_r*.json")] == ["ev21_zero_action_r1.json"]
+    assert json.loads((d / "scores.json").read_text(encoding="utf-8"))["extract"]["runs"] == 1
+
+
+def test_truncated_cache_is_discarded_and_rerun(tmp_path, agent_dir):
+    jobs = jobs_for(tmp_path, agent_dir, questions=("ev21_zero_action",), runs=1)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / f"{jobs[0]['key']}.json").write_text('{"status": "SUCC', encoding="utf-8")
+    ex = FakeExecutor()
+    stats = run_eval.run_jobs(jobs, ex, agent_dir=agent_dir)
+    assert len(ex.calls) == 1 and stats["cached"] == []
+    assert json.loads((cache / f"{jobs[0]['key']}.json").read_text(encoding="utf-8"))["status"] == "SUCCEEDED"
+    assert not list(cache.glob("*.tmp")) and not list((tmp_path / "out").glob("*.tmp"))
+
+
+def test_atomic_copy_replaces_without_leftovers(tmp_path):
+    src, dst = tmp_path / "a.json", tmp_path / "sub" / "b.json"
+    src.write_text("{}", encoding="utf-8")
+    run_eval.atomic_copy(src, dst)
+    assert dst.read_text(encoding="utf-8") == "{}" and not list(dst.parent.glob("*.tmp"))
+
+
+def test_corrupt_result_file_is_reported_not_fatal(tmp_path):
+    from eval import score
+
+    d = tmp_path / "res"
+    d.mkdir()
+    (d / "ev21_zero_action_r1.json").write_text('{"status": "SUC', encoding="utf-8")
+    summary = score.score_dir(d)
+    assert summary["extract"]["failed_runs"] == 1
+    assert "ev21_zero_action_r1.json" in summary["corrupt"][0]
+    assert "읽을 수 없는 결과 파일" in score.format_report(summary)
+
+
+def test_bad_baseline_stops_before_any_execution(tmp_path):
+    ex = FakeExecutor()
+    with pytest.raises(SystemExit):
+        run_eval.main(["--smoke", "--label", "b", "--baseline", str(tmp_path / "nope.json")], executor=ex)
+    bad = tmp_path / "old.json"
+    bad.write_text(json.dumps({"version": "v1"}), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        run_eval.main(["--smoke", "--label", "b", "--baseline", str(bad)], executor=ex)
+    assert ex.calls == []
+
+
+def test_env_findings_block_backend_reporting(tmp_path, agent_dir, monkeypatch):
+    monkeypatch.setattr(run_eval, "env_file_findings", REAL_FINDINGS)
+    (agent_dir / "cli.py").write_text("", encoding="utf-8")
+    (agent_dir / ".env").write_text("BACKEND_BASE_URL=http://backend\nRAG_ENABLED=true\n", encoding="utf-8")
+    assert {lv for lv, _ in REAL_FINDINGS(agent_dir, {})} == {"block", "warn"}
+    ex = FakeExecutor()
+    with pytest.raises(SystemExit):
+        run_eval.main(["--smoke", "--label", "e", "--agent-dir", str(agent_dir)], executor=ex)
+    assert ex.calls == []
+    run_eval.main(["--smoke", "--label", "e", "--agent-dir", str(agent_dir), "--allow-backend-report"], executor=ex)
+    assert len(ex.calls) == len(run_eval.SMOKE)
+
+
+def test_plan_shows_real_reuse_state(capsys):
+    argv = ["--questions", "ev21_zero_action", "--runs", "1", "--label", "pl"]
+    run_eval.main(argv, executor=FakeExecutor())
+    capsys.readouterr()
+    run_eval.main([*argv, "--plan"])
+    assert "[재사용] ev21_zero_action r1" in capsys.readouterr().out
+    out = run_eval.RESULTS_ROOT / "v2.1" / "pl" / "ev21_zero_action_r1.json"
+    out.with_suffix(".key").write_text("stale", encoding="utf-8")
+    run_eval.main([*argv, "--plan"])
+    assert "[캐시] ev21_zero_action r1" in capsys.readouterr().out  # 키가 달라 재사용 불가, 캐시에서 복사
+    run_eval.main([*argv, "--plan", "--no-cache"])
+    assert "[실행] ev21_zero_action r1" in capsys.readouterr().out

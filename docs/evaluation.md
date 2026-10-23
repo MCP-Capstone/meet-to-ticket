@@ -98,6 +98,8 @@ v2.1은 채점 단위 37문항(`manifest.json`의 `scored_unit_count`)이며 에
 
 **dry-run은 필수다.** 실행기는 항상 `cli.py --dry-run`으로만 에이전트를 부르고 GitHub에 발행하지 않는다. 이를 끄는 옵션은 없다. `agent/.env`의 `DRY_RUN`이 `false`여도 실행기가 `--dry-run`과 환경 변수 `DRY_RUN=true`를 함께 준다. 직접 `cli.py`를 부를 때도 `--dry-run`을 빼지 않는다.
 
+`.env` 주의: `cli.py`는 `agent/.env`를 환경 변수보다 우선해 읽는다(override). 그래서 실행기가 환경 변수로 `DRY_RUN`이나 `BACKEND_BASE_URL`을 막을 수 없다. `--dry-run`은 설정 로드 뒤에 적용되므로 발행은 항상 막히지만, `BACKEND_BASE_URL`이 있으면 평가 실행의 진행/결과가 백엔드에 보고될 수 있다. 실행기는 실행 전에 `.env`를 점검해, `BACKEND_BASE_URL`이 있으면 `--allow-backend-report` 없이는 중단하고 `RAG_ENABLED`, `PUBLISH_ON_RUN`이 켜져 있으면 경고한다. 모든 문항에 `--repo <대조 저장소>`를 붙이므로 RAG가 켜져 있어도 실제 저장소는 건드리지 않는다. 다만 RAG가 켜지면 추출 문항에도 중복 판단이 끼어 baseline(꺼서 측정)과 조건이 달라지므로 비교할 때 같은 설정을 쓴다.
+
 ```bash
 cd agent && source .venv/bin/activate
 
@@ -125,7 +127,7 @@ python -m eval.run_eval --label after --baseline eval/baselines/v2.1/phase1-end.
 | `--no-cache`, `--force` | 캐시를 읽지 않음 / 이미 있는 결과 파일도 다시 실행 |
 | `--agent-dir` | 다른 체크아웃의 `agent/`에서 `cli.py`를 실행(baseline 재측정용, 6절) |
 
-이미 결과 파일이 있는 회차는 JSON이 온전하고, status가 SUCCEEDED이고, 같은 캐시 키로 만든 것이고(결과 옆의 `.key` 파일), 중복 판단이 건너뛰어지지 않았을 때만 건너뛴다. 아니면 다시 실행하므로, 중간에 끊겨도 같은 명령을 다시 실행하면 이어서 돈다. 실행기 밖에서 만든 결과는 `--score-only`로 채점한다. `--questions`는 쉼표 뒤 공백을 무시한다. 결과 폴더만 따로 채점하려면 `python -m eval.score results/v2.1/after`.
+이미 결과 파일이 있는 회차는 JSON이 온전하고, status가 SUCCEEDED이고, 같은 캐시 키로 만든 것이고(결과 옆의 `.key` 파일), 중복 판단이 건너뛰어지지 않았을 때만 건너뛴다. 아니면 다시 실행하므로, 중간에 끊겨도 같은 명령을 다시 실행하면 이어서 돈다. 실행기 밖에서 만든 결과는 `--score-only`로 채점한다. `--questions`는 쉼표 뒤 공백을 무시한다. 실행이 실패하면(종료 코드 비정상, 또는 status가 FAILED) 결과를 지우지 않고 FAILED 결과 파일로 남겨 채점의 실패 횟수에 반영하고, 종료 코드 1로 끝난다. 읽을 수 없는 결과 파일도 실패로 세고 파일 이름을 경고로 출력한다. `--runs`를 줄여 다시 돌리면 선택한 문항의 범위 밖 회차(예: r4, r5) 파일을 지운다. `--baseline`은 실행 전에 파일과 버전을 확인한다. `--plan`은 `[재사용]`(기존 결과 그대로), `[캐시]`(복사), `[실행]`(LLM 호출)로 실제 동작을 보여 준다. 결과 폴더만 따로 채점하려면 `python -m eval.score results/v2.1/after`.
 
 출력되는 지표표의 목표는 `agent/eval/targets.json`에서 읽으며 2절의 결정 기록과 같다. 처리 시간 "지키는 선"은 `--baseline`이 있어야 판정된다.
 
@@ -230,9 +232,9 @@ LLM 호출은 비용이 들고 결과가 실행마다 달라서 PR마다 전체 
 결과 캐시
 
 - 같은 키면 LLM을 다시 부르지 않고 `agent/eval/.cache/`의 저장된 결과를 복사한다. (커밋하지 않음)
-- 키는 (입력, 프롬프트 해시, 모델 ID)에 더해 명단, 대조 저장소와 시드 이슈 목록 해시, 결과에 영향을 주는 설정 환경 변수(`RAG_ENABLED`, `DEDUPE_MAX_TOOL_CALLS`, `DEDUPE_TIMEOUT_SECONDS`, 추론 강도, 보완 횟수 등 `run_eval.py`의 `SETTING_ENV`), agent 코드 해시, 회차 번호를 포함한다. 코드가 바뀌면 결과가 달라질 수 있어서(예: 기한 해석 규칙) 코드 해시도 넣었다.
+- 키는 (입력, 프롬프트 해시, 모델 ID)에 더해 명단, 대조 저장소와 시드 이슈 목록 해시, `agent/config.py`가 읽는 환경 변수 전부(`config.py`에서 이름을 열거하므로 새 설정이 생겨도 자동 반영. 모델 ID는 따로, `DRY_RUN`과 토큰은 제외. `agent/.env` 값 우선), agent 코드 해시, 회차 번호를 포함한다. 코드가 바뀌면 결과가 달라질 수 있어서(예: 기한 해석 규칙) 코드 해시도 넣었다.
 - 프롬프트 파일(`agent/prompts/*.md`)이나 모델 ID(`OPENAI_*`), 입력이 바뀌면 키가 달라져 다시 호출한다. 회차마다 키가 달라 3회 반복은 각각 독립 표본이다.
-- 실패한 실행(`status`가 `SUCCEEDED`가 아닌 것)과, 중복 판단 문항에서 판단이 건너뛰어진 실행(`dedupe.skipped`가 있거나 `relation`이 없음: 시간 초과, 오류, rag-mcp 불가 등)은 캐시하지 않는다.
+- 실패한 실행(`status`가 `SUCCEEDED`가 아닌 것)과, 중복 판단 문항에서 판단이 건너뛰어진 실행(`dedupe.skipped`가 있거나 `relation`이 없음: 시간 초과, 오류, rag-mcp 불가 등)은 캐시하지 않는다. 캐시는 임시 파일에 쓴 뒤 바꿔치기로 저장하고, 적중 때 JSON과 status를 검증해 잘린 캐시는 버리고 다시 실행한다.
 - 새 결과를 강제로 받고 싶으면 `--no-cache`를 쓴다.
 
 ## 8. 지표와 설계서의 관계

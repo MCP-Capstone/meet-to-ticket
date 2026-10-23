@@ -28,7 +28,7 @@ def score_dir(results_dir: Path, version: str = DEFAULT_VERSION, base: Path | No
     members = load_member_names(version, base)
     dedupe_expect = manifest["dedupe"]
     forbidden = manifest.get("forbidden_text", {})
-    extract_rows, dedupe_rows, missing = [], [], []
+    extract_rows, dedupe_rows, missing, corrupt = [], [], [], []
     for q in question_ids(version, base):
         files = score_extract.result_files(results_dir, q)
         if not files:
@@ -36,7 +36,14 @@ def score_dir(results_dir: Path, version: str = DEFAULT_VERSION, base: Path | No
             continue
         for path in files:
             run = path.stem.rsplit("_r", 1)[-1]
-            result = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                result = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(result, dict):
+                    raise ValueError("JSON 객체가 아님")
+            except (OSError, ValueError) as exc:
+                # 깨진 파일은 실패한 실행으로 세고, 어떤 파일인지 보고한다
+                corrupt.append(f"{path.name} ({exc})")
+                result = {"status": "FAILED", "items": [], "metrics": {}}
             if q in dedupe_expect:
                 dedupe_rows.append(score_dedupe.score_run(q, run, result, dedupe_expect[q]))
             else:
@@ -45,6 +52,7 @@ def score_dir(results_dir: Path, version: str = DEFAULT_VERSION, base: Path | No
     return {
         "version": version,
         "missing": missing,
+        "corrupt": corrupt,
         "extract": score_extract.aggregate(extract_rows) if extract_rows else None,
         "dedupe": score_dedupe.aggregate(dedupe_rows) if dedupe_rows else None,
         "extract_rows": extract_rows,
@@ -95,6 +103,9 @@ def format_report(summary: dict[str, Any], baseline: dict[str, Any] | None = Non
     if de:
         lines.append(f"중복 판단 {de['runs']}회 (실패 {de['failed_runs']}회), 판정 {_fmt('', de['relation_accuracy'])}, "
                      f"대상 {_fmt('', de['target_accuracy'])}, 추가 티켓 {de['extra_tickets']}건")
+    if summary.get("corrupt"):
+        lines.append(f"경고: 읽을 수 없는 결과 파일 {len(summary['corrupt'])}개 (실패한 실행으로 계산): "
+                     + ", ".join(summary["corrupt"]))
     if summary["missing"]:
         lines.append(f"결과 없는 문항 {len(summary['missing'])}개: {', '.join(summary['missing'])}")
     lines.append("")
