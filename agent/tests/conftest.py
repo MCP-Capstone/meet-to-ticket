@@ -76,7 +76,8 @@ class FakeLLM:
                  fail_on: str | None = None, rows: list[ActionRowOut] | None = None,
                  decisions: list[DecisionOut] | None = None, open_questions: list[str] | None = None,
                  excluded: list[str] | None = None,
-                 bad_quote_for: set[str] | None = None, always: set[str] | None = None):
+                 bad_quote_for: set[str] | None = None, always: set[str] | None = None,
+                 skip_draft: dict[str, int] | None = None, draft_questions: list[str] | None = None):
         self.always = always or set()
         self.review_plan = review_plan or {}
         self.review_round: dict[str, int] = {}
@@ -86,6 +87,9 @@ class FakeLLM:
         self.open_questions = open_questions or []
         self.excluded = excluded or []
         self.bad_quote_for = bad_quote_for or set()
+        self.skip_draft = dict(skip_draft or {})  # work_key → 초안을 빠뜨릴 횟수
+        self.draft_questions = draft_questions or []  # 초안마다 돌려줄 미결 질문
+        self.draft_contexts: list[Any] = []
         self.draft_calls: list[list[dict[str, Any]]] = []
         self.draft_labels: list[list[str] | None] = []
         self.review_contexts: list[Any] = []
@@ -97,14 +101,19 @@ class FakeLLM:
         return ActionRowsOut(rows=self.rows, decisions=self.decisions,
                              open_questions=self.open_questions, excluded=self.excluded)
 
-    async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None) -> list[DraftTicket]:
+    async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None,
+                    context: dict[str, Any] | None = None) -> list[DraftTicket]:
         if self.fail_on == "draft":
             from state import AgentFatal
             raise AgentFatal("LLM_ERROR", "boom")
         self.draft_calls.append(items)
         self.draft_labels.append(labels)
+        self.draft_contexts.append(context)
         out = []
         for it in items:
+            if self.skip_draft.get(it["work_key"], 0) > 0:
+                self.skip_draft[it["work_key"]] -= 1  # 초안을 빠뜨리는 LLM 흉내
+                continue
             quote = it["action"]
             if it["work_key"] in self.bad_quote_for and "feedback" not in it:
                 quote = "원문에 없는 문장"
@@ -115,7 +124,7 @@ class FakeLLM:
                 tasks=[f"{it['action']} 작업"],
                 acceptance_criteria=["결과를 팀에 공유한다"],
                 evidence_quotes=[quote],
-                open_questions=[],
+                open_questions=list(self.draft_questions),
                 labels=[*(labels or [])[:1], "후보에 없는 라벨"],  # 후보 밖 라벨은 코드가 뺀다
             ))
         return out
