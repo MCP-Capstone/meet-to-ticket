@@ -142,8 +142,10 @@ async def test_timeout_keeps_documents_already_read(draft_settings):
     tools, _ = notion_tools(slow_for={"p3"})
     llm, rep = FakeLLM(), FakeReporter()
     await run(request_with_notion(), s, llm=llm, publisher=FakePublisher(), reporter=rep, notion_tools=tools)
-    assert llm.draft_contexts[0]["project_context"]["notionDocs"] == []
-    assert "끝나지 않음" in rep.progress_details[-1]["context"]["warnings"][0]
+    docs = llm.draft_contexts[0]["project_context"]["notionDocs"]
+    assert [d["page_id"] for d in docs] == ["p1", "p2"]  # 시간 초과 전에 읽은 문서는 버리지 않는다
+    assert any("끝나지 않음" in w for w in rep.progress_details[-1]["context"]["warnings"])
+    assert rep.progress_details[-1]["context"]["notionDocs"] == 2
 
 
 async def test_context_step_is_reported_before_slow_loading(draft_settings):

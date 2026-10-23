@@ -26,17 +26,20 @@ class ProjectContextTools:
             raise RuntimeError(f"{name} MCP 도구를 찾지 못했습니다")
         return parse_tool_result(await tool.ainvoke(args))
 
-    async def collect(self, owner: str, repo: str, notion_page_url: str | None) -> dict[str, Any]:
-        issues: list[dict[str, Any]] = []
-        notion_docs: list[dict[str, Any]] = []
-        warnings: list[str] = []
+    async def collect(self, owner: str, repo: str, notion_page_url: str | None,
+                      into: dict[str, Any] | None = None) -> dict[str, Any]:
+        """`into`를 주면 그 dict를 채워 간다. 호출자가 시간 초과로 중단해도 읽은 만큼은 남는다."""
+        result_ctx = into if into is not None else {}
+        issues: list[dict[str, Any]] = result_ctx.setdefault("issues", [])
+        notion_docs: list[dict[str, Any]] = result_ctx.setdefault("notionDocs", [])
+        warnings: list[str] = result_ctx.setdefault("warnings", [])
         try:
             result = await self._call(self._list_issues, {"owner": owner, "repo": repo, "state": "all", "limit": 20}, "list_issues")
             raw = result.get("issues")
             if not isinstance(raw, list):
                 raise ValueError("list_issues 응답에 issues 목록이 없습니다")
-            issues = [{key: item.get(key) for key in ("number", "title", "state", "url", "closed_at")}
-                      for item in raw if isinstance(item, dict)]
+            issues.extend({key: item.get(key) for key in ("number", "title", "state", "url", "closed_at")}
+                          for item in raw if isinstance(item, dict))
         except Exception as exc:  # noqa: BLE001
             warning = f"GitHub 기존 이슈 조회 실패: {exc}"
             log.warning(warning)
@@ -65,4 +68,4 @@ class ProjectContextTools:
                 warning = f"Notion 문서 조회 실패: {exc}"
                 log.warning(warning)
                 warnings.append(warning)
-        return {"issues": issues, "notionDocs": notion_docs, "warnings": warnings}
+        return result_ctx

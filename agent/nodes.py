@@ -201,11 +201,13 @@ class AgentNodes:
         return {"error_code": TASK_TIMEOUT, "error_message": f"작업 마감 시간({limit}초)을 넘겨 중단함"}
 
     async def prepare(self, state: AgentState) -> dict[str, Any]:
-        project_context = {"issues": [], "notionDocs": [], "warnings": []}
+        # collect가 이 dict를 채워 가므로, 시간 초과 때도 그때까지 읽은 이슈와 문서는 남는다
+        project_context: dict[str, Any] = {"issues": [], "notionDocs": [], "warnings": []}
         if self.context_tools is not None:
             try:
-                project_context = await asyncio.wait_for(
-                    self.context_tools.collect(state["owner"], state["repo"], state.get("notion_page_url")),
+                await asyncio.wait_for(
+                    self.context_tools.collect(state["owner"], state["repo"], state.get("notion_page_url"),
+                                               into=project_context),
                     timeout=self.settings.context_timeout_seconds,
                 )
             except asyncio.TimeoutError:
@@ -509,6 +511,10 @@ class AgentNodes:
             to_llm.append(t)
 
         llm_fails: dict[str, list[dict[str, Any]]] = {}
+        # 초안이 배경으로 반영한 Notion 문서 문구를 "원문에 없다"고 한 지적은 인정하지 않는다
+        planning = planning_text([
+            {"title": d.get("title") or "", "text": d.get("markdown") or ""}
+            for d in (state.get("project_context") or {}).get("notionDocs", [])])
         for batch in _chunks(to_llm, self.settings.review_batch_size):
             drafts = [
                 {
@@ -539,7 +545,8 @@ class AgentNodes:
                     t["review_notes"] = t.get("review_notes", []) + ["검수 결과가 누락되어 코드 점검만 적용함"]
                     llm_fails[t["task_item_id"]] = []
                     continue
-                llm_fails[t["task_item_id"]] = self._verify_checks(t, r.checks, source, state.get("excluded", []))
+                llm_fails[t["task_item_id"]] = self._verify_checks(
+                    t, r.checks, source, state.get("excluded", []), planning=planning)
 
         for t in to_llm:
             self._decide(t, code_fails.get(t["task_item_id"], []) + llm_fails.get(t["task_item_id"], []))
