@@ -339,3 +339,24 @@ export interface TicketEditRequest {
   assigneeMemberId?: number
   due?: TicketDue
 }
+
+// TASK-033·047: 발행 접수와 결과 조회는 별도 요청이다.
+export interface PublishResultEntry extends PublishFailure {
+  ticketId: string
+  title: string
+  status: TicketStatus
+  processingType: ProcessingType
+  projectId: number
+  projectName: string
+  githubIssueNumber: number | null
+  githubIssueUrl: string | null
+}
+export interface PublishBatchResult {
+  batchId: string
+  status: 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'PARTIAL_FAILED'
+  executionMode: ExecutionMode
+  createdAt: string
+  finishedAt: string | null
+  summary: { total: number; published: number; linked: number; updated: number; failed: number; publishing: number }
+  tickets: PublishResultEntry[]
+}

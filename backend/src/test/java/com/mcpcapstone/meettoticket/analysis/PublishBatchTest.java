@@ -398,4 +398,84 @@ class PublishBatchTest {
 
 		assertThat(batches.findById(batch).orElseThrow().getStatus()).isEqualTo(PublishBatchStatus.FAILED);
 	}
+	private Long meetingId(TaskItem item) {
+		return tasks.findById(item.getTask().getId()).orElseThrow().getMeeting().getId();
+	}
+
+	private TaskItem sameMeeting(TaskItem first, ProjectMember assignee, TicketStatus state) {
+		var content = "{}";
+		var item = new AgentContracts.Item(UUID.randomUUID(), null, "같은 회의 티켓", json.read(content), "CREATE", null, "APPROVED", "SKIPPED", null, null, null);
+		TaskItem added = new TaskItem(first.getTask(), item, content);
+		added.assignTo(assignee);
+		added.moveTo(state);
+		return items.save(added);
+	}
+
+	@Test
+	void 회의별_발행은_다른_회의와_다른_담당자와_거절을_제외한다() throws Exception {
+		TaskItem a = confirmed(project, "이번 회의");
+		TaskItem second = sameMeeting(a, member, TicketStatus.CONFIRMED);
+		TaskItem rejected = sameMeeting(a, member, TicketStatus.REJECTED);
+		User other = newUser();
+		ProjectMember otherMember = members.save(new ProjectMember(project, other, other.getName(), "other"));
+		TaskItem otherPending = sameMeeting(a, otherMember, TicketStatus.PENDING_REVIEW);
+		TaskItem anotherMeeting = confirmed(project, "다른 회의");
+		mvc.perform(post("/api/tickets/publish").session(session)
+				.param("projectId", project.getId().toString()).param("meetingId", meetingId(a).toString())
+				.param("ticketIds", a.getId() + "," + second.getId()))
+				.andExpect(status().isAccepted()).andExpect(jsonPath("$.count").value(2));
+		assertThat(stateOf(second)).isEqualTo(TicketStatus.PUBLISHING);
+		assertThat(stateOf(a)).isEqualTo(TicketStatus.PUBLISHING);
+		assertThat(stateOf(rejected)).isEqualTo(TicketStatus.REJECTED);
+		assertThat(stateOf(otherPending)).isEqualTo(TicketStatus.PENDING_REVIEW);
+		assertThat(stateOf(anotherMeeting)).isEqualTo(TicketStatus.CONFIRMED);
+		mvc.perform(post("/api/tickets/publish").session(session)
+				.param("meetingId", meetingId(a).toString()).param("ticketIds", a.getId().toString()))
+				.andExpect(status().isConflict());
+		verify(gateway, times(1)).submit(any());
+	}
+
+	@Test
+	void 회의의_본인_검토가_남아있으면_발행하지_않는다() throws Exception {
+		TaskItem a = confirmed(project, "검토 중");
+		sameMeeting(a, member, TicketStatus.PENDING_REVIEW);
+		mvc.perform(post("/api/tickets/publish").session(session)
+				.param("meetingId", meetingId(a).toString()).param("ticketIds", a.getId().toString()))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("MEETING_REVIEW_INCOMPLETE"));
+		assertThat(stateOf(a)).isEqualTo(TicketStatus.CONFIRMED);
+		verify(gateway, never()).submit(any());
+	}
+
+	@Test
+	void 확인창_이후_대상_변경이나_다른_담당자의_회의는_발행하지_않는다() throws Exception {
+		TaskItem a = confirmed(project, "대상 변경");
+		sameMeeting(a, member, TicketStatus.CONFIRMED);
+		mvc.perform(post("/api/tickets/publish").session(session)
+				.param("meetingId", meetingId(a).toString()).param("ticketIds", a.getId().toString()))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PUBLISH_SELECTION_CHANGED"));
+		mvc.perform(post("/api/tickets/publish").session(session(newUser()))
+				.param("meetingId", meetingId(a).toString()).param("ticketIds", a.getId().toString()))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("NO_CONFIRMED_TICKETS"));
+		verify(gateway, never()).submit(any());
+	}
+
+	@Test
+	void 회의_필터의_잘못된_입력과_다른_프로젝트와_지원하지_않는_도구를_거절한다() throws Exception {
+		TaskItem a = confirmed(project, "도구 검증");
+		var meetingId = meetingId(a).toString();
+		mvc.perform(post("/api/tickets/publish").session(session).param("meetingId", "invalid"))
+				.andExpect(status().isBadRequest());
+		mvc.perform(post("/api/tickets/publish").session(session).param("meetingId", meetingId))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PUBLISH_SELECTION_CHANGED"));
+		mvc.perform(post("/api/tickets/publish").session(session).param("meetingId", meetingId)
+				.param("projectId", newProject().getId().toString()).param("ticketIds", a.getId().toString()))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("NO_CONFIRMED_TICKETS"));
+		var item = items.findById(a.getId()).orElseThrow();
+		ReflectionTestUtils.setField(item, "publishTarget", PublishTarget.SLACK);
+		items.save(item);
+		mvc.perform(post("/api/tickets/publish").session(session).param("meetingId", meetingId).param("ticketIds", a.getId().toString()))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PUBLISH_TARGET_UNSUPPORTED"));
+		verify(gateway, never()).submit(any());
+	}
+
 }

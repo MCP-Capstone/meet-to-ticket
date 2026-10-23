@@ -997,6 +997,18 @@ button.secondary {
 .publish-failure p { margin: 0; overflow-wrap: anywhere; }
 .publish-failure .check { display: flex; align-items: center; gap: 8px; }
 
+/* TASK-033·047 */
+.publish-groups, .publish-entries { list-style: none; padding: 0; margin: 0; }
+.publish-groups > li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-top: 1px solid #d7dee7; padding: 1rem 0; }
+.publish-groups p { margin: .4rem 0; }
+.publish-groups button { flex-shrink: 0; }
+.publish-dialog { width: min(32rem, calc(100% - 3rem)); max-height: 80vh; overflow: auto; border: 1px solid #cbd5e1; border-radius: 12px; padding: 1.5rem; color: inherit; }
+.publish-dialog::backdrop { background: rgb(15 23 42 / 45%); }
+.publish-dialog li, .publish-entries li { overflow-wrap: anywhere; }
+.publish-result { margin-top: 1rem; }
+.publish-entries > li { border-top: 1px solid #d7dee7; padding: 1rem 0; }
+@media (max-width: 600px) { .publish-groups > li { align-items: stretch; flex-direction: column; } }
+
 /* 프로젝트 목록과 삭제 확인 (TASK-008) */
 .container.project-workspace { max-width: 1280px; }
 .project-list { display: flex; flex-direction: column; gap: 16px; }

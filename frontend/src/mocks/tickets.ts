@@ -1,5 +1,7 @@
 import type { MyTicket, MyTicketList, TicketAction, TicketEditRequest, User } from '../api/types'
 import { ApiRequestError } from '../api/client'
+import type { PublishBatchResult } from '../api/types'
+import { publishSelection } from '../batchPublish'
 import { validMeetingDate } from '../meetingInput'
 import { listMockMembers, listMockProjects } from './projects'
 
@@ -39,6 +41,7 @@ export function deleteMockProjectTickets(projectId: number) {
 }
 const view = ({ assigneeUserId: _owner, ...ticket }: StoredTicket): MyTicket => structuredClone(ticket)
 export function listMockTickets(user: User, projectId?: number): MyTicketList {
+  settleMockBatches(user)
   const tickets = read(user).filter((ticket) => ticket.assigneeUserId === user.userId && (projectId === undefined || ticket.projectId === projectId))
   return {
     counts: { pendingReview: tickets.filter((t) => t.status === 'PENDING_REVIEW').length, confirmed: tickets.filter((t) => t.status === 'CONFIRMED').length, rejected: tickets.filter((t) => t.status === 'REJECTED').length, failed: tickets.filter((t) => t.status === 'FAILED').length },
@@ -85,4 +88,58 @@ export function retryMockTicket(user: User, ticketId: string) {
   ticket.publishFailure = null
   write(tickets)
   return { batchId: crypto.randomUUID(), count: 1 }
+}
+
+const BATCH_KEY = 'mock-publish-batches-v1'
+type MockBatch = { userId: number; result: PublishBatchResult }
+const readBatches = (): MockBatch[] => JSON.parse(sessionStorage.getItem(BATCH_KEY) ?? '[]')
+export function publishMockTickets(user: User, projectId: number, meetingId: number, ticketIds: string[]) {
+  settleMockBatches(user)
+  const tickets = read(user)
+  const group = tickets.filter((t) => t.assigneeUserId === user.userId && t.projectId === projectId && t.meetingId === meetingId)
+  const selection = publishSelection(group)
+  if (selection.reason) throw fail(409, 'TICKET_STATUS_CONFLICT', selection.reason)
+  const ids = new Set(ticketIds)
+  if (ids.size !== selection.confirmed.length || selection.confirmed.some((t) => !ids.has(t.ticketId))) throw fail(409, 'PUBLISH_SELECTION_CHANGED', '발행 대상이 변경됐습니다. 목록을 다시 확인하세요.')
+  const batchId = crypto.randomUUID()
+  const result: PublishBatchResult = {
+    batchId, status: 'RUNNING', executionMode: 'MOCK', createdAt: new Date().toISOString(), finishedAt: null,
+    summary: { total: ids.size, published: 0, linked: 0, updated: 0, failed: 0, publishing: ids.size },
+    tickets: selection.confirmed.map((ticket) => ({ ticketId: ticket.ticketId, title: ticket.title, status: 'PUBLISHING', processingType: ticket.processingType, projectId, projectName: ticket.projectName, githubIssueNumber: null, githubIssueUrl: null, errorCode: null, errorMessage: null, failureCategory: null, retryable: false, outcomeUnknown: false })),
+  }
+  const batches = readBatches()
+  batches.push({ userId: user.userId, result })
+  sessionStorage.setItem(BATCH_KEY, JSON.stringify(batches))
+  for (const ticket of group) if (ids.has(ticket.ticketId)) ticket.status = 'PUBLISHING'
+  write(tickets)
+  return { batchId, count: ids.size }
+}
+// 패널 조회 여부와 관계없이, 목록 조회에서도 경과한 발행을 완료한다.
+function settleMockBatches(user: User) {
+  const batches = readBatches()
+  const ready = batches.filter((batch) => batch.userId === user.userId
+    && batch.result.status === 'RUNNING' && Date.now() - Date.parse(batch.result.createdAt) > 1800)
+  if (!ready.length) return
+  const tickets = read(user)
+  for (const { result } of ready) {
+    result.status = 'SUCCEEDED'
+    result.finishedAt = new Date().toISOString()
+    for (const entry of result.tickets) {
+      entry.status = entry.processingType === 'LINK' ? 'LINKED' : entry.processingType === 'UPDATE' ? 'UPDATED' : 'PUBLISHED'
+      const ticket = tickets.find((t) => t.ticketId === entry.ticketId && t.assigneeUserId === user.userId)
+      if (ticket?.status === 'PUBLISHING') { ticket.status = entry.status; ticket.publishFailure = null }
+    }
+    result.summary.publishing = 0
+    result.summary.published = result.tickets.filter((t) => t.status === 'PUBLISHED').length
+    result.summary.linked = result.tickets.filter((t) => t.status === 'LINKED').length
+    result.summary.updated = result.tickets.filter((t) => t.status === 'UPDATED').length
+  }
+  write(tickets)
+  sessionStorage.setItem(BATCH_KEY, JSON.stringify(batches))
+}
+export function getMockPublishResult(user: User, batchId: string) {
+  settleMockBatches(user)
+  const batch = readBatches().find((b) => b.userId === user.userId && b.result.batchId === batchId)
+  if (!batch) throw fail(404, 'PUBLISH_BATCH_NOT_FOUND', '발행 묶음을 찾을 수 없습니다.')
+  return structuredClone(batch.result)
 }

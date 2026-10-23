@@ -33,6 +33,9 @@ public interface TaskItemRepository extends JpaRepository<TaskItem, UUID> {
              order by i.id""")
     List<UUID> findIdsAssignedTo(Long userId, TicketStatus status, Long projectId);
 
+    @Query("select i.id from TaskItem i where i.assignee.user.id = :userId and i.task.meeting.id = :meetingId order by i.id")
+    List<UUID> findIdsAssignedToMeeting(Long userId, Long meetingId);
+
     // 한 발행 묶음의 티켓과 화면에 필요한 프로젝트 정보.
     @Query("""
             select i from TaskItem i
