@@ -19,6 +19,7 @@ const statusLabel: Record<TicketStatus, string> = {
   ASSIGNEE_REQUIRED: '담당 지정 필요',
   PENDING_REVIEW: '검토 대기',
   CONFIRMED: '확인',
+  PUBLISHING: '발행 중',
   REJECTED: '거절',
   PUBLISHED: '발행됨',
   LINKED: '연결됨',

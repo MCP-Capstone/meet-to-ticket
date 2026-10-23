@@ -29,6 +29,7 @@ import com.mcpcapstone.meettoticket.queue.AnalysisTaskListener;
 import com.mcpcapstone.meettoticket.queue.AnalysisTaskPublisher;
 import com.mcpcapstone.meettoticket.user.User;
 import com.mcpcapstone.meettoticket.user.UserRepository;
+import tools.jackson.databind.node.ObjectNode;
 
 // 전송 결과 화면 (REQ-010, REQ-011, REQ-012, TASK-023·024·025). 데모 로그인 사용자(함주헌)가 회의록을 올린다.
 @SpringBootTest
@@ -145,19 +146,73 @@ class DispatchTest {
 		TaskItem item = only(task);
 		item.assignTo(null); // 담당자가 여러 명이거나 정해지지 않은 티켓
 		items.save(item);
-		Long choi = memberId("최윤경");
+		Long selectedId = members.save(new ProjectMember(project, null, "지정한 팀원", "chosen-login")).getId();
 
-		assign(item.getId(), "{\"memberId\":" + choi + "}", me)
+		assign(item.getId(), "{\"memberId\":" + selectedId + "}", me)
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.ticket.status").value("PENDING_REVIEW"))
-				.andExpect(jsonPath("$.ticket.assignee.name").value("최윤경"))
+				.andExpect(jsonPath("$.ticket.assignee.name").value("지정한 팀원"))
 				.andExpect(jsonPath("$.mine").value(false));
 		TaskItem saved = items.findById(item.getId()).orElseThrow();
 		assertThat(saved.getTicketStatus()).isEqualTo(TicketStatus.PENDING_REVIEW);
-		assertThat(saved.getAssignee().getId()).isEqualTo(choi);
+		assertThat(saved.getAssignee().getId()).isEqualTo(selectedId);
+		var content = json.read(saved.getContentJson()).path("assignees");
+		assertThat(content.path("names").get(0).asText()).isEqualTo("지정한 팀원");
+		assertThat(content.path("github").get(0).asText()).isEqualTo(members.findById(selectedId).orElseThrow().getGithubName());
+		assertThat(content.path("unresolved").size()).isZero();
 		// 이미 보낸 티켓은 다시 지정하지 않는다
-		assign(item.getId(), "{\"memberId\":" + choi + "}", me)
+		assign(item.getId(), "{\"memberId\":" + selectedId + "}", me)
 				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TICKET_STATUS_CONFLICT"));
+	}
+
+	@Test
+	void GitHub_계정이_없는_대표_담당은_미매핑으로_저장한다() throws Exception {
+		UUID task = analyze("함주헌", true);
+		TaskItem item = only(task);
+		item.assignTo(null);
+		items.save(item);
+		ProjectMember member = members.save(new ProjectMember(project, null, "계정 없는 팀원", null));
+
+		assign(item.getId(), "{\"memberId\":" + member.getId() + "}", me).andExpect(status().isOk());
+		var content = json.read(items.findById(item.getId()).orElseThrow().getContentJson()).path("assignees");
+		assertThat(content.path("names").get(0).asText()).isEqualTo("계정 없는 팀원");
+		assertThat(content.path("github").size()).isZero();
+		assertThat(content.path("unresolved").get(0).asText()).isEqualTo("계정 없는 팀원");
+	}
+
+	@Test
+	void 수정한_본문과_기한과_담당을_미리보기에_반영하고_다른_섹션은_유지한다() throws Exception {
+		UUID task = analyze("함주헌", true);
+		TaskItem item = only(task);
+		ObjectNode content = (ObjectNode) json.read(item.getContentJson());
+		content.put("description", "이전 본문");
+		content.put("issue_body", "## 작업 내용\n이전 본문\n\n## 상세 작업\n- [ ] 상세 작업\n\n"
+				+ "## 완료 조건\n- 완료 조건\n\n## 근거\n> 원문 근거\n\n"
+				+ "## 담당\n- 회의록 담당자: 이전 담당\n\n## 기한\n이전 기한\n\n"
+				+ "## 관련 이슈\n- 관련 이슈: #41\n\n<details>\n<summary>회의 배경</summary>\n배경\n</details>\n\n---\n출처\n");
+		item.edit(null, json.write(content));
+		items.save(item);
+
+		mvc.perform(patch("/api/tickets/{id}", item.getId()).session(me).contentType("application/json")
+				.content(json.write(java.util.Map.of("description", "수정 본문 $1 \\ <script>문자</script>",
+						"assigneeMemberId", memberId("최윤경"), "due", java.util.Map.of("text", "내일", "date", "2026-10-24", "time", "18:00")))))
+				.andExpect(status().isOk());
+		String response = result(task, me).andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+		String body = json.read(response).at("/tickets/0/preview/body").asText();
+		assertThat(body).contains("수정 본문 $1 \\ <script>문자</script>", "- 회의록 담당자: 최윤경", "2026-10-24 18:00 (원문: 내일)",
+				"## 상세 작업\n- [ ] 상세 작업", "## 완료 조건\n- 완료 조건", "## 근거\n> 원문 근거",
+				"## 관련 이슈\n- 관련 이슈: #41", "<summary>회의 배경</summary>\n배경", "---\n출처");
+		assertThat(body).doesNotContain("이전 본문", "이전 담당", "이전 기한");
+	}
+
+	@Test
+	void 발행_중인_티켓도_결과에서_현재_상태로_조회한다() throws Exception {
+		UUID task = analyze("함주헌", true);
+		TaskItem item = only(task);
+		item.moveTo(TicketStatus.PUBLISHING);
+		items.save(item);
+		result(task, me).andExpect(status().isOk())
+				.andExpect(jsonPath("$.tickets[0].ticket.status").value("PUBLISHING"));
 	}
 
 	@Test

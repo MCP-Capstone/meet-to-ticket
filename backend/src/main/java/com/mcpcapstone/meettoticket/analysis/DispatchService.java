@@ -17,8 +17,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 // 회의록 처리가 끝난 뒤 업로더가 보는 전송 결과 (REQ-010, REQ-011, REQ-012, TASK-023·024·025).
 // 티켓별 받은 사람과 상태, GitHub 이슈 미리보기, 담당 지정 필요 티켓의 대표 담당 지정.
@@ -60,6 +67,13 @@ public class DispatchService {
         ProjectMember member = members.findById(memberId)
                 .filter(m -> m.getProject().getId().equals(projectId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.PROJECT_MEMBER_NOT_FOUND));
+        ObjectNode content = (ObjectNode) json.read(item.getContentJson());
+        String login = member.getGithubName();
+        List<String> github = login == null || login.isBlank() ? List.of() : List.of(login.trim());
+        content.set("assignees", json.tree(Map.of(
+                "names", List.of(member.getName()), "github", github,
+                "unresolved", github.isEmpty() ? List.of(member.getName()) : List.of())));
+        item.edit(member, json.write(content));
         item.assignTo(member);
         return ticket(item, userId);
     }
@@ -75,12 +89,52 @@ public class DispatchService {
         return new DispatchTicket(view.view(i), mine, i.getPublishTarget() == PublishTarget.GITHUB ? preview(i) : null);
     }
 
-    // 미리보기는 읽기 전용이다. 담당자가 카드에서 본문을 고쳤으면 고친 본문(description)이 먼저 보인다.
+    // Agent 본문의 나머지 섹션은 유지하고, 카드에서 바뀔 수 있는 세 섹션만 현재 저장값으로 갱신한다.
+    private static final Pattern EDITABLE_SECTION = Pattern.compile(
+            "(?ms)^## (작업 내용|담당|기한)\\r?\\n.*?(?=^## |^<details>|^---[ \\t]*$|\\z)");
+
     private IssuePreview preview(TaskItem i) {
         JsonNode c = json.read(i.getContentJson());
         String body = text(c.path("issue_body"));
         if (body == null) body = Objects.requireNonNullElse(text(c.path("description")), text(c.path("background")));
+        else {
+            Matcher sections = EDITABLE_SECTION.matcher(body);
+            int background = body.indexOf("<details>");
+            if (background >= 0) sections.region(0, background);
+            StringBuilder updated = new StringBuilder();
+            while (sections.find()) {
+                String value = switch (sections.group(1)) {
+                    case "작업 내용" -> Objects.requireNonNullElse(text(c.path("description")),
+                            Objects.requireNonNullElse(text(c.path("action_text")), ""));
+                    case "담당" -> assigneeBody(c.path("assignees"));
+                    case "기한" -> dueBody(c.path("due"));
+                    default -> throw new IllegalStateException("Unknown preview section");
+                };
+                sections.appendReplacement(updated, Matcher.quoteReplacement("## " + sections.group(1) + "\n" + value + "\n\n"));
+            }
+            sections.appendTail(updated);
+            body = updated.toString();
+        }
         return new IssuePreview(body, strings(c.path("labels")), strings(c.path("evidence_quotes")));
+    }
+
+    private static String assigneeBody(JsonNode assignees) {
+        List<String> names = strings(assignees.path("names"));
+        String body = "- 회의록 담당자: " + (names.isEmpty() ? "없음" : String.join(", ", names));
+        List<String> github = strings(assignees.path("github"));
+        if (!github.isEmpty()) body += "\n- GitHub: " + String.join(", ", github.stream().map(n -> "@" + n).toList());
+        List<String> unresolved = strings(assignees.path("unresolved"));
+        if (!unresolved.isEmpty()) body += "\n- GitHub 계정 미매핑: " + String.join(", ", unresolved);
+        return body;
+    }
+
+    private static String dueBody(JsonNode due) {
+        String raw = text(due.path("text"));
+        String date = text(due.path("date"));
+        if (date == null) return raw == null ? "없음" : "없음 (원문: " + raw + ")";
+        String time = text(due.path("time"));
+        String value = date + (time == null ? "" : " " + time);
+        return value.equals(Objects.requireNonNullElse(raw, "")) ? value : value + " (원문: " + Objects.requireNonNullElse(raw, "") + ")";
     }
 
     private static Counts counts(List<DispatchTicket> tickets) {

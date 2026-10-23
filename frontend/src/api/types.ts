@@ -228,7 +228,7 @@ export interface TaskItemList {
 
 // 기획 4.2 티켓 상태
 export type TicketStatus =
-  | 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'REJECTED' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'FAILED'
+  | 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'PUBLISHING' | 'REJECTED' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'FAILED'
 export type ProcessingType = 'CREATE' | 'LINK' | 'UPDATE'
 export type PublishTarget = 'GITHUB' | 'SLACK' | 'NOTION'
 
