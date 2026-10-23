@@ -44,3 +44,11 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 }
+
+// ./gradlew bootRun은 기본으로 local 프로파일을 쓴다(기본 자격증명 허용). jar 실행은 시작 가드가 적용된다.
+// --args 또는 SPRING_PROFILES_ACTIVE로 프로파일을 지정하면 그 값이 우선한다.
+tasks.named('bootRun') {
+	if (System.getenv('SPRING_PROFILES_ACTIVE') == null) {
+		systemProperty 'spring.profiles.active', 'local'
+	}
+}
