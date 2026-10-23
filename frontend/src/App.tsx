@@ -301,16 +301,19 @@ function App() {
           {error && <p className="error" role="alert">{error}</p>}
           {meetingNotice && <p className="notice" role="status">{meetingNotice}</p>}
 
-          {step === 'upload' && (
-            <UploadForm
-              key={uploadKey}
-              projects={projects}
-              projectId={project?.projectId ?? null}
-              projectsLoading={projectsLoading}
-              onProjectChange={handleProjectChange}
-              starting={starting}
-              onStart={handleStart}
-            />
+          {/* 분석 중에도 마운트를 유지해 실패 시 입력값(날짜, 본문, 파일)을 보존한다. */}
+          {(step === 'upload' || step === 'analyzing') && (
+            <div hidden={step !== 'upload'}>
+              <UploadForm
+                key={uploadKey}
+                projects={projects}
+                projectId={project?.projectId ?? null}
+                projectsLoading={projectsLoading}
+                onProjectChange={handleProjectChange}
+                starting={starting}
+                onStart={handleStart}
+              />
+            </div>
           )}
 
           {step === 'analyzing' && taskId !== null && meeting && (
