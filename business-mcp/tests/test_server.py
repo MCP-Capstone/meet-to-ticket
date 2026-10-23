@@ -30,9 +30,9 @@ def fake_github(monkeypatch):
 
 @pytest.mark.anyio
 async def test_tools_registered_with_annotations():
-    # 도구 3개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
+    # 도구 4개가 등록되고, 쓰기·읽기 힌트와 필수 입력값이 맞는지 확인한다
     tools_ = {t.name: t.model_dump(by_alias=True) for t in await server.mcp.list_tools()}
-    assert sorted(tools_) == ["create_issue", "list_issues", "search_issues"]
+    assert sorted(tools_) == ["create_issue", "list_issues", "list_labels", "search_issues"]
 
     create = tools_["create_issue"]
     assert create["annotations"]["readOnlyHint"] is False
@@ -43,6 +43,10 @@ async def test_tools_registered_with_annotations():
     read = tools_["list_issues"]
     assert read["annotations"]["readOnlyHint"] is True
     assert set(read["inputSchema"]["required"]) == {"owner", "repo"}
+
+    labels = tools_["list_labels"]
+    assert labels["annotations"]["readOnlyHint"] is True
+    assert set(labels["inputSchema"]["required"]) == {"owner", "repo"}
 
     search = tools_["search_issues"]
     assert search["annotations"]["readOnlyHint"] is True
@@ -68,7 +72,17 @@ def test_tool_creates_issue_without_allowlist(monkeypatch, fake_github):
     fake_github(handler)
     out = tools.create_issue("any-owner", "any-repo", "t", "body")
     assert seen["path"] == "/repos/any-owner/any-repo/issues"
-    assert out == {"status": "created", "number": 1, "url": "u", "assignees": [], "dropped_assignees": []}
+    assert out == {"status": "created", "number": 1, "url": "u", "assignees": [], "dropped_assignees": [],
+                   "dropped_labels": []}
+
+
+def test_list_labels_tool(monkeypatch, fake_github):
+    # 허용된 저장소면 {"labels": [...]}를 돌려주고, 아니면 GitHub 호출 전에 막힌다
+    monkeypatch.setenv("GITHUB_ALLOWED_REPOS", "a/b")
+    fake_github(lambda r: httpx.Response(200, json=[{"name": "bug", "description": None}]))
+    assert tools.list_labels("a", "b") == {"labels": [{"name": "bug", "description": ""}]}
+    with pytest.raises(ToolError, match="REPOSITORY_NOT_ALLOWED"):
+        tools.list_labels("x", "y")
 
 
 def test_list_issues_tool(monkeypatch, fake_github):

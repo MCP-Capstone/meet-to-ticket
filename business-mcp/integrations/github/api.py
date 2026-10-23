@@ -188,6 +188,47 @@ def search_issues(
     return out[:limit]
 
 
+LABELS_PER_PAGE = 100  # GitHub가 허용하는 한 페이지 최대 개수
+
+
+def list_labels(client: httpx.Client, owner: str, repo: str) -> list[dict[str, Any]]:
+    """저장소에 있는 라벨 전체를 [{name, description}]로 돌려준다. Agent가 초안 라벨을 고를 때 쓴다."""
+    out = []
+    url: str | None = f"/repos/{owner}/{repo}/labels"
+    params: dict[str, Any] | None = {"per_page": LABELS_PER_PAGE}
+    while url:
+        resp = request(client, "GET", url, params=params)
+        out.extend({"name": item.get("name"), "description": item.get("description") or ""} for item in resp.json())
+        # 다음 페이지 주소는 Link 헤더에 조건까지 들어 있어 params를 다시 넘기지 않는다
+        url = resp.links.get("next", {}).get("url")
+        params = None
+    return out
+
+
+def split_labels(
+    client: httpx.Client, owner: str, repo: str, labels: list[str] | None
+) -> tuple[list[str], list[str]]:
+    """요청한 라벨을 저장소에 있는 것(저장소 표기로)과 없는 것으로 나눈다.
+
+    push 권한이 있는 토큰으로 없는 라벨을 넘기면 GitHub가 라벨을 새로 만들 수 있어, 보내기 전에 미리 뺀다.
+    GitHub 라벨 이름은 대소문자를 구분하지 않으므로 소문자로 비교한다.
+    """
+    wanted = [label.strip() for label in (labels or []) if label and label.strip()]
+    if not wanted:
+        return [], []
+    existing = {item["name"].lower(): item["name"] for item in list_labels(client, owner, repo) if item["name"]}
+    kept: list[str] = []
+    dropped: list[str] = []
+    for label in wanted:
+        name = existing.get(label.lower())
+        if name is None:
+            if label not in dropped:
+                dropped.append(label)
+        elif name not in kept:
+            kept.append(name)
+    return kept, dropped
+
+
 def create_issue(
     client: httpx.Client,
     owner: str,
@@ -199,6 +240,7 @@ def create_issue(
 ) -> dict[str, Any]:
     """이슈를 생성한다.
 
+    저장소에 없는 라벨은 빼고 만들고 dropped_labels로 알려 준다.
     담당자 지정이 거부되면(422) 담당자 없이 한 번 더 생성한다.
     GitHub가 권한 없는 담당자를 조용히 빼는 경우도 dropped_assignees로 알려 준다.
     """
@@ -215,8 +257,9 @@ def create_issue(
     # 빈 문자열 담당자는 GitHub가 422로 거부하므로 미리 걸러 낸다
     requested = [a.strip() for a in (assignees or []) if a and a.strip()]
     payload: dict[str, Any] = {"title": title, "body": body}
-    if labels:
-        payload["labels"] = [label for label in labels if label]
+    kept_labels, dropped_labels = split_labels(client, owner, repo, labels)
+    if kept_labels:
+        payload["labels"] = kept_labels
     if requested:
         payload["assignees"] = requested
 
@@ -238,4 +281,5 @@ def create_issue(
         "url": data.get("html_url"),
         "assignees": applied,
         "dropped_assignees": dropped,
+        "dropped_labels": dropped_labels,
     }
