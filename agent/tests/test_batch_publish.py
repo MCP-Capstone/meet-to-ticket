@@ -97,6 +97,23 @@ async def test_slack_notice_posts_once_and_mentions_only_connected_reviewers():
     assert publisher.calls == [("message", {"channel_id": "C123", "text": "@박서연 확인 부탁", "mentions": [{"name": "박서연", "slack_user_id": "U123"}]})]
 
 
+
+@pytest.mark.anyio
+async def test_slack_retry_after_unknown_outcome_does_not_post_again():
+    """post_message는 비멱등이라 결과 모름 뒤 재발행은 같은 공지를 다시 올리지 않는다 (#278)."""
+    publisher = BatchPublisher()
+    notice = ticket("notice", "CREATE")
+    notice.project = Project(github_owner="o", github_repo="r", slack_channel_id="C123")
+    notice.publish_target = "SLACK"
+    notice.content_json = {"slack": {"text": "회의 공지", "reviewers": []}}
+    notice.previous_outcome_unknown = True
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[notice]), publisher)
+
+    assert publisher.calls == []
+    item = out.items[0]
+    assert item.status == "FAILED" and item.error_code == "SLACK_VERIFY_REQUIRED" and item.retryable is False
+
 @pytest.mark.anyio
 async def test_batch_keeps_publish_success_when_post_publish_indexing_fails(settings, monkeypatch):
     """색인은 best-effort이므로 실패해도 이미 성공한 GitHub 발행 결과를 바꾸지 않는다."""
