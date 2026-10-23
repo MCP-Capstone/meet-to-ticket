@@ -167,8 +167,12 @@ class OpenAILLM:
         )
         return out.rows
 
-    async def draft(self, summary: str, items: list[dict[str, Any]]) -> list[DraftTicket]:
-        user = prompts.DRAFT_USER.format(summary=summary, items=json.dumps(items, ensure_ascii=False, indent=2))
+    async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None) -> list[DraftTicket]:
+        user = prompts.DRAFT_USER.format(
+            summary=summary,
+            labels="\n".join(f"- {x}" for x in labels or []) or "- 없음",
+            items=json.dumps(items, ensure_ascii=False, indent=2),
+        )
         out = await self._call("draft", [("system", prompts.DRAFT_SYSTEM), ("user", user)], "초안 작성")
         return out.tickets
 

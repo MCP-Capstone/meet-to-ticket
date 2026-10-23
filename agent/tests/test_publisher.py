@@ -48,9 +48,11 @@ def test_build_issue_body():
         "open_questions": ["질문"],
     }
     body = build_issue_body(ticket, "10min_1", "배경 문단")
-    for part in ["## 배경", "## 할 일", "- [ ] 조건1", "> 근거 문장", "2026-10-20 12:00 (원문: 2026-10-20 오전)",
-                 "@seoyeon-p", "관련 키: AUTH-112", "## 확인 필요", "회의: 10min_1 · work_key: 10m1-a1"]:
+    for part in ["## 작업 내용\n설명", "## 완료 조건\n- 조건1", "> 근거 문장", "2026-10-20 12:00 (원문: 2026-10-20 오전)",
+                 "@seoyeon-p", "## 관련 이슈", "관련 키: AUTH-112", "## 확인 필요",
+                 "<summary>회의 배경</summary>", "회의: 10min_1 · work_key: 10m1-a1"]:
         assert part in body
+    assert "## 상세 작업" not in body and "## 상위 이슈" not in body  # 값이 없는 칸은 생략
 
 
 class _Resp:
