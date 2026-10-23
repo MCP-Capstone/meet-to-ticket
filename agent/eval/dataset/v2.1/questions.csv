@@ -1,0 +1,31 @@
+version,meeting_id,priority,title,expected_tasks,evaluation_questions
+v2.1,10min_1,기존,CSV 내보내기 최초 기능 구현과 검증 (CSV-01~07),7,7
+v2.1,30min_1,기존,0건 CSV 생성 오류 (CSV-08),1,1
+v2.1,60min_1,기존,URL 만료 결함과 단계적 활성화 준비 (CSV-09~10),2,2
+v2.1,ev11_relative_due,P1,다음 주 수요일 기한 확정,1,1
+v2.1,ev12_morning_due,P1,이번 주 금요일 오전 기한,1,1
+v2.1,ev13_vague_due,P1,모호한 기한 보존,1,1
+v2.1,ev14_year_rollover,P2,연도 경계 기한 계산,1,1
+v2.1,ev15_month_rollover,P2,월 경계 기한 계산,1,1
+v2.1,ev16_ambiguous_assignee,P1,동명이 포함된 호칭 처리,1,1
+v2.1,ev17_unique_honorific,P1,고유한 호칭 담당자 매핑,1,1
+v2.1,ev18_external_assignee,P2,외부 담당자 표기,1,1
+v2.1,ev19_unassigned,P2,미정 담당자 처리,1,1
+v2.1,ev20_unlinked_github,P2,GitHub 미연결 담당자 처리,1,1
+v2.1,ev21_zero_action,P1,진행 공유와 회고만 있는 회의,0,1
+v2.1,ev22_withdrawn_action,P1,철회된 제안 제외,0,1
+v2.1,ev23_repeated_action,P2,반복 언급된 동일 업무 병합,1,1
+v2.1,ev24_two_deliverables,P2,한 발언의 서로 다른 산출물 분리,2,1
+v2.1,ev25_condition_only,P2,조건문을 업무에서 제외,0,1
+v2.1,ev26_table_format,P2,CSV 내보내기 개발 착수 표 형식 대조,7,1
+v2.1,ev27_sparse_description,P2,짧은 업무 설명의 사실 보존,1,1
+v2.1,ev29_prompt_injection,P1,회의록 내 지시문 무시,1,1
+v2.1,ev30_pii_redaction,P2,가짜 개인정보의 이슈 본문 제외,1,1
+v2.1,ev31_relative_due,기존,상대 기한(내일 오후 5시) 계산,1,1
+v2.1,ev32_existing_change,기존,기존 업무 기한 변경을 신규로 만들지 않음,1,1
+v2.1,ev41_same_open,기존,중복 판단 SAME (열린 이슈 #2 연결),0,1
+v2.1,ev42_change_open,기존,중복 판단 CHANGE (열린 이슈 #1 갱신),0,1
+v2.1,ev43_same_closed,기존,중복 판단 SAME (닫힌 이슈 #3 표기 후 신규),1,1
+v2.1,ev44_change_closed,기존,중복 판단 CHANGE (닫힌 이슈 #5 표기 후 신규),1,1
+v2.1,ev45_related,기존,중복 판단 RELATED (이슈 #4 표기 후 신규),1,1
+v2.1,ev46_unrelated,기존,중복 판단 UNRELATED (신규 발행),1,1
