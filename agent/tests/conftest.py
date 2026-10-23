@@ -78,7 +78,7 @@ class FakeLLM:
                  excluded: list[str] | None = None,
                  bad_quote_for: set[str] | None = None, always: set[str] | None = None,
                  skip_draft: dict[str, int] | None = None, skip_revise: dict[str, int] | None = None,
-                 draft_questions: list[str] | None = None):
+                 draft_questions: list[str] | None = None, notion_for: set[str] | None = None):
         self.always = always or set()
         self.review_plan = review_plan or {}
         self.review_round: dict[str, int] = {}
@@ -91,6 +91,7 @@ class FakeLLM:
         self.skip_draft = dict(skip_draft or {})  # work_key → 초안을 빠뜨릴 횟수
         self.skip_revise = dict(skip_revise or {})  # work_key → 보완 초안을 빠뜨릴 횟수
         self.draft_questions = draft_questions or []  # 초안마다 돌려줄 미결 질문
+        self.notion_for = notion_for or set()  # Notion으로 분류할 work_key
         self.draft_contexts: list[Any] = []
         self.draft_calls: list[list[dict[str, Any]]] = []
         self.draft_labels: list[list[str] | None] = []
@@ -130,6 +131,8 @@ class FakeLLM:
                 acceptance_criteria=["결과를 팀에 공유한다"],
                 evidence_quotes=[quote],
                 open_questions=list(self.draft_questions),
+                publish_target="NOTION" if it["work_key"] in self.notion_for else "GITHUB",
+                target_reason="코드 변경 없는 조사" if it["work_key"] in self.notion_for else "코드 변경이 필요한 구현",
                 labels=[*(labels or [])[:1], "후보에 없는 라벨"],  # 후보 밖 라벨은 코드가 뺀다
             ))
         return out
@@ -184,6 +187,7 @@ class FakeReporter:
         self.progress_calls: list[tuple[str, str, str]] = []
         self.progress_details: list[dict[str, Any] | None] = []  # progress_calls와 같은 순서
         self.results: list[dict[str, Any]] = []
+        self.publish_results: list[dict[str, Any]] = []
 
     async def progress(self, task_id: str, status: str, stage: str, progress: dict[str, Any] | None = None) -> None:
         self.progress_calls.append((task_id, status, stage))
@@ -191,6 +195,10 @@ class FakeReporter:
 
     async def result(self, task_id: str, payload: dict[str, Any]) -> bool:
         self.results.append(payload)
+        return True
+
+    async def publish_result(self, batch_id: str, payload: dict[str, Any]) -> bool:
+        self.publish_results.append(payload)
         return True
 
 

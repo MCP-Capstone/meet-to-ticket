@@ -7,7 +7,7 @@ import { Spinner } from './components/Spinner'
 import { Stepper } from './components/Stepper'
 import { UploadForm } from './components/UploadForm'
 import { api, ApiRequestError, onUnauthorized, useMock } from './api'
-import type { AnalysisTask, ExecutionMode, Meeting, Project, ProjectDetail, ProjectMember, TaskItemList, User } from './api'
+import type { AnalysisTask, ExecutionMode, Meeting, MeetingAnalysisInput, Project, ProjectDetail, ProjectMember, TaskItemList, User } from './api'
 
 type Step = 'upload' | 'analyzing' | 'result'
 
@@ -21,6 +21,11 @@ function App() {
   // undefined: 로그인 상태 확인 중, null: 로그인 안 함
   const [user, setUser] = useState<User | null | undefined>(undefined)
   const [authNotice, setAuthNotice] = useState<string | null>(null)
+  const [authCheckError, setAuthCheckError] = useState<string | null>(null)
+  const [authCheckAttempt, setAuthCheckAttempt] = useState(0)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const logoutPending = useRef(false)
   // 401 처리기 안에서 최신 로그인 상태를 보려고 ref에도 둔다.
   const loggedIn = useRef(false)
   const [page, setPage] = useState<'workflow' | 'project-editor'>('workflow')
@@ -29,7 +34,6 @@ function App() {
   const [editorProjectId, setEditorProjectId] = useState<number | null>(null)
   const [projectSavedMessage, setProjectSavedMessage] = useState<string | null>(null)
   const [projectSaving, setProjectSaving] = useState(false)
-  // 업로드 프로젝트 선택은 TASK-010에서 확장한다.
   const [project, setProject] = useState<Project | null>(null)
   const [members, setMembers] = useState<ProjectMember[]>([])
   const [executionMode, setExecutionMode] = useState<ExecutionMode | null>(null)
@@ -38,6 +42,11 @@ function App() {
   const [meeting, setMeeting] = useState<Meeting | null>(null)
   const [taskId, setTaskId] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
+  const startLock = useRef(false)
+  const runEpoch = useRef(0)
+  const activeRunId = useRef<string | null>(null)
+  const memberRequest = useRef(0)
+  const [meetingNotice, setMeetingNotice] = useState<string | null>(null)
   const [result, setResult] = useState<TaskItemList | null>(null)
   const [error, setError] = useState<string | null>(null)
   // 새 회의록을 올릴 때 업로드 화면을 처음 상태로 되돌리기 위한 키
@@ -49,11 +58,22 @@ function App() {
 
   // 새로고침해도 세션이 남아 있으면 로그인 상태를 이어간다.
   useEffect(() => {
+    let cancelled = false
     api
       .me()
-      .then(setUser)
-      .catch(() => setUser(null))
-  }, [])
+      .then((currentUser) => {
+        if (!cancelled) setUser(currentUser)
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        if (e instanceof ApiRequestError && e.status === 401) {
+          setUser(null)
+        } else {
+          setAuthCheckError('로그인 상태를 확인하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.')
+        }
+      })
+    return () => { cancelled = true }
+  }, [authCheckAttempt])
 
   // 로그인하면 프로젝트와 팀원을 불러온다.
   useEffect(() => {
@@ -67,12 +87,13 @@ function App() {
         setProjects(list.projects)
         const first = list.projects[0]
         if (!first) {
-          setProjectError('참여 중인 프로젝트가 없습니다. 프로젝트 설정에서 새 프로젝트를 등록할 수 있습니다.')
+          setProject(null)
+          setMembers([])
           return
         }
+        setProject(first)
         const memberList = await api.listMembers(first.projectId)
         if (cancelled) return
-        setProject(first)
         setMembers(memberList.members)
       } catch (e) {
         if (!cancelled && !isUnauthorized(e)) setProjectError(toMessage(e))
@@ -88,25 +109,65 @@ function App() {
 
   const toNames = (ids: number[]) => ids.map((id) => members.find((m) => m.projectMemberId === id)?.name ?? `#${id}`)
 
-  const handleStart = async (target: Meeting) => {
+  const handleProjectChange = (projectId: number) => {
+    const selected = projects.find((item) => item.projectId === projectId)
+    if (!selected || startLock.current) return
+    setProject(selected)
+    setMembers([])
+    setProjectError(null)
     setError(null)
+    const version = ++memberRequest.current
+    api.listMembers(projectId).then((result) => {
+      if (version === memberRequest.current) setMembers(result.members)
+    }).catch((e: unknown) => {
+      if (version === memberRequest.current && !isUnauthorized(e)) setProjectError(toMessage(e))
+    })
+  }
+
+  const handleStart = async (input: MeetingAnalysisInput) => {
+    if (!project || startLock.current) return
+    const projectId = project.projectId
+    const epoch = runEpoch.current
+    startLock.current = true
+    setError(null)
+    setMeetingNotice(null)
     setStarting(true)
     try {
-      const res = await api.startAnalysis(target.meetingId)
-      setMeeting(target)
+      const res = await api.requestMeetingAnalysis(projectId, input)
+      if (epoch !== runEpoch.current) return
+      activeRunId.current = res.taskId
+      setExecutionMode(res.executionMode)
+      // 접수 완료 후 메타데이터 조회가 실패해도 새 처리 요청을 보내지 않는다.
+      setMeeting({
+        meetingId: res.meetingId, projectId, meetingDate: input.meetingDate,
+        title: input.title?.trim() || input.file?.name.replace(/\.[^.]+$/, '') || `${input.meetingDate} 회의`,
+        participantIds: [], originalFilename: input.file?.name ?? '', readyForAnalysis: true,
+      })
       setTaskId(res.taskId)
       setStep('analyzing')
+      api.getMeeting(res.meetingId).then((detail) => {
+        if (epoch === runEpoch.current && activeRunId.current === res.taskId) setMeeting(detail)
+      }).catch((e: unknown) => {
+        if (epoch === runEpoch.current && activeRunId.current === res.taskId && !isUnauthorized(e)) {
+          setMeetingNotice('처리는 접수됐습니다. 회의 상세 정보를 불러오지 못해 입력한 정보로 표시합니다.')
+        }
+      })
     } catch (e) {
-      if (!isUnauthorized(e)) setError(toMessage(e))
+      if (epoch === runEpoch.current && !isUnauthorized(e)) setError(toMessage(e))
     } finally {
-      setStarting(false)
+      if (epoch === runEpoch.current) {
+        startLock.current = false
+        setStarting(false)
+      }
     }
   }
 
   // 끝난 작업은 FAILED여도 항목별 결과가 있을 수 있어 먼저 결과를 불러온다.
   const handleFinish = async (task: AnalysisTask) => {
+    if (activeRunId.current !== task.taskId) return
     try {
       const res = await api.getAnalysisItems(task.taskId)
+      if (activeRunId.current !== task.taskId) return
       if (task.status === 'FAILED' && res.items.length === 0) {
         setError(task.errorMessage ?? '분석에 실패했습니다.')
         setStep('upload')
@@ -115,7 +176,7 @@ function App() {
       setResult(res)
       setStep('result')
     } catch (e) {
-      if (!isUnauthorized(e)) {
+      if (activeRunId.current === task.taskId && !isUnauthorized(e)) {
         setError(task.errorMessage ?? toMessage(e))
         setStep('upload')
       }
@@ -123,6 +184,12 @@ function App() {
   }
 
   const reset = () => {
+    ++runEpoch.current
+    ++memberRequest.current
+    activeRunId.current = null
+    startLock.current = false
+    setStarting(false)
+    setMeetingNotice(null)
     setMeeting(null)
     setTaskId(null)
     setResult(null)
@@ -135,6 +202,7 @@ function App() {
   useEffect(() => {
     onUnauthorized(() => {
       if (loggedIn.current) setAuthNotice('로그인이 만료되었습니다. 다시 로그인해 주세요.')
+      setLogoutError(null)
       reset()
       setProject(null)
       setProjects([])
@@ -154,14 +222,28 @@ function App() {
   }
 
   const handleLogout = async () => {
-    await api.logout().catch(() => undefined)
-    reset()
-    setProject(null)
-    setProjects([])
-    setPage('workflow')
-    setProjectSavedMessage(null)
-    setMembers([])
-    setUser(null)
+    if (logoutPending.current) return
+    logoutPending.current = true
+    setLoggingOut(true)
+    setLogoutError(null)
+    try {
+      await api.logout()
+      reset()
+      setProject(null)
+      setProjects([])
+      setPage('workflow')
+      setProjectSavedMessage(null)
+      setMembers([])
+      setUser(null)
+    } catch (e) {
+      // 세션 만료는 기존 공통 처리기가 로그인 화면으로 전환한다.
+      if (!isUnauthorized(e)) {
+        setLogoutError('로그아웃하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.')
+      }
+    } finally {
+      logoutPending.current = false
+      setLoggingOut(false)
+    }
   }
 
   const handleProjectSaved = (detail: ProjectDetail) => {
@@ -197,15 +279,34 @@ function App() {
           {user && (
             <>
               <span className="user-name">{user.name}님</span>
-              <button className="link" onClick={handleLogout} disabled={projectSaving}>
-                로그아웃
+              <button className="link" onClick={handleLogout} disabled={projectSaving || starting || loggingOut}>
+                {loggingOut ? '로그아웃 중...' : '로그아웃'}
               </button>
             </>
           )}
         </div>
       </header>
 
-      {user === undefined && (
+      {user && logoutError && (
+        <div role="alert">
+          <p className="error">{logoutError}</p>
+          <button type="button" className="link" onClick={handleLogout} disabled={loggingOut || projectSaving}>
+            로그아웃 다시 시도
+          </button>
+        </div>
+      )}
+
+      {user === undefined && authCheckError && (
+        <div role="alert">
+          <p className="error">{authCheckError}</p>
+          <button type="button" className="primary" onClick={() => {
+            setAuthCheckError(null)
+            setAuthCheckAttempt((attempt) => attempt + 1)
+          }}>다시 시도</button>
+        </div>
+      )}
+
+      {user === undefined && !authCheckError && (
         <p className="loading">
           <Spinner size="sm" label="로그인 확인 중" /> 로그인 상태를 확인하고 있습니다...
         </p>
@@ -243,26 +344,26 @@ function App() {
 
       {user && page === 'workflow' && projectError && <p className="error">{projectError}</p>}
 
-      {user && page === 'workflow' && !project && !projectError && (
-        <p className="loading">
-          <Spinner size="sm" label="프로젝트 불러오는 중" /> 프로젝트를 불러오고 있습니다...
-        </p>
-      )}
-
-      {user && page === 'workflow' && project && (
+      {user && page === 'workflow' && (
         <>
           <Stepper current={stepIndex[step]} />
 
-          {error && <p className="error">{error}</p>}
+          {error && <p className="error" role="alert">{error}</p>}
+          {meetingNotice && <p className="notice" role="status">{meetingNotice}</p>}
 
-          {step === 'upload' && (
-            <UploadForm
-              key={uploadKey}
-              projectId={project.projectId}
-              toNames={toNames}
-              starting={starting}
-              onStart={handleStart}
-            />
+          {/* 분석 중에도 마운트를 유지해 실패 시 입력값(날짜, 본문, 파일)을 보존한다. */}
+          {(step === 'upload' || step === 'analyzing') && (
+            <div hidden={step !== 'upload'}>
+              <UploadForm
+                key={uploadKey}
+                projects={projects}
+                projectId={project?.projectId ?? null}
+                projectsLoading={projectsLoading}
+                onProjectChange={handleProjectChange}
+                starting={starting}
+                onStart={handleStart}
+              />
+            </div>
           )}
 
           {step === 'analyzing' && taskId !== null && meeting && (

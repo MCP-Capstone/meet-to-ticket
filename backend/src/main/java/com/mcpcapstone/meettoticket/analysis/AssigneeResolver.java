@@ -1,6 +1,7 @@
 package com.mcpcapstone.meettoticket.analysis;
 
 import com.mcpcapstone.meettoticket.project.ProjectMember;
+import com.mcpcapstone.meettoticket.user.User;
 
 import tools.jackson.databind.JsonNode;
 
@@ -11,6 +12,17 @@ import java.util.*;
 // GitHub 계정이 없는 멤버도 연결한다.
 final class AssigneeResolver {
     private AssigneeResolver() {}
+
+    // Slack 공지와 Notion 티켓은 담당자 대신 업로더에게 보낸다 (REQ-010, REQ-012).
+    // 업로더가 프로젝트 멤버가 아니면 담당 지정 필요로 남는다.
+    static Optional<ProjectMember> resolve(JsonNode content, List<ProjectMember> members, User uploader) {
+        String target = content.path("publish_target").asText("GITHUB");
+        if (!target.equals("SLACK") && !target.equals("NOTION")) return resolve(content, members);
+        if (uploader == null) return Optional.empty();
+        return members.stream()
+                .filter(m -> m.getUser() != null && m.getUser().getId().equals(uploader.getId()))
+                .findFirst();
+    }
 
     static Optional<ProjectMember> resolve(JsonNode content, List<ProjectMember> members) {
         JsonNode assignees = content.path("assignees");

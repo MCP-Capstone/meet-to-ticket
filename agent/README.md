@@ -293,7 +293,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 | 파일 | 역할 |
 |---|---|
-| `main.py` | FastAPI (`POST /runs`, `GET /runs/{task_id}` 진행 단계·결과, `POST /projects/check-members`, `GET /health`) |
+| `main.py` | FastAPI (`POST /runs`, 확인된 티켓용 `POST /publish`, `GET /runs/{task_id}` 진행 단계·결과, `POST /projects/check-members`, `GET /health`) |
 | `permissions.py` | 프로젝트 저장 시 멤버별 저장소 권한 확인. LLM 없이 MCP `check_member_permissions`를 호출 |
 | `cli.py` | 백엔드 없이 회의 요약 파일로 바로 실행 |
 | `runner.py` | 요청 1건 실행 (MCP 연결, 그래프 실행) |
@@ -416,6 +416,47 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 결과의 `content_json.issue_body`에는 발행할 때와 같은 방법으로 조립한 이슈 본문이 들어간다. 발행 전에 초안을 저장하거나 미리보기를 보여줄 때 쓴다. 본문에는 회의록 원문(근거, 배경)과 `<details>` HTML이 들어 있으므로, 미리보기에서 HTML로 그릴 때는 반드시 sanitize한다 (스크립트, 이벤트 속성 제거).
 
+### 프로젝트 맥락 (TASK-019)
+
+그래프를 시작하기 전에 프로젝트 맥락을 한 번 불러온다 (`runner.load_context`, `CONTEXT_TIMEOUT_SECONDS` 안에서). 실패하거나 시간을 넘기면 그때까지 얻은 값(이미 읽은 문서 포함)만 쓰고 처리는 그대로 한다. 색인 갱신과 맥락 불러오기는 오래 걸릴 수 있어서, 시작하자마자 진행 화면에 "맥락 파악"(`context`의 개수는 `null`)을 먼저 보고하고 불러온 뒤 개수를 채워 다시 보고한다.
+
+| 맥락 | 불러오는 곳 | 쓰는 곳 |
+|---|---|---|
+| 프로젝트 멤버 | 요청의 `projectMembers` | 담당자 연결 (REQ-010), 진행 화면 `context.members` |
+| 기존 이슈 수 | rag-mcp `index_status` | 진행 화면 `context.issues` |
+| Notion 기획 문서 | business-mcp `list_pages`, `read_page` (요청의 `project.notionPageUrl`) | 초안 작성의 배경, 진행 화면 `context.notionDocs`(기획 페이지 아래 문서 수) |
+
+Notion 기획 문서는 회의록과 관련 있는 문서만 읽는다 (AI-MCP 합의, `context.py`).
+
+- 제목의 단어가 회의록에 나오는 문서를 많이 겹치는 순서로 읽는다. LLM을 부르지 않는다
+  - "회의, 기획, 정리, 문서, 개발" 같은 흔한 단어는 쓰지 않는다 (`context.STOPWORDS`)
+  - 영문·숫자는 단어 경계로 비교하고("UI"가 "build"에 걸리지 않게), 한국어는 조사가 붙으므로 회의록에 들어 있는지로 본다
+  - 기획 페이지 바로 아래 문서만 본다 (MCP `list_pages` 범위). 한 단계 더 깊은 문서는 읽지 않는다
+- 문서당 4,000자, 전체 12,000자에서 멈춘다. "회의 후속 티켓" 폴더는 MCP가 목록에서 뺀다
+- 읽은 문서는 **초안 작성에만** 배경으로 넣는다 (`[프로젝트 기획 문서]`). 할 일 추출에는 넣지 않는다 (회의에서 정하지 않은 할 일을 기획 문서에서 지어내지 않게)
+- 회의록과 기획 문서의 내용(범위, 일정, 담당, 수치)이 다르면 회의록을 따르게 한다. 기획 문서는 회의 전에 쓴 내용일 수 있다
+- 근거 인용은 여전히 회의록 원문만 남는다 (원문 대조). 검수 4번(원문에 없는 내용)은 기획 문서에 있는 문구를 지적하면 인정하지 않는다
+
+### 발행 대상 분류와 Slack·Notion 출력문 (TASK-020, TASK-021)
+
+초안 작성 LLM이 할 일마다 발행 대상과 한 줄 사유를 함께 낸다 (LLM 호출 추가 없음, 기획 1.7.1).
+
+- 코드 변경이 한 부분이라도 필요한 업무(구현, 버그 수정, 리팩터링, 배포, 테스트 코드 작성) → `GITHUB`
+- 코드 변경이 필요 없는 업무(디자인, 기획, 문서 작성, 조사) → `NOTION`. 라벨은 쓰지 않는다
+- 담당자의 직군은 기준으로 쓰지 않는다. 분류는 제안이고 담당자가 카드에서 바꿀 수 있다 (TASK-031)
+- 중복 판단은 `GITHUB` 티켓만 한다 (기획 1.7.2)
+- `PUBLISH_ON_RUN=true`(Phase 1 baseline)는 분류와 상관없이 GitHub로만 발행하고 공지를 만들지 않는다
+
+결과 `contentJson`에는 `publish_target`(`GITHUB`/`NOTION`/`SLACK`)과 `target_reason`이 들어가고, 대상별 출력문이 붙는다.
+
+| 대상 | 출력문 | 만드는 곳 |
+|---|---|---|
+| `GITHUB` | `issue_body` (위 "이슈 출력문") | `publisher.build_issue_body` |
+| `NOTION` | `notion_page.{title, markdown}`. `create_page(root, title, markdown)`에 그대로 넘긴다. GitHub 전용 칸(라벨, 관련·상위 이슈, @계정)은 없다 | `publisher.build_notion_page` |
+| `SLACK` | 회의 하나당 공지 티켓 하나(`work_key`: `<회의 ID>-notice`). `slack.text`와 `slack.reviewers` | `publisher.build_slack_notice` |
+
+Slack 공지는 코드가 만든다 (LLM 없음). 결정 사항, 새 작업 수(GitHub 이슈·Notion 페이지)와 기존 이슈 연결 수, 검토 요청을 담는다. 검토 요청은 실제로 티켓을 받는 사람과 맞춘다: GitHub 티켓은 회의록 담당자가 프로젝트 멤버 1명과 정확히 연결될 때만 "@이름 N건"(백엔드 `AssigneeResolver`와 같은 규칙), 나머지는 "담당 지정 필요 N건", Notion 티켓은 "Notion 페이지 N건 (업로더 확인)"이다. 게시할 때(#151) Slack 연결이 확인된 담당자만 `post_message`의 `mentions`로 넘겨 멘션되고, 나머지는 이름 텍스트로 남는다. 할 일이 없어도 결정 사항이 있으면 공지를 만든다. 백엔드는 `publish_target`을 티켓의 발행 대상 칸에 저장하고(GitHub 이외는 처리 유형이 항상 신규 발행), Slack 공지와 Notion 티켓을 업로더의 내 티켓으로 보낸다 (REQ-012).
+
 ### Harness 명세
 
 모델이 제안만 하고 실행·한도·기록·복구는 Agent 코드가 맡는다. 요소별 구현과 값은 아래와 같다. 값을 바꾸면 이 표도 고친다.
@@ -494,7 +535,7 @@ curl -X POST "http://127.0.0.1:8001/runs?wait=true" -H "Content-Type: applicatio
 python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이 같은 입력으로 실행
 ```
 
-요청 주요 필드: `taskId`, `meeting.{meetingId, title, meetingDate, timezone, participantIds, originalFilename, originalContent}`, `project.{githubOwner, githubRepo}`, `projectMembers[].{projectMemberId, userId, name, githubName}`
+요청 주요 필드: `taskId`, `meeting.{meetingId, title, meetingDate, timezone, participantIds, originalFilename, originalContent}`, `project.{githubOwner, githubRepo, notionPageUrl}`, `projectMembers[].{projectMemberId, userId, name, githubName}`
 
 결과(응답·백엔드 보고)도 camelCase: `taskId`, `status`, `stage`, `errorCode`, `errorMessage`, `summary`, `items[].{taskItemId, workKey, title, contentJson, action, reason, reviewStatus, publishStatus, githubIssueNumber, githubIssueUrl, errorMessage}`, `traceId`, `metrics`
 
@@ -520,7 +561,7 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 
 | `step` | 화면 단계 | 함께 오는 값 |
 |---|---|---|
-| `CONTEXT` | 맥락 파악 | `context.members`. `issues`, `notionDocs`는 맥락 파악(TASK-019)이 생기기 전까지 `null` |
+| `CONTEXT` | 맥락 파악 | `context.{members, issues, notionDocs}`. 기존 이슈 색인이나 Notion을 쓰지 못하면 그 값은 `null` (아래 "프로젝트 맥락") |
 | `EXTRACTING` | 티켓 추출 (초안 작성·검수 포함) | `extraction.{todos, decisions, openQuestions}` |
 | `DEDUPING` | 중복 검수 | `dedupe.{done, total, linked}`. 티켓 하나를 판단할 때마다 보고한다. 중복 판단이 꺼져 있으면 이 단계는 오지 않는다 (기획 3.1) |
 | `DISPATCHING` | 담당자에게 전송 | 결과를 보내기 직전에 보고한다 (초안 저장 모드만) |
@@ -652,7 +693,7 @@ for t in out["tickets"]:
 
 #### 발행 처리 (현재 발행 노드)
 
-일괄 발행(TASK-034)으로 옮기기 전까지 그래프의 발행 노드는 아래처럼 동작한다. `UPDATE`(CHANGE + 열린 이슈)도 지금은 새로 발행한다.
+`POST /publish`가 확인된 티켓만 별도 일괄 발행한다. 요청에는 백엔드가 발급한 `batchId`, 프로젝트별 저장소, 카드에서 편집된 `contentJson`, 확정 처리 유형과 대상 이슈 번호가 들어간다. Agent는 저장소별 재대조 뒤 `CREATE`는 `create_issue`, `LINK`는 `add_comment`, `UPDATE`는 `update_issue`를 코드로 호출하고 `/internal/publish-batches/{batchId}/result`에 결과를 보고한다. 같은 batchId는 다시 실행하지 않는다.
 
 | 판단 | 기존 이슈가 열려 있음 | 기존 이슈가 닫혀 있음 |
 |---|---|---|

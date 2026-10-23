@@ -5,6 +5,7 @@ import com.mcpcapstone.meettoticket.common.*;
 import com.mcpcapstone.meettoticket.common.error.*;
 import com.mcpcapstone.meettoticket.meeting.*;
 import com.mcpcapstone.meettoticket.project.*;
+import com.mcpcapstone.meettoticket.project.dto.ProjectDetail;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -58,7 +59,11 @@ public class AnalysisStore {
                                 project.getId(),
                                 project.getName(),
                                 project.getGithubOwner(),
-                                project.getGithubRepo()),
+                                project.getGithubRepo(),
+                                // 연결 오류가 확인된 Notion은 보내지 않는다. 확인 전(null)이면 보내고, 실패하면 Agent가 맥락 없이 진행한다
+                                project.notionConnectionStatus() == ProjectDetail.ConnectionStatus.ERROR
+                                        ? null
+                                        : project.getNotionPageUrl()),
                         all.stream()
                                 .map(
                                         x ->
@@ -122,7 +127,8 @@ public class AnalysisStore {
                     continue;
                 }
                 var saved = new TaskItem(t, item, json.write(item.contentJson()));
-                saved.assignTo(AssigneeResolver.resolve(item.contentJson(), projectMembers).orElse(null));
+                saved.assignTo(AssigneeResolver.resolve(
+                        item.contentJson(), projectMembers, t.getMeeting().getCreatedBy()).orElse(null));
                 items.save(saved);
             }
         }

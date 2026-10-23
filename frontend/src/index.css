@@ -755,6 +755,58 @@ button.secondary {
   .project-candidates li > span { min-width: 0; }
 }
 
+/* 회의록 처리 요청 (TASK-010) */
+.upload-fields,
+.upload-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.upload-fields {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.upload-settings select {
+  font: inherit;
+  font-weight: 400;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 12px;
+  width: 100%;
+  min-width: 0;
+}
+.upload-settings input { min-width: 0; }
+.upload-project-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 13px;
+}
+.upload-project-summary > div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+}
+.upload-project-summary dt { color: var(--muted); }
+.upload-project-summary dd { margin: 0; overflow-wrap: anywhere; }
+.dropzone:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (max-width: 560px) {
+  .upload-settings { grid-template-columns: minmax(0, 1fr); }
+  .upload-form .tabs button { padding: 10px 6px; font-size: 13px; }
+  .upload-project-summary > div { grid-template-columns: 84px minmax(0, 1fr); gap: 8px; }
+}
+
 /* 프로젝트 역할 (TASK-056 화면 / #172) */
 .project-member-role {
   display: flex;

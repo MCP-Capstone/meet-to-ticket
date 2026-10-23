@@ -29,6 +29,8 @@ class Project(CamelModel):
     name: str = Field("", description="프로젝트 또는 팀원 이름")
     github_owner: str = Field(description="GitHub 소유자 또는 조직")
     github_repo: str = Field(description="GitHub 저장소명")
+    notion_page_url: str | None = Field(None, description="맥락으로 읽을 Notion 기획 페이지 URL. 없으면 Notion 맥락 없이 진행")
+    slack_channel_id: str | None = Field(None, description="프로젝트 Slack 공지 채널 ID")
 
 
 class Meeting(CamelModel):
@@ -61,6 +63,56 @@ class MemberPermissionOut(CamelModel):
 
 class CheckMembersResponse(CamelModel):
     members: list[MemberPermissionOut]
+
+
+# ---------------------------------------------------------------- 일괄 발행 API (TASK-034)
+
+ProcessingType = Literal["CREATE", "LINK", "UPDATE"]
+PublishTarget = Literal["GITHUB", "SLACK", "NOTION"]
+
+
+class PublishTicket(CamelModel):
+    """백엔드가 확인(CONFIRMED) 상태인 티켓만 골라 Agent에 넘기는 단위."""
+
+    ticket_id: str = Field(description="백엔드 task_items의 UUID. 결과에서 그대로 돌려준다")
+    project: Project = Field(description="티켓이 속한 프로젝트. 한 일괄 요청에는 여러 프로젝트가 섞일 수 있다")
+    meeting_id: int | str = Field(description="이슈 본문과 연결·갱신 문안에 남길 회의 ID")
+    meeting_title: str = Field("", description="연결·갱신 문안에 남길 회의 제목")
+    meeting_date: dt.date | None = Field(None, description="연결·갱신 문안의 회의 날짜")
+    title: str = Field(description="담당자가 확정한 GitHub 이슈 제목")
+    content_json: dict[str, Any] = Field(description="담당자가 수정한 description, tasks, due, assignees, 근거 등의 티켓 내용")
+    processing_type: ProcessingType = Field(description="확정 처리 유형: CREATE(신규), LINK(댓글 연결), UPDATE(본문 끝 갱신)")
+    target_issue_number: int | None = Field(None, ge=1, description="LINK/UPDATE 대상 기존 이슈 번호")
+    processing_type_edited: bool = Field(False, description="담당자가 처리 유형을 직접 바꿨으면 재대조가 덮어쓰지 않는다")
+    publish_target: PublishTarget = Field("GITHUB", description="GitHub 이슈 또는 회의 결과 Slack 공지")
+    slack_members: list[dict[str, str]] = Field(default_factory=list, description="name과 slack_user_id가 있는 연결 완료 Slack 사용자. 공지 멘션에만 쓴다")
+    review_status: Literal["CONFIRMED"] = Field(description="백엔드는 CONFIRMED 티켓만 보낸다")
+
+
+class PublishBatchRequest(CamelModel):
+    batch_id: str = Field(description="백엔드가 발급한 발행 묶음 ID. 같은 ID는 중복 발행하지 않는다")
+    tickets: list[PublishTicket] = Field(min_length=1, description="사용자가 확인한 티켓 목록")
+
+
+class PublishItemResult(CamelModel):
+    ticket_id: str
+    processing_type: ProcessingType = Field(description="발행 직전 재대조 뒤 실제 실행한 유형")
+    status: Literal["PUBLISHED", "LINKED", "UPDATED", "POSTED", "FAILED", "UNKNOWN"]
+    github_issue_number: int | None = None
+    github_issue_url: str | None = None
+    comment_url: str | None = Field(None, description="LINK 댓글 또는 UPDATE 알림 댓글 URL")
+    message_url: str | None = Field(None, description="Slack 공지 메시지 링크")
+    dropped_labels: list[str] = Field(default_factory=list)
+    error_code: str | None = None
+    error_message: str | None = None
+    retryable: bool = False
+
+
+class PublishBatchResult(CamelModel):
+    batch_id: str
+    status: Literal["SUCCEEDED", "PARTIAL_FAILED", "FAILED"]
+    summary: dict[str, int]
+    items: list[PublishItemResult]
 
 
 # ---------------------------------------------------------------- API 출력 (TASK_ITEMS)
@@ -158,6 +210,9 @@ class DraftTicket(BaseModel):
     evidence_quotes: list[str] = Field(description="근거가 되는 회의 요약 원문 문장을 글자 그대로 1~3개")
     open_questions: list[str] = Field(description="이 할 일과 관련된 미결 질문 원문. 없으면 빈 목록")
     labels: list[str] = Field(description="라벨 후보 중에서만 고른 0~3개. 후보가 없거나 맞는 라벨이 없으면 빈 목록")
+    publish_target: Literal["GITHUB", "NOTION"] = Field(
+        "GITHUB", description="발행 대상. 코드 변경이 한 부분이라도 필요하면 GITHUB, 코드 변경이 필요 없으면 NOTION")
+    target_reason: str = Field("", description="발행 대상을 고른 한 줄 사유")
 
 
 class DraftBatch(BaseModel):

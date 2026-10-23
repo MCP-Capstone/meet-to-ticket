@@ -20,9 +20,10 @@ from typing import Any
 
 import prompts
 from config import Settings
+from context import planning_text
 from extraction import NO_EVIDENCE_WARNING, from_llm, from_table, keep_verbatim
 from parsing import parse_summary
-from publisher import ToolCallError, build_issue_body, pick_labels
+from publisher import ToolCallError, build_issue_body, build_notion_page, build_slack_notice, pick_labels
 from resolve import classify_expected, map_assignees, normalize_ws, parse_due
 from schemas import ExtractedTodo, ProjectMember, RunResult
 from state import (
@@ -34,6 +35,9 @@ from state import (
     STEP_DEDUPING,
     STEP_DISPATCHING,
     STEP_EXTRACTING,
+    TARGET_GITHUB,
+    TARGET_NOTION,
+    TARGET_SLACK,
     TASK_TIMEOUT,
     ADVISORY_ITEMS,
     LLM_ITEMS,
@@ -137,6 +141,9 @@ def new_ticket(todo: ExtractedTodo, members: list[ProjectMember], meeting_date: 
         "acceptance_criteria": [],
         "evidence_quotes": list(todo.evidence_quotes),
         "labels": [],
+        # 발행 대상과 사유 (기획 1.7.1). 초안 작성에서 정한다. 담당자가 카드에서 바꿀 수 있다 (TASK-031)
+        "publish_target": TARGET_GITHUB,
+        "target_reason": None,
         "open_questions": [],
         "review_status": REVIEW_PENDING,
         "failed_items": [],
@@ -194,7 +201,10 @@ class AgentNodes:
     async def prepare(self, state: AgentState) -> dict[str, Any]:
         # 맥락 파악: 지금은 프로젝트 멤버만 받는다. 기존 이슈·Notion 문서 수는 맥락 파악(TASK-019)이 생기면 채운다
         context = self._step(state, STEP_CONTEXT,
-                             context={"members": len(state.get("members", [])), "issues": None, "notionDocs": None})
+                             context={"members": len(state.get("members", [])),
+                                      # runner가 불러온 맥락 (TASK-019). 기능이 꺼져 있거나 실패하면 None
+                                      "issues": (state.get("context") or {}).get("issues"),
+                                      "notionDocs": (state.get("context") or {}).get("notionDocs")})
         await self._progress(state, STAGE_EXTRACTING, context)
         await self._progress(state, STAGE_EXTRACTING, {**context, "step": STEP_EXTRACTING})
         limit = self.settings.max_source_chars
@@ -251,6 +261,8 @@ class AgentNodes:
         context = {
             "decisions": [d["content"] for d in state.get("decisions", [])],
             "open_questions": state.get("open_questions", []),
+            # Notion 기획 문서 (TASK-019). 배경 설명에만 쓰고 근거로 인용하지 않는다
+            "planning": planning_text(state.get("planning_docs") or []),
         }
         targets = [
             t for t in tickets
@@ -289,7 +301,9 @@ class AgentNodes:
                     t["revisions"] += 1
                     t["review_status"] = REVIEW_PENDING
                 if d is not None:
-                    self._apply_draft(t, d, labels, state["original_content"], context["open_questions"])
+                    # Phase 1 흐름(PUBLISH_ON_RUN)은 분류하지 않고 GitHub로만 발행한다 (baseline 재현)
+                    self._apply_draft(t, d, labels, state["original_content"], context["open_questions"],
+                                      classify=not self.settings.publish_on_run)
                 elif t["revisions"] < self.settings.max_revisions:
                     # 초안이 빠진 할 일은 검수로 보내지 않고 다시 작성한다 (보완 한도를 같이 쓴다).
                     # 보완 중이던 티켓은 같은 피드백으로 다시 쓴다. 한도에 닿으면 검수가 처리한다
@@ -300,7 +314,8 @@ class AgentNodes:
         return {"tickets": tickets}
 
     @staticmethod
-    def _apply_draft(t: dict[str, Any], d: Any, labels: list[str], source: str, open_questions: list[str]) -> None:
+    def _apply_draft(t: dict[str, Any], d: Any, labels: list[str], source: str, open_questions: list[str],
+                     classify: bool = True) -> None:
         # 초안 단계 경고는 초안을 다시 쓸 때마다 새로 계산한다 (보완할 때 같은 경고가 쌓이지 않게)
         t["warnings"] = [w for w in t["warnings"] if not w.startswith(DRAFT_WARNING_PREFIXES)]
         t["title"] = d.title.strip()
@@ -318,6 +333,13 @@ class AgentNodes:
             t["evidence_quotes"] = kept
         if t["evidence_quotes"]:
             t["warnings"] = [w for w in t["warnings"] if w != NO_EVIDENCE_WARNING]
+        if classify:
+            t["publish_target"] = d.publish_target
+            t["target_reason"] = d.target_reason.strip() or None
+        if t["publish_target"] == TARGET_NOTION:
+            # 라벨은 GitHub 이슈에만 쓴다
+            t["labels"] = []
+            t["warnings"] = [w for w in t["warnings"] if not w.startswith(LABEL_WARNING)]
         allowed = {normalize_ws(q): q for q in open_questions}
         picked = [allowed[k] for q in d.open_questions if (k := normalize_ws(q)) in allowed]
         if len(picked) < len([q for q in d.open_questions if q.strip()]):
@@ -344,7 +366,8 @@ class AgentNodes:
             t["warnings"].append(f"기한({due_date})이 회의일({meeting_date})보다 이름")
         return fails
 
-    def _verify_checks(self, t: dict[str, Any], checks: list[Any], source: str, excluded: list[str]) -> list[dict[str, Any]]:
+    def _verify_checks(self, t: dict[str, Any], checks: list[Any], source: str, excluded: list[str],
+                       planning: str = "") -> list[dict[str, Any]]:
         """LLM 검수 지적을 코드로 걸러 확실한 것만 실패로 인정한다."""
         draft_text = normalize_ws(" ".join([t["title"], t["description"], *t["tasks"], *t["acceptance_criteria"]]))
         src = normalize_ws(source)
@@ -356,8 +379,9 @@ class AgentNodes:
             quote = normalize_ws(c.quote)
             if not quote or quote not in draft_text:
                 continue  # 초안에서 인용하지 못한 지적은 무시
-            if c.item == 4 and quote in src:
-                continue  # 원문에 있는 문구를 "원문에 없다"고 한 지적은 무시
+            if c.item == 4 and (quote in src or (planning and quote in normalize_ws(planning))):
+                # 원문이나 Notion 기획 문서(배경으로 준 맥락)에 있는 문구를 "원문에 없다"고 한 지적은 무시
+                continue
             if c.item == 2 and not excluded:
                 continue  # 제외·보류 항목이 없는 회의
             if c.item in ADVISORY_ITEMS:
@@ -502,7 +526,8 @@ class AgentNodes:
                     t["review_notes"] = t.get("review_notes", []) + ["검수 결과가 누락되어 코드 점검만 적용함"]
                     llm_fails[t["task_item_id"]] = []
                     continue
-                llm_fails[t["task_item_id"]] = self._verify_checks(t, r.checks, source, state.get("excluded", []))
+                llm_fails[t["task_item_id"]] = self._verify_checks(
+                    t, r.checks, source, state.get("excluded", []), planning_text(state.get("planning_docs") or []))
 
         for t in to_llm:
             self._decide(t, code_fails.get(t["task_item_id"], []) + llm_fails.get(t["task_item_id"], []))
@@ -525,7 +550,9 @@ class AgentNodes:
         판단이 없거나 실패한 티켓은 그냥 새로 발행한다.
         """
         tickets = _copy(state["tickets"])
-        targets = [t for t in tickets if t["review_status"] == REVIEW_APPROVED]
+        # 중복 판단은 GitHub로 분류된 티켓만 한다 (기획 1.7.2)
+        targets = [t for t in tickets
+                   if t["review_status"] == REVIEW_APPROVED and t.get("publish_target", TARGET_GITHUB) == TARGET_GITHUB]
         rag = (state.get("rag") or {}).get("status", "disabled")
         if not targets or rag == "disabled":
             return {"tickets": tickets}  # 중복 검수 단계를 보여주지 않는다 (기능이 꺼짐, 기획 3.1)
@@ -681,8 +708,13 @@ class AgentNodes:
                     },
                     "warnings": t["warnings"],
                     "dedupe": t.get("dedupe"),
-                    # 발행할 때 쓰는 것과 같은 이슈 본문. 발행 전 초안 저장과 미리보기에 쓴다
-                    "issue_body": build_issue_body(t, state["meeting_id"], state.get("background", "")),
+                    "publish_target": t.get("publish_target", TARGET_GITHUB),
+                    "target_reason": t.get("target_reason"),
+                    # 발행할 때 쓰는 것과 같은 본문. 발행 전 초안 저장과 미리보기에 쓴다
+                    "issue_body": build_issue_body(t, state["meeting_id"], state.get("background", ""))
+                    if t.get("publish_target", TARGET_GITHUB) == TARGET_GITHUB else None,
+                    "notion_page": build_notion_page(t, state["meeting_id"], state.get("background", ""))
+                    if t.get("publish_target") == TARGET_NOTION else None,
                 },
                 "action": t["action"],
                 "reason": t["reason"],
@@ -692,6 +724,8 @@ class AgentNodes:
                 "github_issue_url": t["github_issue_url"],
                 "error_message": t["error_message"],
             })
+        if draft and (tickets or state.get("decisions")):
+            items.append(self._slack_notice(state, tickets))
         summary = {
             "total": len(items),
             "drafts": sum(1 for i in items if i["publish_status"] == PUBLISH_DRAFT),
@@ -714,6 +748,38 @@ class AgentNodes:
             "trace_id": state.get("trace_id"),
             "metrics": {**run_metrics(self.settings, self.llm, state.get("started_at"), state.get("rag")),
                         **_dedupe_metrics(tickets)},
+        }
+
+    @staticmethod
+    def _slack_notice(state: AgentState, tickets: list[dict[str, Any]]) -> dict[str, Any]:
+        """회의 결과 공지 티켓 (기획_v16 REQ-022). 회의 하나당 하나이고, 받는 사람은 업로더다 (REQ-010)."""
+        decisions = [d["content"] for d in state.get("decisions", [])]
+        notice = build_slack_notice(state.get("meeting_title", ""), state.get("meeting_date"), decisions, tickets,
+                                    linked=sum(1 for t in tickets if _open_same_issue(t)),
+                                    members=[m["name"] for m in state.get("members", [])])
+        title = f"회의 결과 공지: {state.get('meeting_title') or state['meeting_id']}"
+        return {
+            # 같은 작업은 같은 ID라서 다시 보고해도 공지가 두 개 저장되지 않는다
+            "task_item_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"meet-to-ticket:{state['task_id']}:slack-notice")),
+            "work_key": f"{state['meeting_id']}-notice",
+            "title": title[:255],
+            "content_json": {
+                "publish_target": TARGET_SLACK,
+                "target_reason": "회의 결과 공지는 Slack으로 보낸다 (기획 1.7.1)",
+                "description": notice["text"],
+                "slack": notice,
+                "decisions": decisions,
+                "assignees": {"names": [], "github": [], "unresolved": []},
+                "warnings": [],
+                "dedupe": None,
+            },
+            "action": "CREATE",
+            "reason": "회의 결과 공지",
+            "review_status": REVIEW_PENDING,
+            "publish_status": PUBLISH_DRAFT,
+            "github_issue_number": None,
+            "github_issue_url": None,
+            "error_message": None,
         }
 
     async def finish(self, state: AgentState) -> dict[str, Any]:

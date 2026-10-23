@@ -20,6 +20,11 @@ STEP_DISPATCHING = "DISPATCHING"  # 담당자에게 전송 (결과 보고)
 # 회의록 처리는 발행하지 않고 초안으로 끝난다. 담당자가 확인한 티켓만 일괄 발행한다 (TASK-034)
 PUBLISH_DRAFT = "DRAFT"
 
+# 발행 대상 (기획_v16 1.7.1, REQ-021). 할 일은 GitHub 또는 Notion으로 분류하고, Slack은 회의당 공지 하나다
+TARGET_GITHUB = "GITHUB"
+TARGET_NOTION = "NOTION"
+TARGET_SLACK = "SLACK"
+
 # 작업 상태 (ANALYSIS_TASKS.status)
 STATUS_RUNNING = "RUNNING"
 STATUS_SUCCEEDED = "SUCCEEDED"
@@ -87,6 +92,10 @@ class AgentState(TypedDict, total=False):
     # 비어 있으면 설정 ISSUE_LABELS를 쓴다
     label_candidates: list[str]
     background: str
+    meeting_title: str          # Slack 공지 제목에 쓴다
+    # 프로젝트 맥락 (TASK-019). runner가 그래프 전에 불러온다
+    context: dict[str, Any]     # {"issues": 색인 개수, "notionDocs": 기획 문서 수}. 모르면 None
+    planning_docs: list[dict[str, str]]  # 읽은 Notion 기획 문서 {"title", "text"}. 초안 작성의 배경으로만 쓴다
     progress: dict[str, Any]    # 진행 화면용 세부 정보 (step, context, extraction, dedupe)
     decisions: list[dict[str, Any]]  # 결정 사항 (schemas.ExtractedDecision)
     open_questions: list[str]

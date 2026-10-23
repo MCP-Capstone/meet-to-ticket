@@ -24,10 +24,10 @@ from config import load_env, load_settings  # noqa: E402
 
 load_env()
 from reporter import BackendReporter  # noqa: E402
-from runner import history, run, stored_result  # noqa: E402
+from runner import history, run, run_publish_batch, stored_result  # noqa: E402
 from permissions import check_members  # noqa: E402
 from publisher import ToolCallError  # noqa: E402
-from schemas import CheckMembersRequest, CheckMembersResponse, RunRequest  # noqa: E402
+from schemas import CheckMembersRequest, CheckMembersResponse, PublishBatchRequest, RunRequest  # noqa: E402
 from state import STAGE_EXTRACTING  # noqa: E402
 from api_docs import (  # noqa: E402
     CHECK_MEMBERS_EXAMPLE, CHECK_MEMBERS_RESPONSES, DESCRIPTION, HEALTH_RESPONSES, HISTORY_RESPONSES, JOB_RESPONSES, REQUEST_EXAMPLE, RUN_RESPONSES,
@@ -47,6 +47,7 @@ app = FastAPI(
 app.state.overrides = {}  # 테스트에서 llm, publisher, reporter, settings를 바꿔 넣는다
 
 _jobs: dict[str, dict[str, Any]] = {}
+_publish_jobs: dict[str, dict[str, Any]] = {}
 _tasks: set[asyncio.Task] = set()
 
 
@@ -96,6 +97,23 @@ async def _execute(req: RunRequest) -> dict[str, Any]:
     return data
 
 
+async def _execute_publish(req: PublishBatchRequest) -> dict[str, Any]:
+    settings = _settings()
+    try:
+        result = await run_publish_batch(
+            req, settings, publisher=app.state.overrides.get("batch_publisher"), llm=app.state.overrides.get("llm"),
+        )
+        data = result.model_dump(by_alias=True, mode="json")
+    except Exception as exc:  # noqa: BLE001
+        log.exception("발행 묶음 %s 처리 중 오류", req.batch_id)
+        data = {"batchId": req.batch_id, "status": "FAILED", "summary": {}, "items": [],
+                "errorCode": "INTERNAL_ERROR", "errorMessage": str(exc)}
+    _publish_jobs[req.batch_id] = data
+    reporter = app.state.overrides.get("reporter") or BackendReporter(settings.backend_base_url, settings.backend_token)
+    await reporter.publish_result(req.batch_id, data)
+    return data
+
+
 @app.post(
     "/runs", tags=["분석 실행"], operation_id="createAgentRun",
     summary="분석·검수·발행 작업 접수", response_model=None, responses=RUN_RESPONSES,
@@ -122,6 +140,24 @@ async def create_run(
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return JSONResponse(status_code=202, content={"taskId": req.task_id, "status": "ACCEPTED"})
+
+
+@app.post(
+    "/publish", tags=["분석 실행"], operation_id="publishConfirmedTickets", response_model=None,
+    summary="확인된 티켓 일괄 발행", status_code=202,
+    description="백엔드는 CONFIRMED 티켓만 batchId와 함께 보낸다. Agent는 프로젝트별로 재대조한 뒤 CREATE/LINK/UPDATE를 실행하고, 결과를 /internal/publish-batches/{batchId}/result로 보고한다. 같은 batchId는 다시 실행하지 않는다.",
+)
+async def publish_confirmed(req: PublishBatchRequest):
+    current = _publish_jobs.get(req.batch_id)
+    if current is not None:
+        if current.get("status") == "RUNNING":
+            raise HTTPException(status_code=409, detail="이미 처리 중인 batch_id입니다")
+        return JSONResponse(status_code=202, content={"batchId": req.batch_id, "status": "ACCEPTED"})
+    _publish_jobs[req.batch_id] = {"batchId": req.batch_id, "status": "RUNNING"}
+    task = asyncio.create_task(_execute_publish(req))
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+    return {"batchId": req.batch_id, "status": "ACCEPTED"}
 
 
 @app.post(

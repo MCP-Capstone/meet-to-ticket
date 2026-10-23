@@ -63,7 +63,7 @@ Authorize에 쿠키를 직접 넣기보다 login API를 실행한다. 세션 사
 
 ### 담당자별 티켓과 내 티켓 (#166)
 
-Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤버와 연결한다(REQ-010). 멤버 정확히 1명과 연결되면 `PENDING_REVIEW`(검토 대기), 담당자가 없거나 여러 명이거나 멤버와 연결되지 않으면 `ASSIGNEE_REQUIRED`(담당 지정 필요)이다. GitHub 계정이 없는 멤버도 담당자로 연결하며, 이름만 보고 GitHub 로그인명을 추정하지 않는다. 처리 유형은 상태와 별도로 `CREATE`/`LINK`/`UPDATE`이다.
+Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤버와 연결한다(REQ-010). 단, 발행 대상(`contentJson.publish_target`)이 `SLACK`(회의 결과 공지)이나 `NOTION`인 티켓은 업로더에게 보낸다(업로더가 프로젝트 멤버가 아니면 담당 지정 필요). 멤버 정확히 1명과 연결되면 `PENDING_REVIEW`(검토 대기), 담당자가 없거나 여러 명이거나 멤버와 연결되지 않으면 `ASSIGNEE_REQUIRED`(담당 지정 필요)이다. GitHub 계정이 없는 멤버도 담당자로 연결하며, 이름만 보고 GitHub 로그인명을 추정하지 않는다. 처리 유형은 상태와 별도로 `CREATE`/`LINK`/`UPDATE`이다.
 `GET /api/tickets/me`는 로그인 사용자가 담당인 티켓만 반환한다. `projectId`로 거르면 `counts`(`pendingReview`, `confirmed`, `rejected`)도 같은 범위로 센다. 기존 결과 조회 API(`/api/analysis-tasks/{id}/items`)는 바뀌지 않는다.
 
 티켓에는 발행 대상 `publishTarget`(GITHUB, SLACK, NOTION, 기본 GITHUB)과 처리 유형 `processingType`(CREATE, LINK, UPDATE)이 있다. 처리 유형의 첫 값은 Agent 중복 판단의 제안(`contentJson.dedupe.handling.type`)이다.
@@ -131,9 +131,12 @@ MOCK 메모리 작업은 재시작하면 사라져 진행 중 작업이 실패�
 
 ## Agent 내부 API — 현재 구현
 
+Agent 요청의 `project.notionPageUrl`에는 프로젝트의 Notion 기획 페이지를 담는다 (TASK-019). Notion을 연결하지 않았거나 연결 오류가 확인된 프로젝트는 `null`이고, Agent는 Notion 맥락 없이 처리한다.
+
 | Method | 경로 | 응답 |
 |---|---|---|
 | POST | /runs | 기본 202 `{taskId, status: ACCEPTED}` |
+| POST | /publish | 202 `{batchId, status: ACCEPTED}`. 확인된 티켓 일괄 발행 |
 | POST | /runs?wait=true | 로컬 테스트용 200 최종 결과 |
 | GET | /runs/{task_id} | 200 진행·종료 결과, 알 수 없는 작업은 404 |
 | GET | /runs/{task_id}/history | 200 노드별 실행 기록(checkpoint, 시간 순서), 재시작하면 사라짐, 알 수 없는 작업은 404 |
@@ -142,6 +145,8 @@ MOCK 메모리 작업은 재시작하면 사라져 진행 중 작업이 실패�
 Agent 환경에서 `uvicorn main:app --port 8001`로 실행한다. 설치는 [Agent 안내](../../agent/README.md)를 따른다.
 문서 조회만으로 LLM·MCP를 호출하지 않는다. POST는 실제 업무를 실행하므로 단독 테스트는
 `agent/.env`의 `DRY_RUN=true`, `BACKEND_BASE_URL=` 설정으로 발행·콜백을 끈다. 설정 로더는 .env를 환경변수보다 우선한다.
+
+`POST /publish`는 백엔드가 `batchId`와 `reviewStatus: CONFIRMED` 티켓만 보내는 내부 API다. GitHub 티켓에는 프로젝트 저장소와 확정한 `processingType`(`CREATE`/`LINK`/`UPDATE`), 기존 이슈 번호(연결·갱신 때), 편집된 `contentJson`을 포함한다. Slack 공지 티켓에는 `publishTarget: SLACK`, 프로젝트 `slackChannelId`, 공지의 `contentJson.slack.text`·`reviewers`, 연결된 `slackMembers[{name, slackUserId}]`를 함께 보낸다. Agent는 GitHub 티켓을 저장소별 재대조하고, Slack 공지는 한 번 `post_message`로 게시한다. 최종 결과는 `POST /internal/publish-batches/{batchId}/result`에 GitHub의 `PUBLISHED`/`LINKED`/`UPDATED`, Slack의 `POSTED`, 실패·결과 모름과 이슈·댓글·메시지 링크를 함께 보고한다. 같은 `batchId` 재요청은 중복 발행하지 않는다.
 DRY_RUN도 실제 추출·검수 LLM 호출과 모델 API 키가 필요하다. 키는 Swagger 요청 JSON에 넣지 않는다.
 현재 Agent dry-run은 승인 항목을 SKIPPED(발행 생략)로 반환한다. 이를 실제 GitHub 생성 거절로 해석하지 않는다.
 가짜 LLM·MCP로 확인하려면 Agent의 자동 테스트를 실행한다.
