@@ -2,11 +2,12 @@ import type { realApi } from '../api/real'
 import { ApiRequestError } from '../api/client'
 
 import type { AnalysisTask, DirectoryUser, DispatchResult, ExecutionMode, Meeting, StartAnalysisResponse, TaskStage, User } from '../api/types'
-import { listMockTickets, editMockTicket, changeMockTicket, retryMockTicket } from './tickets'
+import { listMockTickets, editMockTicket, changeMockTicket, retryMockTicket, deleteMockProjectTickets } from './tickets'
+
 import { mockItems } from './data'
 import { countOf, makeMockDispatch } from './dispatch'
 import { readMeetingFile, validateMeetingText, validMeetingDate } from '../meetingInput'
-import { changeMockProjectRole, getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
+import { changeMockProjectRole, deleteMockProject, getMockProject, listMockMembers, listMockProjects, mockDirectoryUsers, saveMockProject } from './projects'
 import type { AnalysisProgress, ProgressStep } from '../api/types'
 
 // 백엔드 없이 화면을 개발하기 위한 가짜 API. realApi와 같은 형태를 유지한다.
@@ -181,7 +182,25 @@ export const mockApi: typeof realApi = {
   async listProjects() {
     await delay(200)
     requireLogin()
-    return { projects: listMockProjects(requireLogin()), executionMode: EXECUTION_MODE }
+    return { projects: listMockProjects(requireLogin()).map((project) => ({
+      ...project,
+      lastMeetingDate: [...meetings.values()].filter((meeting) => meeting.projectId === project.projectId)
+        .map((meeting) => meeting.meetingDate).sort().at(-1) ?? null,
+    })), executionMode: EXECUTION_MODE }
+  },
+
+  async deleteProject(projectId, confirmName) {
+    await delay(300)
+    const duration = QUEUED_MS + stageDurations.reduce((total, { ms }) => total + ms, 0)
+    const projectTasks = [...tasks.entries()].filter(([, task]) => meetings.get(task.meetingId)?.projectId === projectId)
+    deleteMockProject(projectId, confirmName, requireLogin(), projectTasks.some(([, task]) => Date.now() - task.startedAt < duration))
+    deleteMockProjectTickets(projectId)
+    for (const [id] of projectTasks) { tasks.delete(id); dispatches.delete(id) }
+    for (const [id, meeting] of meetings) if (meeting.projectId === projectId) {
+      meetings.delete(id)
+      meetingMemberCounts.delete(id)
+      analyzedMeetings.delete(id)
+    }
   },
 
   async getProject(projectId) {

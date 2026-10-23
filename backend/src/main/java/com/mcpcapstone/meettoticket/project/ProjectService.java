@@ -2,6 +2,7 @@ package com.mcpcapstone.meettoticket.project;
 
 import com.mcpcapstone.meettoticket.agent.RepositoryPermissionGateway;
 import com.mcpcapstone.meettoticket.common.error.*;
+import com.mcpcapstone.meettoticket.meeting.MeetingRepository;
 import com.mcpcapstone.meettoticket.project.dto.ProjectDetail;
 import com.mcpcapstone.meettoticket.project.dto.ProjectSaveRequest;
 import com.mcpcapstone.meettoticket.user.User;
@@ -20,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.time.LocalDate;
 
 @Slf4j
 @Service
@@ -31,6 +33,7 @@ public class ProjectService {
     private final UserRepository users;
     private final RepositoryPermissionGateway permissions;
     private final TransactionTemplate tx;
+    private final MeetingRepository meetings;
 
     public void requireAccess(Long projectId, Long userId) {
         if (!members.existsByProjectIdAndUserId(projectId, userId))
@@ -46,9 +49,20 @@ public class ProjectService {
     }
 
     public List<ProjectData> list(Long userId) {
-        return members.findProjectsForUser(userId).stream()
-                .map(p -> new ProjectData(p.getId(), p.getName()))
-                .toList();
+		List<ProjectMember> memberships = members.findMembershipsForUser(userId);
+		if (memberships.isEmpty()) return List.of();
+		List<Long> ids = memberships.stream().map(m -> m.getProject().getId()).toList();
+		// 프로젝트 수와 무관하게 세 번 조회한다. 목록 조회는 외부 연결 확인을 실행하지 않는다.
+		var counts = members.countMembersByProjectIds(ids).stream().collect(Collectors.toMap(
+				ProjectMemberRepository.MemberCount::getProjectId, ProjectMemberRepository.MemberCount::getMemberCount));
+		var latest = meetings.findLatestMeetingsByProjectIds(ids).stream().collect(Collectors.toMap(
+				MeetingRepository.LatestMeeting::getProjectId, MeetingRepository.LatestMeeting::getLastMeetingDate));
+		return memberships.stream().map(m -> {
+			Project p = m.getProject();
+			return new ProjectData(p.getId(), p.getName(), p.getGithubOwner(), p.getGithubRepo(),
+					new ProjectDetail.Connections(p.getGithubConnection(), p.notionConnectionStatus(), p.slackConnectionStatus()),
+					counts.getOrDefault(p.getId(), 0L), latest.get(p.getId()), m.isAdmin());
+		}).toList();
     }
 
     public List<MemberData> members(Long projectId, Long userId) {
@@ -250,7 +264,13 @@ public class ProjectService {
             @Schema(description = "프로젝트 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
             Long projectId,
             @Schema(description = "프로젝트 이름", requiredMode = Schema.RequiredMode.REQUIRED, example = "CSV 내보내기")
-            String name) {}
+            String name,
+			@Schema(description = "GitHub 저장소 소유자", requiredMode = Schema.RequiredMode.REQUIRED) String githubOwner,
+			@Schema(description = "GitHub 저장소 이름", requiredMode = Schema.RequiredMode.REQUIRED) String githubRepo,
+			@Schema(description = "상세 조회와 같은 저장된 연결 상태. null은 확인 전", requiredMode = Schema.RequiredMode.REQUIRED) ProjectDetail.Connections connections,
+			@Schema(description = "미가입 팀원을 포함한 전체 멤버 수", requiredMode = Schema.RequiredMode.REQUIRED) long memberCount,
+			@Schema(description = "가장 최근 회의 날짜. 회의가 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) LocalDate lastMeetingDate,
+			@Schema(description = "로그인 사용자가 관리자이면 true. 편집과 삭제 가능", requiredMode = Schema.RequiredMode.REQUIRED) boolean canEdit) {}
 
     public record MemberData(
             @Schema(description = "프로젝트 팀원 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "11")

@@ -1,4 +1,4 @@
-import type { DirectoryUser, ProjectDetail, ProjectMember, ProjectRole, ProjectSaveRequest, User } from '../api/types'
+import type { DirectoryUser, ProjectDetail, ProjectMember, ProjectRole, ProjectSaveRequest, ProjectSummary, User } from '../api/types'
 import { ApiRequestError } from '../api/client'
 import { mockMembers, mockProject } from './data'
 
@@ -53,8 +53,21 @@ function toDetail(project: StoredProject, user: User): ProjectDetail {
   return { ...detail, members: detail.members.map((member) => ({ ...member, admin: adminUserIds.includes(member.userId) })), canEdit: adminUserIds.includes(user.userId) }
 }
 
-export function listMockProjects(user: User) {
-  return readProjects().filter((project) => hasAccess(project, user)).map(({ projectId, name }) => ({ projectId, name }))
+export function listMockProjects(user: User): ProjectSummary[] {
+  return readProjects().filter((project) => hasAccess(project, user)).map((project) => ({
+    projectId: project.projectId, name: project.name, githubOwner: project.githubOwner, githubRepo: project.githubRepo,
+    connections: project.connections, memberCount: project.members.length, lastMeetingDate: null,
+    canEdit: project.adminUserIds.includes(user.userId),
+  }))
+}
+
+export function deleteMockProject(projectId: number, confirmName: string, user: User, inProgress: boolean) {
+  const project = findProject(projectId, user)
+  if (!project.adminUserIds.includes(user.userId)) throw fail(403, 'PROJECT_ADMIN_REQUIRED', '프로젝트 관리자만 삭제할 수 있습니다.')
+  if (!confirmName.trim()) throw fail(400, 'VALIDATION_FAILED', '삭제할 프로젝트 이름을 입력해 주세요.')
+  if (confirmName.trim() !== project.name) throw fail(400, 'PROJECT_NAME_MISMATCH', '프로젝트 이름이 일치하지 않습니다.')
+  if (inProgress) throw fail(409, 'PROJECT_ANALYSIS_IN_PROGRESS', '처리 중인 회의록이 있어 프로젝트를 삭제할 수 없습니다.')
+  writeProjects(readProjects().filter((item) => item.projectId !== projectId))
 }
 
 export function getMockProject(projectId: number, user: User) {
@@ -117,8 +130,8 @@ export function saveMockProject(body: ProjectSaveRequest, user: User, directory:
     notionPageUrl: body.notionPageUrl, slackChannelId: body.slackChannelId,
     members, adminUserIds: previous?.adminUserIds ?? [user.userId],
     connections: {
-      github: null, notion: body.notionPageUrl ? 'CONNECTED' : 'NOT_CONNECTED',
-      slack: body.slackChannelId ? 'CONNECTED' : 'NOT_CONNECTED',
+      github: null, notion: body.notionPageUrl ? null : 'NOT_CONNECTED',
+      slack: body.slackChannelId ? null : 'NOT_CONNECTED',
     },
   }
   writeProjects(previous ? projects.map((project) => project.projectId === projectId ? record : project) : [...projects, record])

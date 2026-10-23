@@ -37,7 +37,7 @@ public class ProjectController {
     private final ProjectDeletionService deletion;
     private final ExecutionSettings executionSettings;
 
-    @Operation(operationId = "listProjects", summary = "내 프로젝트 조회", description = "로그인 사용자가 소속된 프로젝트와 백엔드 실행 모드를 반환한다. MOCK는 실제 Agent·GitHub 호출을 하지 않는다.")
+    @Operation(operationId = "listProjects", summary = "내 프로젝트 조회", description = "로그인 사용자가 소속된 프로젝트의 GitHub 저장소, 저장된 도구 연결 상태, 전체 멤버 수, 최근 회의 날짜와 관리자 여부(canEdit)를 반환한다. 연결 상태 null은 확인 전이며 목록 조회에서 외부 권한 확인은 실행하지 않는다. MOCK는 실제 Agent·GitHub 호출을 하지 않는다.")
     @ApiResponse(responseCode = "200", description = "프로젝트 목록", content = @Content(schema = @Schema(implementation = ProjectList.class),
                     examples = @ExampleObject(value = ApiExamples.PROJECTS)))
     @ApiResponse(responseCode = "401", description = "로그인 세션 없음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
