@@ -158,6 +158,65 @@ def test_main_runs_and_prints_table(tmp_path, capsys):
     assert len(ex.calls) == len(run_eval.SMOKE)
     out = capsys.readouterr().out
     assert "추출 정밀도" in out and "평가셋 v2.1" in out
-    assert (run_eval.RESULTS_ROOT / "v2.1" / "s" / "scores.json").exists()
+    assert (run_eval.RESULTS_ROOT / "v2.1" / "s-smoke" / "scores.json").exists()
+    assert not (run_eval.RESULTS_ROOT / "v2.1" / "s").exists()  # 스모크는 전체 실행 폴더와 분리
     # 모든 실행이 실패하면 종료 코드 1
     assert run_eval.main(["--smoke", "--label", "f", "--no-cache"], executor=FakeExecutor(code=2)) == 1
+
+
+def test_questions_option_strips_spaces():
+    ex = FakeExecutor()
+    run_eval.main(["--questions", "ev11_relative_due, ev21_zero_action", "--runs", "1", "--label", "q"], executor=ex)
+    assert len(ex.calls) == 2
+
+
+class DedupeSkippedExecutor(FakeExecutor):
+    """중복 판단이 건너뛰어진 결과를 만든다."""
+
+    def __call__(self, cmd, cwd, env):
+        self.calls.append(cmd)
+        out = Path(cmd[cmd.index("--out") + 1])
+        item = {"title": "t", "contentJson": {"dedupe": {"relation": None, "issue_number": None, "skipped": "timeout"}}}
+        out.write_text(json.dumps({"status": "SUCCEEDED", "items": [item]}), encoding="utf-8")
+        return 0
+
+
+def test_skipped_dedupe_is_neither_cached_nor_reused(tmp_path, agent_dir):
+    jobs = jobs_for(tmp_path, agent_dir, questions=("ev41_same_open",), runs=1)
+    run_eval.run_jobs(jobs, DedupeSkippedExecutor(), agent_dir=agent_dir)
+    assert not list((tmp_path / "cache").glob("*.json"))
+    ex = DedupeSkippedExecutor()
+    run_eval.run_jobs(jobs, ex, agent_dir=agent_dir)
+    assert len(ex.calls) == 1  # 건너뛴 판단은 다음 실행에서 다시 시도한다
+
+
+def test_existing_result_is_validated_before_skip(tmp_path, agent_dir):
+    jobs = jobs_for(tmp_path, agent_dir, questions=("ev21_zero_action",), runs=1)
+    out = jobs[0]["out"]
+    run_eval.run_jobs(jobs, FakeExecutor(), agent_dir=agent_dir)
+    for broken in ('{"status": "SUC', json.dumps({"status": "FAILED", "items": []})):
+        out.write_text(broken, encoding="utf-8")
+        ex = FakeExecutor()
+        run_eval.run_jobs(jobs, ex, use_cache=False, agent_dir=agent_dir)
+        assert len(ex.calls) == 1, broken
+    # 다른 캐시 키(코드나 프롬프트가 바뀜)로 만든 결과는 다시 실행한다
+    out.with_suffix(".key").write_text("old", encoding="utf-8")
+    ex = FakeExecutor()
+    run_eval.run_jobs(jobs, ex, use_cache=False, agent_dir=agent_dir)
+    assert len(ex.calls) == 1
+    # 키 파일이 없는 결과(출처 불명)도 재사용하지 않는다
+    out.with_suffix(".key").unlink()
+    ex = FakeExecutor()
+    run_eval.run_jobs(jobs, ex, use_cache=False, agent_dir=agent_dir)
+    assert len(ex.calls) == 1
+
+
+def test_cache_key_includes_settings_and_seed(tmp_path, agent_dir, monkeypatch):
+    qs = ("ev41_same_open", "ev21_zero_action")
+    base = [j["key"] for j in jobs_for(tmp_path, agent_dir, questions=qs, runs=1)]
+    monkeypatch.setenv("DEDUPE_MAX_TOOL_CALLS", "9")
+    changed = [j["key"] for j in jobs_for(tmp_path, agent_dir, questions=qs, runs=1)]
+    assert all(a != b for a, b in zip(base, changed))
+    ds = run_eval.dataset_dir("v2.1")
+    args = (ds / "inputs" / "ev41_same_open_summary.md", ds / "members.json", "r", "p", MODELS, "c", 1, {})
+    assert run_eval.cache_key(*args, "seed-a") != run_eval.cache_key(*args, "seed-b")

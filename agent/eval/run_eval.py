@@ -31,6 +31,12 @@ AGENT_DIR = EVAL_DIR.parent
 CACHE_DIR = EVAL_DIR / ".cache"
 RESULTS_ROOT = EVAL_DIR / "results"
 MODEL_ENV = ("OPENAI_MODEL", "OPENAI_REVIEW_MODEL", "OPENAI_DEDUPE_MODEL", "OPENAI_FALLBACK_MODEL")
+# 결과에 영향을 주는 그 밖의 설정 (agent/config.py load_settings). 값이 바뀌면 캐시 키가 달라진다
+SETTING_ENV = ("OPENAI_REASONING_EFFORT", "OPENAI_REVIEW_REASONING_EFFORT", "RAG_ENABLED", "RAG_SYNC_TIMEOUT_SECONDS",
+               "CONTEXT_TIMEOUT_SECONDS", "TOOL_RESULT_MAX_CHARS", "DEDUPE_MAX_TOOL_CALLS", "DEDUPE_MAX_SAME_TOOL",
+               "DEDUPE_TIMEOUT_SECONDS", "DEDUPE_CONCURRENCY", "ISSUE_LABELS", "MAX_REVISIONS", "LLM_RETRIES",
+               "LLM_TIMEOUT_SECONDS", "TASK_DEADLINE_SECONDS", "MAX_SOURCE_CHARS", "REVIEW_BATCH_SIZE",
+               "DRAFT_BATCH_SIZE")
 # PR에서 돌리는 소수 스모크: 상대 기한, 담당자 모호, 0건, 프롬프트 인젝션
 SMOKE = ("ev11_relative_due", "ev16_ambiguous_assignee", "ev21_zero_action", "ev29_prompt_injection")
 
@@ -75,10 +81,39 @@ def model_ids(env: dict[str, str] | None = None, agent_dir: Path | None = None) 
         return {k: env.get(k, "") for k in MODEL_ENV}
 
 
+def settings_env(env: dict[str, str] | None = None) -> dict[str, str]:
+    """model_ids() 호출 뒤에 부르면 agent/.env 값도 환경 변수에 반영되어 있다."""
+    env = os.environ if env is None else env
+    return {k: env.get(k, "").strip() for k in SETTING_ENV}
+
+
 def cache_key(input_path: Path, members_path: Path, repo: str | None, prompts: str, models: dict[str, str],
-              code: str, run: int) -> str:
+              code: str, run: int, settings: dict[str, str] | None = None, seed: str = "") -> str:
     return _sha(input_path.read_bytes(), members_path.read_bytes(), (repo or "").encode(), prompts.encode(),
-                json.dumps(models, sort_keys=True).encode(), code.encode(), str(run).encode())[:24]
+                json.dumps(models, sort_keys=True).encode(), code.encode(), str(run).encode(),
+                json.dumps(settings or {}, sort_keys=True).encode(), seed.encode())[:24]
+
+
+def reusable(result: dict[str, Any], job: dict[str, Any]) -> bool:
+    """저장해 두고 다시 써도 되는 결과인가. 실패, 중복 판단이 건너뛰어진 실행은 아니다."""
+    if result.get("status") != "SUCCEEDED":
+        return False
+    if job["repo"]:
+        for it in result.get("items") or []:
+            d = (it.get("contentJson") or {}).get("dedupe")
+            if (it.get("contentJson") or {}).get("publish_target", "GITHUB") == "SLACK":
+                continue
+            if not d or d.get("skipped") or not d.get("relation"):
+                return False
+    return True
+
+
+def read_result(path: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def build_command(input_path: Path, members_path: Path, out_path: Path, repo: str | None) -> list[str]:
@@ -99,13 +134,15 @@ def plan_jobs(questions: list[str], runs: int, results_dir: Path, version: str, 
     ds = dataset_dir(version, base)
     prompts, code = prompt_hash(agent_dir), code_hash(agent_dir)
     models = model_ids(agent_dir=agent_dir) if models is None else models
+    settings = settings_env()
     jobs = []
     for q in questions:
         for n in range(1, runs + 1):
             inp, members = ds / "inputs" / f"{q}_summary.md", ds / "members.json"
             repo = dedupe_repo if q in dedupe else None
             out = results_dir / f"{q}_r{n}.json"
-            key = cache_key(inp, members, repo, prompts, models, code, n)
+            seed = _sha((ds / "dedupe_seed_issues.md").read_bytes())[:16] if repo else ""
+            key = cache_key(inp, members, repo, prompts, models, code, n, settings, seed)
             jobs.append({"question": q, "run": n, "input": inp, "members": members, "repo": repo, "out": out,
                          "key": key, "cached": (CACHE_DIR / f"{key}.json").exists()})
     return jobs
@@ -123,28 +160,31 @@ def run_jobs(jobs: list[dict[str, Any]], executor: Executor = default_executor, 
         out: Path = j["out"]
         out.parent.mkdir(parents=True, exist_ok=True)
         cached = cache_dir / f"{j['key']}.json"
-        if out.exists() and not force:
+        keyfile = out.with_suffix(".key")
+        existing = read_result(out) if out.exists() else None
+        if (existing is not None and not force and keyfile.exists()
+                and keyfile.read_text(encoding="utf-8").strip() == j["key"] and reusable(existing, j)):
             stats["skipped"].append(name)
             continue
+        out.unlink(missing_ok=True)
+        keyfile.unlink(missing_ok=True)
         if use_cache and not force and cached.exists():
             shutil.copyfile(cached, out)
+            keyfile.write_text(j["key"], encoding="utf-8")
             stats["cached"].append(name)
             log(f"[캐시] {name}")
             continue
         log(f"[실행] {name}")
         code = executor(build_command(j["input"], j["members"], out, j["repo"]), agent_dir, env)
-        status = None
-        if out.exists():
-            try:
-                status = json.loads(out.read_text(encoding="utf-8")).get("status")
-            except ValueError:
-                status = None
-        if code != 0 or status is None:
+        result = read_result(out) if out.exists() else None
+        if code != 0 or result is None:
+            out.unlink(missing_ok=True)
             stats["failed"].append(name)
             log(f"[실패] {name} (종료 코드 {code})")
             continue
         stats["ran"].append(name)
-        if status == "SUCCEEDED":
+        keyfile.write_text(j["key"], encoding="utf-8")
+        if reusable(result, j):
             shutil.copyfile(out, cached)
     return stats
 
@@ -192,9 +232,10 @@ def main(argv: list[str] | None = None, executor: Executor = default_executor) -
     manifest = load_manifest(args.version)
     ids = question_ids(args.version)
     questions = select_questions(ids, set(manifest["dedupe"]), group=args.group,
-                                 only=args.questions.split(",") if args.questions else None, smoke=args.smoke)
+                                 only=[q.strip() for q in args.questions.split(",") if q.strip()] if args.questions else None, smoke=args.smoke)
     runs = 1 if args.smoke else args.runs
-    results_dir = RESULTS_ROOT / args.version / args.label
+    # 스모크는 일부 문항만 있으므로 전체 실행과 폴더를 분리한다
+    results_dir = RESULTS_ROOT / args.version / (f"{args.label}-smoke" if args.smoke else args.label)
 
     stats: dict[str, list[str]] = {"failed": []}
     if not args.score_only:

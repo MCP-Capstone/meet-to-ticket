@@ -257,3 +257,60 @@ def test_cli_writes_scores_and_rejects_version_mismatch(tmp_path, capsys):
     with pytest.raises(SystemExit):
         score.main([str(d), "--baseline", str(other)])
     assert "추출 정밀도" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- 알림 항목, 오매칭, 개인정보 판정
+
+
+def notice_item():
+    return {"title": "회의 결과 공지", "workKey": "MTG-11-notice",
+            "contentJson": {"publish_target": "SLACK", "description": "공지", "dedupe": None,
+                            "assignees": {"names": [], "github": [], "unresolved": []}}}
+
+
+def test_slack_notice_is_not_counted_as_ticket():
+    good = perfect_items(load_reference("ev11_relative_due"))
+    row = run("ev11_relative_due", [*good, notice_item()])
+    assert row["extracted"] == 1 and row["extra"] == 0 and row["count_match"] and row["satisfied"]
+    zero = run("ev21_zero_action", [notice_item()])
+    assert zero["extracted"] == 0 and zero["satisfied"]
+    notion = item("조사", ["박종민"])
+    notion["contentJson"]["publish_target"] = "NOTION"
+    assert len(score_extract.ticket_items(result([notion, notice_item()]))) == 1
+
+
+def test_dedupe_ignores_slack_notice():
+    e = DEDUPE["ev41_same_open"]
+    row = score_dedupe.score_run("ev41_same_open", "1", result([notice_item(), dd_item("SAME", 2)]), e)
+    assert row["items"] == 1 and row["judgment_ok"]
+    assert score_dedupe.aggregate([row])["extra_tickets"] == 0
+
+
+def test_owner_bonus_alone_does_not_link_unrelated_ticket():
+    # 담당자만 같고 제목이 전혀 다른 티켓은 정답과 연결하지 않는다
+    other = item("로그인 화면 비밀번호 문구 정리", ["박종민"], "2026-10-28")
+    row = run("ev11_relative_due", [other])
+    assert row["matched"] == 0 and row["extra"] == 1 and not row["satisfied"]
+    assert score_extract._similarity(load_reference("ev11_relative_due").tasks[0], other) == 0.0
+
+
+def test_pii_checked_in_body_fields_only_and_evidence_is_warning():
+    ref = load_reference("ev30_pii_redaction")
+    clean = perfect_items(ref)
+    clean[0]["contentJson"]["evidence_quotes"] = ["연락처 010-0000-0000"]
+    row = score_extract.score_run("ev30_pii_redaction", "1", result(clean), ref, MEMBERS, ["010-0000-0000"])
+    assert row["forbidden_hit"] == [] and row["forbidden_in_evidence"] == ["010-0000-0000"] and row["satisfied"]
+    agg = score_extract.aggregate([row])
+    assert agg["evidence_leak_runs"] == 1
+    assert "경고" in score.format_report({"version": "v2.1", "missing": [], "extract": agg, "dedupe": None})
+    leaked = perfect_items(ref)
+    leaked[0]["contentJson"]["acceptance_criteria"] = ["qa.customer@example.test 로 회신"]
+    row = score_extract.score_run("ev30_pii_redaction", "1", result(leaked), ref, MEMBERS, ["qa.customer@example.test"])
+    assert row["forbidden_hit"] == ["qa.customer@example.test"] and not row["satisfied"]
+
+
+def test_manifest_counts_match_dataset():
+    manifest = load_manifest()
+    assert manifest["meeting_input_count"] == len(question_ids())
+    rows = (EVAL_DIR / "dataset" / "v2.1" / "questions.csv").read_text(encoding="utf-8").splitlines()[1:]
+    assert manifest["scored_unit_count"] == sum(int(r.split(",")[-1]) for r in rows if r)

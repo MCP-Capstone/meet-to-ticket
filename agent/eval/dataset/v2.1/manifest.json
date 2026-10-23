@@ -1,6 +1,7 @@
 {
   "version": "v2.1",
-  "question_count": 37,
+  "scored_unit_count": 37,
+  "meeting_input_count": 30,
   "dedupe_repo": "meet-to-ticket-eval",
   "dedupe": {
     "ev41_same_open": {"relation": "SAME", "issue": 2, "handling": "LINK"},

@@ -90,6 +90,8 @@ def format_report(summary: dict[str, Any], baseline: dict[str, Any] | None = Non
         lines.append(f"추출 {ex['runs']}회 (실패 {ex['failed_runs']}회), 기대 업무 {ex['expected_tasks']}건, "
                      f"추출 {ex['extracted']}건, 연결 {ex['matched']}건, 건수 일치 {_fmt('', ex['count_match_rate'])}, "
                      f"문항 충족 {_fmt('', ex['satisfied_rate'])}")
+        if ex.get("evidence_leak_runs"):
+            lines.append(f"경고: 금지 문자열이 근거 인용/경고/이슈 본문 근거 칸에 남은 실행 {ex['evidence_leak_runs']}회 (발행 본문 필드는 아님, 사람이 확인)")
     if de:
         lines.append(f"중복 판단 {de['runs']}회 (실패 {de['failed_runs']}회), 판정 {_fmt('', de['relation_accuracy'])}, "
                      f"대상 {_fmt('', de['target_accuracy'])}, 추가 티켓 {de['extra_tickets']}건")

@@ -18,7 +18,25 @@ from typing import Any
 from .reference import EXTERNAL_PREFIX, NEEDS_CHECK, RefTask, Reference
 
 MATCH_THRESHOLD = 0.4
-OWNER_BONUS = 0.3
+MIN_TITLE_SIM = 0.3   # 제목 유사도가 이 값 미만이면 담당자가 같아도 연결하지 않는다
+OWNER_BONUS = 0.3     # 제목이 어느 정도 비슷할 때만 더한다
+TICKET_TARGETS = ("GITHUB", "NOTION")
+# 발행 본문(제목, 설명, 작업, 완료 조건, 미결 질문)에 들어가는 필드. 근거 인용 등은 별도 경고로 센다
+BODY_FIELDS = ("description", "tasks", "acceptance_criteria", "open_questions")
+EVIDENCE_FIELDS = ("action_text", "evidence_quotes", "warnings", "issue_body", "notion_page")
+
+
+def ticket_items(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """채점 대상 티켓만 남긴다. draft 모드가 덧붙이는 Slack 회의 알림 항목(publish_target SLACK)은 뺀다.
+
+    publish_target이 없는 phase1-end 결과는 모두 GitHub 티켓으로 본다.
+    """
+    out = []
+    for it in result.get("items") or []:
+        target = (it.get("contentJson") or {}).get("publish_target") or "GITHUB"
+        if target in TICKET_TARGETS:
+            out.append(it)
+    return out
 
 
 def _norm(text: str) -> str:
@@ -60,7 +78,9 @@ def _similarity(ref: RefTask, item: dict[str, Any]) -> float:
     sims = [difflib.SequenceMatcher(None, a, _norm(t)).ratio()
             for t in (item.get("title") or "", cj.get("action_text") or "") if t]
     score = max(sims, default=0.0)
-    if ref.owner not in (NEEDS_CHECK,) and ref.owner in _names(item):
+    if score < MIN_TITLE_SIM:
+        return 0.0
+    if ref.owner != NEEDS_CHECK and ref.owner in _names(item):
         score += OWNER_BONUS
     return score
 
@@ -90,7 +110,7 @@ def link_items(reference: Reference, items: list[dict[str, Any]]) -> tuple[dict[
 
 def score_run(question: str, run: str, result: dict[str, Any], reference: Reference,
               member_names: set[str], forbidden: list[str] | None = None) -> dict[str, Any]:
-    items = result.get("items") or []
+    items = ticket_items(result)
     matched, extra = link_items(reference, items)
     owner_n = date_n = due_n = 0
     detail = []
@@ -109,8 +129,12 @@ def score_run(question: str, run: str, result: dict[str, Any], reference: Refere
             "key": task.key, "found": True, "title": item.get("title"), "assignees": _names(item), "owner_ok": o,
             "due": cj.get("due"), "expected_due": task.due_raw, "due_date_ok": d, "due_ok": dt,
         })
-    blob = json.dumps(items, ensure_ascii=False)
-    leaked = [f for f in (forbidden or []) if f in blob]
+    body = json.dumps([[it.get("title"), *[(it.get("contentJson") or {}).get(k) for k in BODY_FIELDS]] for it in items],
+                      ensure_ascii=False)
+    evidence = json.dumps([[(it.get("contentJson") or {}).get(k) for k in EVIDENCE_FIELDS] for it in items],
+                          ensure_ascii=False)
+    leaked = [f for f in (forbidden or []) if f in body]
+    in_evidence = [f for f in (forbidden or []) if f in evidence and f not in leaked]
     status = result.get("status")
     n_matched = len(matched)
     satisfied = (status == "SUCCEEDED" and len(items) == reference.expected_count and n_matched == len(reference.tasks)
@@ -119,7 +143,7 @@ def score_run(question: str, run: str, result: dict[str, Any], reference: Refere
         "question": question, "run": run, "status": status,
         "expected": reference.expected_count, "extracted": len(items), "matched": n_matched, "extra": len(extra),
         "owner_ok": owner_n, "due_date_ok": date_n, "due_ok": due_n,
-        "count_match": len(items) == reference.expected_count, "forbidden_hit": leaked, "satisfied": satisfied,
+        "count_match": len(items) == reference.expected_count, "forbidden_hit": leaked, "forbidden_in_evidence": in_evidence, "satisfied": satisfied,
         "durationMs": (result.get("metrics") or {}).get("durationMs"),
         "extra_titles": [e.get("title") for e in extra], "detail": detail,
     }
@@ -148,6 +172,7 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "due_error_rate": None if not matched else 1 - due / matched,
         "count_match_rate": ratio(sum(r["count_match"] for r in rows), len(rows)),
         "satisfied_rate": ratio(sum(r["satisfied"] for r in rows), len(rows)),
+        "evidence_leak_runs": sum(1 for r in rows if r.get("forbidden_in_evidence")),
         "avg_ms": sum(times) / len(times) if times else None,
     }
 

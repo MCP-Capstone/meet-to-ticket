@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .score_extract import ticket_items
+
 
 def actual_handling(item: dict[str, Any]) -> str:
     """결과의 처리 유형을 CREATE / LINK / UPDATE / CREATE+REF 중 하나로 읽는다.
@@ -24,7 +26,7 @@ def actual_handling(item: dict[str, Any]) -> str:
 
 
 def score_run(question: str, run: str, result: dict[str, Any], expect: dict[str, Any]) -> dict[str, Any]:
-    items = result.get("items") or []
+    items = ticket_items(result)
     num = expect["issue"]
     # 문항마다 업무는 1건. 대상 이슈를 가리킨 티켓을 우선 채점 대상으로 본다
     main = next((i for i in items if ((i.get("contentJson") or {}).get("dedupe") or {}).get("issue_number") == num), None)
