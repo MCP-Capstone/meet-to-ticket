@@ -367,7 +367,10 @@ export interface PublishResultEntry extends PublishFailure {
   projectId: number
   projectName: string
   githubIssueNumber: number | null
+  // 대상에 따라 GitHub 이슈, Notion 페이지, Slack 메시지 URL이다
   githubIssueUrl: string | null
+  // 이 필드가 생기기 전에 끝난 묶음은 null이며 GitHub로 본다
+  publishTarget: PublishTarget | null
 }
 export interface PublishBatchResult {
   batchId: string
