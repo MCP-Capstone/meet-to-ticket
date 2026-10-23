@@ -112,11 +112,11 @@ def test_free_form_notes_use_llm_extraction():
         ],
         decisions=[
             DecisionOut(content="다운로드 이력 화면은 이번 구현에서 제외한다",
-                        evidence_quotes=["않아 이번 구현에서는 제외하기로 했다."]),
+                        evidence_quotes=["권한과 보관 방식이 정해지지 않아 이번 구현에서는 제외하기로 했다."]),
             DecisionOut(content="  ", evidence_quotes=[]),
         ],
-        open_questions=["다운로드 이력의 권한과 보관 방식", " "],
-        excluded=["다운로드 이력 화면"],
+        open_questions=["권한과 보관 방식이 정해지지 않아", "다운로드 이력의 권한은?", " "],
+        excluded=["다운로드 이력 화면", "테스트 데이터 추가 제작"],
     )
     ex = from_llm(parse_summary(FREE_FORM), out, "csv_check", FREE_FORM)
     fix, api = ex.todos
@@ -125,9 +125,22 @@ def test_free_form_notes_use_llm_extraction():
     assert fix.warnings == ["원문과 다른 근거 인용 1개를 제외함"]
     assert api.evidence_quotes and api.warnings == []
     assert [d.content for d in ex.decisions] == ["다운로드 이력 화면은 이번 구현에서 제외한다"]
-    assert ex.decisions[0].evidence_quotes == ["않아 이번 구현에서는 제외하기로 했다."]
-    assert ex.open_questions == ["다운로드 이력의 권한과 보관 방식"]
+    # 여러 줄에 걸친 문장도 공백 정규화로 대조된다
+    assert ex.decisions[0].evidence_quotes == ["권한과 보관 방식이 정해지지 않아 이번 구현에서는 제외하기로 했다."]
+    # 미결 질문·제외 항목은 원문에 그대로 있는 것만 남는다
+    assert ex.open_questions == ["권한과 보관 방식이 정해지지 않아"]
     assert ex.excluded == ["다운로드 이력 화면"]
+
+
+def test_llm_decision_without_source_evidence_is_dropped():
+    out = ActionRowsOut(rows=[], decisions=[
+        DecisionOut(content="지어낸 결정", evidence_quotes=["없는 문장"]),
+        DecisionOut(content="이번 구현에서는 제외하기로 했다", evidence_quotes=[]),
+    ])
+    ex = from_llm(parse_summary(FREE_FORM), out, "csv_check", FREE_FORM)
+    # 근거가 없으면 빼고, 결정 문장이 원문에 그대로 있으면 그것을 근거로 쓴다
+    assert [(d.content, d.evidence_quotes) for d in ex.decisions] == [
+        ("이번 구현에서는 제외하기로 했다", ["이번 구현에서는 제외하기로 했다"])]
 
 
 def test_summary_sections_win_over_llm():
@@ -137,7 +150,16 @@ def test_summary_sections_win_over_llm():
     ex = from_llm(parse_summary(NO_TABLE), out, "x", NO_TABLE)
     assert [d.content for d in ex.decisions] == ["로그는 30일 보관한다."]
     assert ex.open_questions == ["보관 기간을 늘릴지"]
-    assert ex.excluded == ["LLM 제외"]  # 제외 섹션이 없으므로 LLM 값
+    assert ex.excluded == []  # 제외 섹션이 없어 LLM 값을 쓰지만, 원문에 없는 문구라 빠진다
+
+
+def test_empty_section_is_not_filled_by_llm():
+    """섹션에 "- 없음"만 있으면 회의록이 없다고 한 것이므로 LLM 값을 쓰지 않는다."""
+    text = NO_TABLE + "\n## 제외·보류\n\n- 없음\n"
+    parsed = parse_summary(text)
+    assert parsed.excluded == [] and "excluded" in parsed.found
+    out = ActionRowsOut(rows=[], excluded=["로그 정리"])  # 원문에 있는 문구여도
+    assert from_llm(parsed, out, "x", text).excluded == []
 
 
 def test_llm_quote_falls_back_to_action_text():
@@ -149,12 +171,13 @@ def test_llm_quote_falls_back_to_action_text():
 
 @pytest.mark.anyio
 async def test_prepare_passes_llm_excluded_to_review(settings):
-    """자유 형식 회의록에서도 LLM이 뽑은 제외 항목이 검수 2번(제외·보류 항목 아님)의 기준이 된다."""
+    """자유 형식 회의록에서도 LLM이 뽑은 제외 항목이 검수 2번(제외·보류 항목 아님)의 기준이 된다. 원문에 없는 항목은 빠진다."""
     llm = FakeLLM(rows=[ActionRowOut(action="빈 결과 오류 수정", assignees="최윤경", due="내일 오후 5시")],
-                  decisions=[DecisionOut(content="이력 화면 제외", evidence_quotes=[])],
-                  excluded=["다운로드 이력 화면"])
+                  decisions=[DecisionOut(content="이력 화면 제외", evidence_quotes=["이번 구현에서는 제외하기로 했다."]),
+                             DecisionOut(content="근거 없는 결정", evidence_quotes=[])],
+                  excluded=["다운로드 이력 화면", "원문에 없는 제외 항목"])
     nodes = AgentNodes(llm, FakePublisher(), FakeReporter(), settings)
     out = await nodes.prepare(make_state("csv_check", FREE_FORM))
     assert out["excluded"] == ["다운로드 이력 화면"]
-    assert out["decisions"] == [{"content": "이력 화면 제외", "evidence_quotes": []}]
+    assert out["decisions"] == [{"content": "이력 화면 제외", "evidence_quotes": ["이번 구현에서는 제외하기로 했다."]}]
     assert out["tickets"][0]["source"] == "llm"

@@ -129,8 +129,8 @@ class ActionRowsOut(BaseModel):
 
     rows: list[ActionRowOut] = Field(description="하기로 정한 일")
     decisions: list[DecisionOut] = Field(default_factory=list, description="결정 사항")
-    open_questions: list[str] = Field(default_factory=list, description="정해지지 않아 남은 질문. 원문 표현 그대로")
-    excluded: list[str] = Field(default_factory=list, description="이번 범위에서 제외하거나 보류하기로 한 일. 원문 표현 그대로")
+    open_questions: list[str] = Field(default_factory=list, description="정해지지 않아 남은 질문. 회의록 문구를 글자 그대로")
+    excluded: list[str] = Field(default_factory=list, description="이번 범위에서 제외하거나 보류하기로 한 일. 회의록 문구를 글자 그대로")
 
 
 class DraftTicket(BaseModel):

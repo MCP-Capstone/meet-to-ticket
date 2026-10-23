@@ -326,7 +326,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 | 파일 | 쓰는 곳 | 채워 넣는 값 |
 |---|---|---|
-| `prompts/rows_system.md` | 표가 없을 때 본문에서 할 일·결정·미결 질문·제외 항목 추출 | - |
+| `prompts/extract_system.md` | 표가 없을 때 본문에서 할 일·결정·미결 질문·제외 항목 추출 | - |
 | `prompts/draft_system.md`, `draft_user.md` | 이슈 초안 작성 | `{summary}`, `{items}` |
 | `prompts/review_system.md`, `review_user.md` | 검수 | `{summary}`, `{source_note}`, `{excluded}`, `{drafts}` |
 | `prompts/dedupe_system.md`, `dedupe_user.md` | 중복 판단 (도구 고르기, 관계 판단) | `{title}`, `{action}`, `{evidence}`, `{keys}`, `{expected}` |
@@ -359,7 +359,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 근거 인용 규칙: 표의 액션 칸과 결정 사항 줄은 원문 그대로라 그 문장을 근거로 쓴다. LLM 추출은 할 일·결정마다 근거 문장을 원문 그대로 복사하게 하고, 코드가 원문에 없는 인용을 빼면서 확인 메모를 남긴다. 할 일의 근거가 모두 빠지면 할 일 문장이 원문에 있을 때 그것을 쓰고, 그것도 없으면 "근거를 찾지 못해 확인 필요" 메모를 남긴다 (초안 작성에서 다시 근거를 찾는다). 원문 대조는 공백을 정규화해서 비교한다.
 
-표가 없는 회의록(자유 형식 메모 등)은 LLM이 결정·미결 질문·제외 항목도 함께 뽑는다(`llm.extract`). 회의록에 "핵심 결정", "미결 질문", "제외·보류" 섹션이 있으면 섹션별로 코드가 읽은 값을 쓰고, 없는 섹션만 LLM 값을 쓴다. LLM이 뽑은 제외 항목은 검수 2번(제외·보류 항목 아님)의 기준으로도 쓰인다.
+표가 없는 회의록(자유 형식 메모 등)은 LLM이 결정·미결 질문·제외 항목도 함께 뽑는다(`llm.extract`). 회의록에 "핵심 결정", "미결 질문", "제외·보류" 섹션이 있으면 섹션별로 코드가 읽은 값을 쓰고(`- 없음`뿐이어도 섹션이 있으면 비어 있는 그대로 쓴다), 섹션이 없을 때만 LLM 값을 쓴다. LLM 값도 원문과 대조한다. 결정은 원문 근거가 있는 것만 남기고(근거가 모두 빠지면 결정 문장이 원문에 있을 때 그것을 근거로 쓴다), 미결 질문과 제외 항목은 원문에 그대로 있는 문구만 남긴다. LLM이 뽑은 제외 항목은 검수 2번(제외·보류 항목 아님)의 기준으로도 쓰인다.
 
 ```json
 {

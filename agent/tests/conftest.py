@@ -91,7 +91,7 @@ class FakeLLM:
         self.review_contexts: list[Any] = []
 
     async def extract(self, summary: str) -> ActionRowsOut:
-        if self.fail_on == "rows":
+        if self.fail_on == "extract":
             from state import AgentFatal
             raise AgentFatal("LLM_ERROR", "boom")
         return ActionRowsOut(rows=self.rows, decisions=self.decisions,

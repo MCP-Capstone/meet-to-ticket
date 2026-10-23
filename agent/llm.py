@@ -63,8 +63,8 @@ def _chat_model(**kwargs: Any) -> Any:
 
 
 # 추출·초안은 writer, 검수는 reviewer 역할의 모델을 쓴다. fallback은 재시도 후에도 실패할 때 쓰는 대체 모델
-ROLE_OF = {"rows": "writer", "draft": "writer", "review": "reviewer"}
-SCHEMA_OF = {"rows": ActionRowsOut, "draft": DraftBatch, "review": ReviewBatch}
+ROLE_OF = {"extract": "writer", "draft": "writer", "review": "reviewer"}
+SCHEMA_OF = {"extract": ActionRowsOut, "draft": DraftBatch, "review": ReviewBatch}
 
 
 class OpenAILLM:
@@ -164,7 +164,7 @@ class OpenAILLM:
     async def extract(self, summary: str) -> ActionRowsOut:
         """표가 없는 회의록에서 할 일·결정·미결 질문·제외 항목을 뽑는다."""
         return await self._call(
-            "rows", [("system", prompts.ROWS_SYSTEM), ("user", summary)], "회의록 추출"
+            "extract", [("system", prompts.EXTRACT_SYSTEM), ("user", summary)], "회의록 추출"
         )
 
     async def draft(self, summary: str, items: list[dict[str, Any]], labels: list[str] | None = None) -> list[DraftTicket]:
