@@ -107,6 +107,14 @@ class DryRunPublisher:
         return {"status": "dry_run", "number": None, "url": None, "assignees": args.get("assignees", []),
                 "dropped_assignees": []}
 
+    async def add_comment(self, **args: Any) -> dict[str, Any]:
+        self.calls.append(args)
+        return {"status": "dry_run", "url": None}
+
+    async def update_issue(self, **args: Any) -> dict[str, Any]:
+        self.calls.append(args)
+        return {"status": "dry_run", "number": args.get("number"), "url": None, "dropped_labels": []}
+
 
 # ---------------------------------------------------------------- 이슈 본문
 
