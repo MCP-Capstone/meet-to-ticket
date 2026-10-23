@@ -1,4 +1,4 @@
-import type { MyTicket } from './api/types'
+import type { MyTicket, PublishTarget } from './api/types'
 
 export function meetingGroups(tickets: MyTicket[]) {
   const groups = new Map<string, MyTicket[]>()
@@ -16,14 +16,26 @@ export function publishSelection(tickets: MyTicket[]) {
   const reason = pending ? `아직 검토하지 않은 티켓이 ${pending}건 있습니다.`
     : tickets.some((ticket) => ticket.status === 'PUBLISHING') ? '이미 발행 중인 티켓이 있습니다.'
     : !confirmed.length ? '발행할 확인된 티켓이 없습니다.'
-    : confirmed.some((ticket) => ticket.publishTarget !== 'GITHUB') ? '현재 일괄 발행은 GitHub 티켓만 지원합니다. 다른 도구 대상 티켓이 포함되어 있습니다.'
     : null
   return { confirmed, pending, rejected: tickets.filter((ticket) => ticket.status === 'REJECTED').length, reason }
 }
-export function safeIssueUrl(url: string | null) {
+export const toolName: Record<PublishTarget, string> = { GITHUB: 'GitHub', NOTION: 'Notion', SLACK: 'Slack' }
+
+// 발행 대상별로 결과 링크가 가리킬 수 있는 도메인. 그 밖의 주소는 링크로 만들지 않는다.
+const allowedHost: Record<PublishTarget, (host: string) => boolean> = {
+  GITHUB: (host) => host === 'github.com',
+  NOTION: (host) => host === 'notion.so' || host.endsWith('.notion.so') || host.endsWith('.notion.site'),
+  SLACK: (host) => host === 'slack.com' || host.endsWith('.slack.com'),
+}
+
+export function safePublishUrl(url: string | null, target: PublishTarget) {
   if (!url) return null
   try {
     const parsed = new URL(url)
-    return parsed.protocol === 'https:' && parsed.hostname === 'github.com' && !parsed.username && !parsed.password ? parsed.href : null
+    return parsed.protocol === 'https:' && allowedHost[target](parsed.hostname) && !parsed.username && !parsed.password ? parsed.href : null
   } catch { return null }
+}
+
+export function safeIssueUrl(url: string | null) {
+  return safePublishUrl(url, 'GITHUB')
 }

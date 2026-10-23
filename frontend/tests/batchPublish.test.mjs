@@ -4,7 +4,7 @@ import test from 'node:test'
 import ts from 'typescript'
 const source = await readFile(new URL('../src/batchPublish.ts', import.meta.url), 'utf8')
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { meetingGroups, publishSelection, safeIssueUrl } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { meetingGroups, publishSelection, safeIssueUrl, safePublishUrl } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 const ticket = (status, overrides = {}) => ({ status, projectId: 1, meetingId: 1, publishTarget: 'GITHUB', ...overrides })
 test('프로젝트와 회의 ID로 구분하고 같은 제목이어도 합치지 않는다', () => {
   assert.deepEqual(meetingGroups([ticket('CONFIRMED'), ticket('REJECTED'), ticket('CONFIRMED', { meetingId: 2 }), ticket('CONFIRMED', { projectId: 2 })]).map((g) => g.tickets.length), [2, 1, 1])
@@ -20,12 +20,23 @@ test('미검토·담당 미정·발행 중·발행 대상 없음은 차단한다
   assert.ok(publishSelection([ticket('REJECTED')]).reason)
   assert.ok(publishSelection([]).reason)
 })
-test('지원하지 않는 도구를 조용히 누락시키지 않는다', () => {
-  assert.match(publishSelection([ticket('CONFIRMED'), ticket('CONFIRMED', { publishTarget: 'SLACK' })]).reason, /GitHub/)
+test('GitHub, Notion, Slack 확인 티켓을 함께 발행한다', () => {
+  const tickets = [ticket('CONFIRMED'), ticket('CONFIRMED', { publishTarget: 'NOTION' }), ticket('CONFIRMED', { publishTarget: 'SLACK' })]
+  const selection = publishSelection(tickets)
+  assert.equal(selection.reason, null)
+  assert.deepEqual(selection.confirmed, tickets)
 })
 test('결과 링크는 HTTPS GitHub만 허용한다', () => {
   assert.equal(safeIssueUrl('https://github.com/owner/repo/issues/1'), 'https://github.com/owner/repo/issues/1')
   for (const url of [null, 'javascript:alert(1)', 'https://github.com.evil.test/x', 'https://user@github.com/x', 'http://github.com/x']) assert.equal(safeIssueUrl(url), null)
+})
+test('결과 링크는 발행 대상 도구의 HTTPS 주소만 허용한다', () => {
+  assert.equal(safePublishUrl('https://www.notion.so/team/page-1', 'NOTION'), 'https://www.notion.so/team/page-1')
+  assert.equal(safePublishUrl('https://team.notion.site/page-1', 'NOTION'), 'https://team.notion.site/page-1')
+  assert.equal(safePublishUrl('https://team.slack.com/archives/C1/p1', 'SLACK'), 'https://team.slack.com/archives/C1/p1')
+  // 다른 도구의 주소나 비슷한 도메인은 링크로 만들지 않는다
+  for (const [url, target] of [['https://github.com/o/r/issues/1', 'NOTION'], ['https://www.notion.so/p', 'SLACK'], ['https://team.slack.com/x', 'GITHUB'],
+    ['https://notion.so.evil.test/p', 'NOTION'], ['https://evilslack.com/x', 'SLACK'], ['http://team.slack.com/x', 'SLACK']]) assert.equal(safePublishUrl(url, target), null)
 })
 
 // 실제 mock 모듈로 결과 패널 없이 목록만 조회하는 경로를 검증한다.

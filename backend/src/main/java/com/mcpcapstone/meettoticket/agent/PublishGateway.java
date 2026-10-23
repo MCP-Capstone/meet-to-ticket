@@ -48,7 +48,8 @@ public interface PublishGateway {
             String errorCode,
             String errorMessage) {}
 
-    // status: PUBLISHED, LINKED, UPDATED, FAILED, UNKNOWN. NOTION 대상은 notionPageId, notionPageUrl로 만든 페이지를 알려 준다.
+    // status: PUBLISHED, LINKED, UPDATED, POSTED, FAILED, UNKNOWN. NOTION 대상은 notionPageId, notionPageUrl로 만든 페이지를,
+    // SLACK 대상은 POSTED와 messageUrl로 게시한 메시지를 알려 준다.
     record Item(
             String ticketId,
             String processingType,
@@ -61,5 +62,6 @@ public interface PublishGateway {
             String errorMessage,
             Boolean retryable,
             String notionPageId,
-            String notionPageUrl) {}
+            String notionPageUrl,
+            String messageUrl) {}
 }

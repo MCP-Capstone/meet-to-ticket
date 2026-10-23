@@ -168,21 +168,38 @@ class PublishBatchTest {
 	}
 
 	@Test
-	void Slack_발행_대상은_보내지_않고_확인_상태로_둔다() throws Exception {
+	void Slack_공지는_GitHub_티켓과_함께_보내고_게시한_메시지_URL을_저장한다() throws Exception {
 		TaskItem github = confirmed(project, "GitHub");
 		TaskItem slack = confirmed(project, "Slack 공지");
 		var slackItem = items.findById(slack.getId()).orElseThrow();
 		ReflectionTestUtils.setField(slackItem, "publishTarget", PublishTarget.SLACK);
 		items.save(slackItem);
 
-		publish(null);
+		UUID batch = publish(null);
 
 		var captor = ArgumentCaptor.forClass(PublishGateway.Request.class);
 		verify(gateway).submit(captor.capture());
-		assertThat(captor.getValue().tickets()).extracting(PublishGateway.Ticket::ticketId).containsExactly(github.getId().toString());
-		assertThat(stateOf(slack)).isEqualTo(TicketStatus.CONFIRMED);
-		// 보낼 수 있는 티켓이 없으면 담을 것이 없다
-		mvc.perform(post("/api/tickets/publish").session(session)).andExpect(status().isConflict());
+		assertThat(captor.getValue().tickets()).extracting(PublishGateway.Ticket::ticketId)
+				.containsExactlyInAnyOrder(github.getId().toString(), slack.getId().toString());
+		assertThat(stateOf(slack)).isEqualTo(TicketStatus.PUBLISHING);
+
+		// Agent는 Slack 공지를 POSTED와 messageUrl로 알려 준다 (TASK-051)
+		report(batch, """
+				{"batchId":"%s","status":"SUCCEEDED","summary":{"PUBLISHED":1,"POSTED":1},"items":[
+				 {"ticketId":"%s","processingType":"CREATE","status":"PUBLISHED","githubIssueNumber":7,
+				  "githubIssueUrl":"https://github.com/owner/repo/issues/7","droppedLabels":[],"retryable":false},
+				 {"ticketId":"%s","processingType":"CREATE","status":"POSTED",
+				  "messageUrl":"https://team.slack.com/archives/C0123ABCD/p1","retryable":false}]}"""
+				.formatted(batch, github.getId(), slack.getId()));
+
+		var saved = items.findById(slack.getId()).orElseThrow();
+		assertThat(saved.getTicketStatus()).isEqualTo(TicketStatus.PUBLISHED);
+		assertThat(saved.getGithubIssueUrl()).isEqualTo("https://team.slack.com/archives/C0123ABCD/p1");
+		mvc.perform(get("/api/publish-batches/{id}", batch).session(session))
+				.andExpect(jsonPath("$.status").value("SUCCEEDED"))
+				.andExpect(jsonPath("$.summary.published").value(2))
+				.andExpect(jsonPath("$.tickets[?(@.ticketId=='%s')].publishTarget".formatted(slack.getId())).value("SLACK"))
+				.andExpect(jsonPath("$.tickets[?(@.ticketId=='%s')].publishTarget".formatted(github.getId())).value("GITHUB"));
 	}
 
 	@Test
@@ -547,7 +564,7 @@ class PublishBatchTest {
 	}
 
 	@Test
-	void 회의_필터의_잘못된_입력과_다른_프로젝트와_지원하지_않는_도구를_거절한다() throws Exception {
+	void 회의_필터의_잘못된_입력과_다른_프로젝트를_거절한다() throws Exception {
 		TaskItem a = confirmed(project, "도구 검증");
 		var meetingId = meetingId(a).toString();
 		mvc.perform(post("/api/tickets/publish").session(session).param("meetingId", "invalid"))
@@ -557,12 +574,23 @@ class PublishBatchTest {
 		mvc.perform(post("/api/tickets/publish").session(session).param("meetingId", meetingId)
 				.param("projectId", newProject().getId().toString()).param("ticketIds", a.getId().toString()))
 				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("NO_CONFIRMED_TICKETS"));
+		verify(gateway, never()).submit(any());
+	}
+
+	@Test
+	void 회의별_발행도_Slack_공지를_함께_보낸다() throws Exception {
+		TaskItem a = confirmed(project, "회의 Slack 공지");
 		var item = items.findById(a.getId()).orElseThrow();
 		ReflectionTestUtils.setField(item, "publishTarget", PublishTarget.SLACK);
 		items.save(item);
-		mvc.perform(post("/api/tickets/publish").session(session).param("meetingId", meetingId).param("ticketIds", a.getId().toString()))
-				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PUBLISH_TARGET_UNSUPPORTED"));
-		verify(gateway, never()).submit(any());
+
+		mvc.perform(post("/api/tickets/publish").session(session)
+						.param("meetingId", meetingId(a).toString()).param("ticketIds", a.getId().toString()))
+				.andExpect(status().isAccepted());
+
+		var captor = ArgumentCaptor.forClass(PublishGateway.Request.class);
+		verify(gateway).submit(captor.capture());
+		assertThat(captor.getValue().tickets()).extracting(PublishGateway.Ticket::publishTarget).containsExactly("SLACK");
 	}
 
 }
