@@ -130,7 +130,7 @@ export function publishMockTickets(user: User, projectId: number, meetingId: num
   const result: PublishBatchResult = {
     batchId, status: 'RUNNING', executionMode: 'MOCK', createdAt: new Date().toISOString(), finishedAt: null,
     summary: { total: ids.size, published: 0, linked: 0, updated: 0, failed: 0, publishing: ids.size },
-    tickets: selection.confirmed.map((ticket) => ({ ticketId: ticket.ticketId, title: ticket.title, status: 'PUBLISHING', processingType: ticket.processingType, projectId, projectName: ticket.projectName, githubIssueNumber: null, githubIssueUrl: null, errorCode: null, errorMessage: null, failureCategory: null, retryable: false, outcomeUnknown: false })),
+    tickets: selection.confirmed.map((ticket) => ({ ticketId: ticket.ticketId, title: ticket.title, status: 'PUBLISHING', processingType: ticket.processingType, projectId, projectName: ticket.projectName, githubIssueNumber: null, githubIssueUrl: null, errorCode: null, errorMessage: null, failureCategory: null, retryable: false, outcomeUnknown: false, publishTarget: ticket.publishTarget })),
   }
   const batches = readBatches()
   batches.push({ userId: user.userId, result })
