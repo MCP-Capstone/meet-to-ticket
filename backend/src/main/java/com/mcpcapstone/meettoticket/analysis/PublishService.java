@@ -124,6 +124,11 @@ public class PublishService {
 
         List<TaskItem> all = items.findByBatch(batchId);
         long failed = all.stream().filter(i -> i.getTicketStatus() == TicketStatus.FAILED).count();
+        // 발행 중에 프로젝트가 삭제되면 티켓이 남지 않는다. 성공으로 보이지 않게 실패로 끝낸다.
+        if (all.isEmpty()) {
+            batch.finish(PublishBatchStatus.FAILED, "묶음의 티켓이 남아 있지 않습니다.");
+            return;
+        }
         batch.finish(
                 failed == 0 ? PublishBatchStatus.SUCCEEDED : failed == all.size() ? PublishBatchStatus.FAILED : PublishBatchStatus.PARTIAL_FAILED,
                 result.errorMessage());

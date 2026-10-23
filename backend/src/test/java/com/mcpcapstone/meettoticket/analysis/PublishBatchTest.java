@@ -388,4 +388,14 @@ class PublishBatchTest {
 		assertThat(byId.get(changed.getId().toString()).processingType()).isEqualTo("CREATE");
 		assertThat(byId.get(changed.getId().toString()).processingTypeEdited()).isTrue();
 	}
+	@Test
+	void 발행_중에_티켓이_모두_지워진_묶음은_성공이_아니라_실패로_끝낸다() throws Exception {
+		TaskItem a = confirmed(project, "프로젝트 삭제됨");
+		UUID batch = publish(null);
+		items.deleteById(a.getId());
+
+		report(batch, "{\"batchId\":\"%s\",\"status\":\"SUCCEEDED\",\"items\":[]}".formatted(batch));
+
+		assertThat(batches.findById(batch).orElseThrow().getStatus()).isEqualTo(PublishBatchStatus.FAILED);
+	}
 }
