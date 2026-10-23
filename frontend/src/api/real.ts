@@ -3,6 +3,7 @@ import type {
   AnalysisTask,
   LoginRequest,
   Meeting,
+  MeetingAnalysisInput,
   MemberList,
   ProjectList,
   ProjectDetail,
@@ -51,6 +52,18 @@ export const realApi = {
 
   // 참여자 ID를 이름으로 보여줄 때 쓴다.
   listMembers: (projectId: number) => request<MemberList>(`/projects/${projectId}/members`),
+
+  // 회의 저장 + 분석 접수. 날짜와 file/content 중 하나만 multipart로 보낸다.
+  requestMeetingAnalysis: (projectId: number, input: MeetingAnalysisInput) => {
+    const form = new FormData()
+    form.append('meetingDate', input.meetingDate)
+    if (input.title?.trim()) form.append('title', input.title.trim())
+    if (input.file !== undefined) form.append('file', input.file)
+    else form.append('content', input.content)
+    return request<StartAnalysisResponse>(`/projects/${projectId}/analysis-tasks`, { method: 'POST', body: form })
+  },
+
+  getMeeting: (meetingId: number) => request<Meeting>(`/meetings/${meetingId}`),
 
   // .txt 회의록 업로드. 백엔드가 제목 / 날짜 / 참여자를 읽어 저장한다.
   uploadMeeting: (projectId: number, file: File) => {

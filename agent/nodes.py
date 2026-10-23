@@ -20,6 +20,7 @@ from typing import Any
 
 import prompts
 from config import Settings
+from context import planning_text
 from extraction import NO_EVIDENCE_WARNING, from_llm, from_table, keep_verbatim
 from parsing import parse_summary
 from publisher import ToolCallError, build_issue_body, build_notion_page, build_slack_notice, pick_labels
@@ -200,7 +201,10 @@ class AgentNodes:
     async def prepare(self, state: AgentState) -> dict[str, Any]:
         # 맥락 파악: 지금은 프로젝트 멤버만 받는다. 기존 이슈·Notion 문서 수는 맥락 파악(TASK-019)이 생기면 채운다
         context = self._step(state, STEP_CONTEXT,
-                             context={"members": len(state.get("members", [])), "issues": None, "notionDocs": None})
+                             context={"members": len(state.get("members", [])),
+                                      # runner가 불러온 맥락 (TASK-019). 기능이 꺼져 있거나 실패하면 None
+                                      "issues": (state.get("context") or {}).get("issues"),
+                                      "notionDocs": (state.get("context") or {}).get("notionDocs")})
         await self._progress(state, STAGE_EXTRACTING, context)
         await self._progress(state, STAGE_EXTRACTING, {**context, "step": STEP_EXTRACTING})
         limit = self.settings.max_source_chars
@@ -257,6 +261,8 @@ class AgentNodes:
         context = {
             "decisions": [d["content"] for d in state.get("decisions", [])],
             "open_questions": state.get("open_questions", []),
+            # Notion 기획 문서 (TASK-019). 배경 설명에만 쓰고 근거로 인용하지 않는다
+            "planning": planning_text(state.get("planning_docs") or []),
         }
         targets = [
             t for t in tickets
@@ -360,7 +366,8 @@ class AgentNodes:
             t["warnings"].append(f"기한({due_date})이 회의일({meeting_date})보다 이름")
         return fails
 
-    def _verify_checks(self, t: dict[str, Any], checks: list[Any], source: str, excluded: list[str]) -> list[dict[str, Any]]:
+    def _verify_checks(self, t: dict[str, Any], checks: list[Any], source: str, excluded: list[str],
+                       planning: str = "") -> list[dict[str, Any]]:
         """LLM 검수 지적을 코드로 걸러 확실한 것만 실패로 인정한다."""
         draft_text = normalize_ws(" ".join([t["title"], t["description"], *t["tasks"], *t["acceptance_criteria"]]))
         src = normalize_ws(source)
@@ -372,8 +379,9 @@ class AgentNodes:
             quote = normalize_ws(c.quote)
             if not quote or quote not in draft_text:
                 continue  # 초안에서 인용하지 못한 지적은 무시
-            if c.item == 4 and quote in src:
-                continue  # 원문에 있는 문구를 "원문에 없다"고 한 지적은 무시
+            if c.item == 4 and (quote in src or (planning and quote in normalize_ws(planning))):
+                # 원문이나 Notion 기획 문서(배경으로 준 맥락)에 있는 문구를 "원문에 없다"고 한 지적은 무시
+                continue
             if c.item == 2 and not excluded:
                 continue  # 제외·보류 항목이 없는 회의
             if c.item in ADVISORY_ITEMS:
@@ -518,7 +526,8 @@ class AgentNodes:
                     t["review_notes"] = t.get("review_notes", []) + ["검수 결과가 누락되어 코드 점검만 적용함"]
                     llm_fails[t["task_item_id"]] = []
                     continue
-                llm_fails[t["task_item_id"]] = self._verify_checks(t, r.checks, source, state.get("excluded", []))
+                llm_fails[t["task_item_id"]] = self._verify_checks(
+                    t, r.checks, source, state.get("excluded", []), planning_text(state.get("planning_docs") or []))
 
         for t in to_llm:
             self._decide(t, code_fails.get(t["task_item_id"], []) + llm_fails.get(t["task_item_id"], []))
