@@ -1,8 +1,10 @@
 package com.mcpcapstone.meettoticket.project.dto;
 
 import java.util.List;
+import java.util.Map;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -41,5 +43,8 @@ public record ProjectSaveRequest(
 		@Schema(description = "변경 후 전체 멤버의 사용자 ID. 등록자와 관리자는 빠져 있어도 멤버로 남는다", example = "[1, 2]")
 		@NotNull(message = "멤버 목록을 보내 주세요.")
 		@Size(max = 100, message = "멤버는 100명 이하입니다.")
-		List<@NotNull(message = "멤버 사용자 ID를 확인해 주세요.") Long> memberUserIds) {
+		List<@NotNull(message = "멤버 사용자 ID를 확인해 주세요.") Long> memberUserIds,
+
+		@Schema(description = "멤버별 Slack 이메일. 키는 사용자 ID이며, 입력하지 않은 멤버는 생략한다.", example = "{\"2\":\"member@example.com\"}", nullable = true)
+		Map<Long, @Email(message = "Slack 이메일 형식을 확인해 주세요.") @Size(max = 254, message = "Slack 이메일은 254자 이하입니다.") String> memberSlackEmails) {
 }

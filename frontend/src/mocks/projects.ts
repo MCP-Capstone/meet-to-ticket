@@ -6,6 +6,7 @@ import { mockMembers, mockProject } from './data'
 const userIds = [2, 3, 4, 5, 1, 6]
 export const mockDirectoryUsers: DirectoryUser[] = mockMembers.map((member, index) => ({
   userId: userIds[index], name: member.name, githubName: index === 5 ? null : member.githubName,
+  slackEmail: index === 5 ? null : `member${userIds[index]}@example.com`, slackUserId: null,
 }))
 
 type StoredProject = Omit<ProjectDetail, 'canEdit' | 'members'> & {
@@ -105,7 +106,8 @@ export function saveMockProject(body: ProjectSaveRequest, user: User, directory:
     const member = directory.find((item) => item.userId === userId)
     if (!member) throw fail(400, 'USER_NOT_FOUND', '가입한 사용자만 멤버로 추가할 수 있습니다.')
     return {
-      ...member, projectMemberId: previous?.members.find((item) => item.userId === userId)?.projectMemberId ?? nextMemberId++,
+      ...member, slackEmail: body.memberSlackEmails[userId] ?? member.slackEmail,
+      projectMemberId: previous?.members.find((item) => item.userId === userId)?.projectMemberId ?? nextMemberId++,
       repositoryPermission: !member.githubName ? 'NO_ACCOUNT' : null,
     }
   })

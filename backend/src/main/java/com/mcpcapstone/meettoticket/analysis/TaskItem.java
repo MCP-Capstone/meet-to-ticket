@@ -1,8 +1,12 @@
 package com.mcpcapstone.meettoticket.analysis;
 
+import com.mcpcapstone.meettoticket.project.ProjectMember;
+
 import jakarta.persistence.*;
 
 import lombok.*;
+
+import org.hibernate.annotations.ColumnDefault;
 
 import java.util.UUID;
 
@@ -51,6 +55,22 @@ public class TaskItem {
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
+    // 담당 멤버. 담당자가 없거나 여러 명이거나 프로젝트 멤버와 연결되지 않으면 null (REQ-010).
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assignee_member_id")
+    private ProjectMember assignee;
+
+    // 기존 행은 컬럼이 추가될 때 담당 지정 필요로 채운다.
+    @Enumerated(EnumType.STRING)
+    @ColumnDefault("'ASSIGNEE_REQUIRED'")
+    @Column(name = "ticket_status", nullable = false, length = 30)
+    private TicketStatus ticketStatus = TicketStatus.ASSIGNEE_REQUIRED;
+
+    @Enumerated(EnumType.STRING)
+    @ColumnDefault("'CREATE'")
+    @Column(name = "processing_type", nullable = false, length = 10)
+    private ProcessingType processingType = ProcessingType.CREATE;
+
     public TaskItem(
             AnalysisTask task,
             com.mcpcapstone.meettoticket.agent.AgentContracts.Item item,
@@ -67,5 +87,12 @@ public class TaskItem {
         this.githubIssueNumber = item.githubIssueNumber();
         this.githubIssueUrl = item.githubIssueUrl();
         this.errorMessage = item.errorMessage();
+        this.processingType = ProcessingType.fromAgentAction(item.action());
+    }
+
+    // 담당 멤버가 정해지면 검토 대기, 아니면 담당 지정 필요.
+    public void assignTo(ProjectMember member) {
+        this.assignee = member;
+        this.ticketStatus = member == null ? TicketStatus.ASSIGNEE_REQUIRED : TicketStatus.PENDING_REVIEW;
     }
 }

@@ -4,6 +4,9 @@ export interface User {
   userId: number
   loginId: string
   name: string
+  githubName: string | null
+  slackEmail: string | null
+  slackUserId: string | null
 }
 
 export interface SignupRequest {
@@ -12,6 +15,7 @@ export interface SignupRequest {
   name: string
   // 선택 입력. 앞뒤 공백 제거 후 빈 값은 null로 전송한다.
   githubName: string | null
+  slackEmail: string | null
 }
 
 export interface LoginRequest {
@@ -35,6 +39,8 @@ export interface DirectoryUser {
   userId: number
   name: string
   githubName: string | null
+  slackEmail: string | null
+  slackUserId: string | null
 }
 
 export type ProjectRole = 'ADMIN' | 'MEMBER'
@@ -52,6 +58,8 @@ export interface ProjectSaveRequest {
   notionPageUrl: string | null
   slackChannelId: string | null
   memberUserIds: number[]
+  // 키는 사용자 ID. 빈 이메일은 null로 전송해 기존 값을 지운다.
+  memberSlackEmails: Record<number, string | null>
 }
 
 export interface ProjectDetail extends Project {
