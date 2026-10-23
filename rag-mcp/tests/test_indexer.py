@@ -136,3 +136,14 @@ def test_build_text_limits_body():
     # 본문은 앞 2,000자만 쓴다
     text = indexer.build_text({"title": "t", "body": "x" * 5000})
     assert text.startswith("t\n\n") and len(text) == 3 + indexer.BODY_MAX
+
+
+def test_build_text_removes_published_meeting_template_and_keeps_comments():
+    issue = {
+        "title": "로그인 개선",
+        "body": "실제 작업 내용\n\n<details>\n<summary>회의 배경</summary>\n회의 공통 설명\n</details>\n\n---\n회의: 12 · work_key: A-1 · 회의 후속조치 Agent가 작성",
+        "comments": ["갱신된 요구사항"],
+    }
+    text = indexer.build_text(issue)
+    assert "실제 작업 내용" in text and "갱신된 요구사항" in text
+    assert "회의 배경" not in text and "work_key" not in text

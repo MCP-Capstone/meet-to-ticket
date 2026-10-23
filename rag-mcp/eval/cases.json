@@ -1,0 +1,22 @@
+[
+  {"query": "GitHub 가입 시 입력 필드와 계정 선택", "expected_issue": 41},
+  {"query": "스테이징 리허설 작업 순서", "expected_issue": 40},
+  {"query": "CSV-10 활성화 체크리스트와 롤백", "expected_issue": 39},
+  {"query": "서명 URL 만료 시간을 600초로 설정", "expected_issue": 38},
+  {"query": "CSV-09 URL 만료 오류 수정", "expected_issue": 37},
+  {"query": "행이 0개인 CSV 검증을 도와주세요", "expected_issue": 36},
+  {"query": "CSV-07 통합 QA와 결함 기록", "expected_issue": 35},
+  {"query": "CSV 테스트 사용자 20명 준비", "expected_issue": 34},
+  {"query": "파일 삭제와 다운로드 URL 만료를 검증", "expected_issue": 33},
+  {"query": "관리자 권한과 감사 로그 확인", "expected_issue": 32},
+  {"query": "안내 문구와 키보드 접근성 개선", "expected_issue": 31},
+  {"query": "CSV 내보내기 다운로드 버튼 UX", "expected_issue": 30},
+  {"query": "비동기 CSV 요청 API와 생성기", "expected_issue": 29},
+  {"query": "빈 결과 CSV에서 발생하는 오류", "expected_issue": 21},
+  {"query": "승인 절차에서 발견된 버그 변경", "expected_issue": 20},
+  {"query": "실제 CSV 다운로드 확인 지원", "expected_issue": 19},
+  {"query": "빈 CSV 검증 도움말", "expected_issue": 18},
+  {"query": "빈 CSV 오류를 수정", "expected_issue": 17},
+  {"query": "결과가 0건 또는 1건일 때 오류", "expected_issue": 15},
+  {"query": "CSV API 마감 일정 변경", "expected_issue": 14}
+]

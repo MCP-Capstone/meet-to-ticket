@@ -30,6 +30,7 @@ class FakeGitHub:
 
     def __init__(self, repos: dict[str, list[dict]], per_page: int = 2):
         self.repos = repos  # {"o/r": [gh_item, ...]}
+        self.comments: dict[tuple[str, str], list[dict]] = {}
         self.per_page = per_page
         self.requests: list[httpx.Request] = []
 
@@ -40,6 +41,8 @@ class FakeGitHub:
         if key not in self.repos:
             return httpx.Response(404, json={"message": "Not Found"})
         items = self.repos[key]
+        if len(parts) == 6 and parts[-1] == "comments":
+            return httpx.Response(200, json=self.comments.get((key, parts[4]), []))
         if len(parts) == 5:
             found = [i for i in items if str(i["number"]) == parts[4]]
             return httpx.Response(200, json=found[0]) if found else httpx.Response(404, json={"message": "Not Found"})

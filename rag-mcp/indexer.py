@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Any, Callable
 
 import httpx
@@ -21,6 +22,9 @@ from embeddings import Embedder
 from store import IssueStore
 
 BODY_MAX = 2000  # 색인 텍스트에 넣는 본문 최대 길이 (긴 본문의 뒷부분은 중복 판단에 거의 쓰이지 않음)
+INDEX_FORMAT_VERSION = "2"  # 템플릿 제거·댓글 포함 규칙이 바뀌면 전체 재색인을 강제한다
+_MEETING_BACKGROUND = re.compile(r"(?is)<details>\s*<summary>회의 배경</summary>.*?</details>\s*")
+_PUBLISHED_FOOTER = re.compile(r"(?im)^---\s*\n회의: .*?회의 후속조치 Agent가 작성\s*$")
 
 
 def utc_now() -> str:
@@ -28,8 +32,18 @@ def utc_now() -> str:
 
 
 def build_text(issue: dict[str, Any]) -> str:
-    """임베딩할 문장: 제목 + 본문 앞부분. 제목이 가장 중요한 단서라 앞에 둔다."""
-    body = (issue.get("body") or "").strip()[:BODY_MAX]
+    """임베딩할 문장: 제목 + 작업 본문 + 최근 댓글.
+
+    Agent가 발행할 때 붙이는 회의 배경·추적 footer는 모든 이슈에 반복돼 유사도를 왜곡하므로 제거한다.
+    최근 댓글은 기존 이슈 연결·갱신 뒤의 변경 맥락을 반영하기 위해 index_issue에서만 붙인다.
+    """
+    body = (issue.get("body") or "").strip()
+    body = _MEETING_BACKGROUND.sub("", body)
+    body = _PUBLISHED_FOOTER.sub("", body).strip()
+    comments = "\n\n".join((comment or "").strip() for comment in issue.get("comments") or [] if (comment or "").strip())
+    if comments:
+        body = f"{body}\n\n최근 댓글\n{comments}".strip()
+    body = body[:BODY_MAX]
     return f"{issue['title'].strip()}\n\n{body}".strip()
 
 
@@ -68,8 +82,9 @@ def sync_issues(
 
     # 다른 임베딩 모델로 만든 색인은 벡터를 비교할 수 없으므로 전체를 다시 만든다
     if not full and store.exists(owner, repo):
-        stored_model = (store.get_collection(owner, repo).metadata or {}).get("embedding_model")
-        if stored_model and stored_model != embedder.model:
+        existing_meta = store.get_collection(owner, repo).metadata or {}
+        stored_model = existing_meta.get("embedding_model")
+        if stored_model and (stored_model != embedder.model or existing_meta.get("index_format_version") != INDEX_FORMAT_VERSION):
             full = True
     if full:
         store.drop(owner, repo)
@@ -87,7 +102,7 @@ def sync_issues(
     changed = [i for i in issues if stored.get(str(i["number"])) != i["updated_at"]]
 
     dimension = _upsert(col, changed, embedder)
-    meta.update({"embedding_model": embedder.model, "last_synced_at": started})
+    meta.update({"embedding_model": embedder.model, "index_format_version": INDEX_FORMAT_VERSION, "last_synced_at": started})
     if dimension:
         meta["dimension"] = dimension
     col.modify(metadata=meta)
@@ -114,6 +129,33 @@ def index_issue(
     """이슈 한 건을 바로 색인한다. Agent가 방금 발행한 이슈를 색인에 더할 때 쓴다."""
     github.check_allowed(owner, repo)
     issue = github.get_issue(client, owner, repo, number)
+    issue["comments"] = github.recent_comments(client, owner, repo, number)
     col = store.collection(owner, repo, embedder.model)
     _upsert(col, [issue], embedder)
+    meta = dict(col.metadata or {})
+    meta.update({"embedding_model": embedder.model, "index_format_version": INDEX_FORMAT_VERSION, "last_synced_at": utc_now()})
+    col.modify(metadata=meta)
     return {"repository": f"{owner}/{repo}", "number": number, "indexed": True}
+
+
+def index_status(owner: str, repo: str, *, store: IssueStore) -> dict[str, Any]:
+    """프로젝트 화면용 색인 상태. 컬렉션이 없어도 오류 대신 count=0을 돌려준다."""
+    github.check_allowed(owner, repo)
+    if not store.exists(owner, repo):
+        return {"repository": f"{owner}/{repo}", "count": 0, "last_synced_at": None, "embedding_model": None}
+    col = store.get_collection(owner, repo)
+    meta = col.metadata or {}
+    return {
+        "repository": f"{owner}/{repo}",
+        "count": col.count(),
+        "last_synced_at": meta.get("last_synced_at"),
+        "embedding_model": meta.get("embedding_model"),
+    }
+
+
+def drop_index(owner: str, repo: str, *, store: IssueStore) -> dict[str, Any]:
+    """해당 저장소 컬렉션만 삭제한다. 없던 색인도 성공적으로 count=0을 돌려준다."""
+    github.check_allowed(owner, repo)
+    existed = store.exists(owner, repo)
+    store.drop(owner, repo)
+    return {"repository": f"{owner}/{repo}", "deleted": existed, "count": 0}
