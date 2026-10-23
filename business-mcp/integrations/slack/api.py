@@ -107,25 +107,29 @@ def _normalized_channel_name(channel: str) -> str:
     return (channel or "").strip().lstrip("#").lower()
 
 
-def _channel_by_name(client: httpx.Client, channel_name: str) -> dict[str, Any] | None:
-    """봇이 볼 수 있는 공개·비공개 채널을 페이지 전체에서 이름으로 찾는다."""
+def _channel_by_type(client: httpx.Client, channel_name: str, channel_type: str) -> dict[str, Any] | None:
+    """지정한 Slack 채널 유형의 전체 페이지에서 이름을 찾는다."""
     cursor: str | None = None
     while True:
-        params: dict[str, Any] = {
-            "exclude_archived": "true",
-            "limit": 200,
-            "types": "public_channel,private_channel",
-        }
+        params: dict[str, Any] = {"exclude_archived": "true", "limit": 200, "types": channel_type}
         if cursor:
             params["cursor"] = cursor
         data = request(client, "GET", "/conversations.list", params=params)
         for item in data.get("channels") or []:
             if _normalized_channel_name(item.get("name", "")) == channel_name:
                 return item
-        metadata = data.get("response_metadata") or {}
-        cursor = metadata.get("next_cursor")
+        cursor = (data.get("response_metadata") or {}).get("next_cursor")
         if not cursor:
             return None
+
+
+def _channel_by_name(client: httpx.Client, channel_name: str) -> dict[str, Any] | None:
+    """공개 채널부터 찾고, 없을 때만 비공개 채널을 조회한다.
+
+    이렇게 하면 `groups:read`가 없는 앱도 공개 프로젝트 채널 연결은 할 수 있다. 비공개 채널을
+    찾는 시점에는 Slack이 `missing_scope`를 돌려주며, 호출자는 권한 추가가 필요함을 알 수 있다.
+    """
+    return _channel_by_type(client, channel_name, "public_channel") or _channel_by_type(client, channel_name, "private_channel")
 
 
 def _channel_details(client: httpx.Client, channel_id: str) -> dict[str, Any] | None:

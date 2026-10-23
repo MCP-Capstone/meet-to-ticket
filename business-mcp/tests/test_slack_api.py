@@ -53,11 +53,31 @@ def test_channel_without_bot_returns_invitation_guide(slack_client):
 
 
 def test_unknown_channel_is_a_connection_result_not_an_exception(slack_client):
-    with slack_client(lambda request: httpx.Response(200, json={"ok": True, "channels": []})) as client:
+    def handler(request):
+        assert request.url.params["types"] in {"public_channel", "private_channel"}
+        return httpx.Response(200, json={"ok": True, "channels": []})
+
+    with slack_client(handler) as client:
         out = api.check_slack_channel(client, "missing-channel")
 
     assert out["status"] == "NOT_FOUND"
     assert out["channel_id"] is None
+
+
+def test_public_channel_does_not_require_private_channel_scope(slack_client):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/api/conversations.list":
+            assert request.url.params["types"] == "public_channel"
+            return httpx.Response(200, json={"ok": True, "channels": [{"id": "C12345678", "name": "public-project"}]})
+        return httpx.Response(200, json={"ok": True, "channel": {"id": "C12345678", "name": "public-project", "is_member": True}})
+
+    with slack_client(handler) as client:
+        assert api.check_slack_channel(client, "public-project")["status"] == "CONNECTED"
+
+    assert calls == ["/api/conversations.list", "/api/conversations.info"]
 
 
 def test_user_lookup_distinguishes_connected_and_missing_users(slack_client):
