@@ -82,6 +82,9 @@ async def test_key_in_meeting_uses_keyword_search(settings):
     result, _ = await run_case(settings, chat, make_request("30min_1"))
     d = by_key(result)["30m1-a1"]
     assert d["relation"] == "SAME" and d["issue_number"] == 7 and d["issue_state"] == "closed"
+    # 닫힌 이슈는 다시 열지 않고 신규 발행하며 겹칠 수 있음을 표시한다
+    assert d["handling"] == {"type": "CREATE", "issue_number": 7, "overlap": True, "judged": True}
+    assert d["before"] is None and d["after"] is None
     assert d["tool_calls"] == [{"tool": "search_issues", "args": {"query": "AUTH-112"}}]
     # 모델에게는 조회 도구 3개와 제출 도구만 준다 (이슈 생성 도구 없음), 매 턴 도구를 부르게 한다
     assert chat.bound == ["search_similar_issues", "search_issues", "read_issue", "submit_decision"]
@@ -97,11 +100,15 @@ async def test_semantic_search_then_read_issue(settings):
     chat = FakeToolChat({"비동기 사용자 CSV 내보내기 API": [
         ("search_similar_issues", {"query": "CSV 내보내기 API"}),
         ("read_issue", {"number": 12}),
-        ("submit_decision", {"relation": "CHANGE", "issue_number": 12, "reason": "같은 API지만 방식이 다름"}),
+        ("submit_decision", {"relation": "CHANGE", "issue_number": 12, "reason": "같은 API지만 방식이 다름",
+                             "before": "동기 처리", "after": "비동기 처리"}),
     ]})
     result, pub = await run_case(settings, chat)
     d = by_key(result)["10m1-a1"]
     assert d["relation"] == "CHANGE" and d["issue_number"] == 12 and d["issue_state"] == "open"
+    # CHANGE + 열린 이슈는 갱신으로 제안하고, 카드와 갱신 섹션에 쓸 변경 전후 값을 남긴다 (TASK-043)
+    assert (d["before"], d["after"]) == ("동기 처리", "비동기 처리")
+    assert d["handling"] == {"type": "UPDATE", "issue_number": 12, "overlap": False, "judged": True}
     assert [c["tool"] for c in d["tool_calls"]] == ["search_similar_issues", "read_issue"]
     tool_results = [m.content for m in chat.seen["비동기 사용자 CSV 내보내기 API"] if m.type == "tool"]
     assert "CSV 빈 결과 오류 수정" in tool_results[0] and tool_results[1].startswith("제목: CSV")
@@ -133,6 +140,8 @@ async def test_total_tool_limit(settings):
     d = by_key(result)["10m1-a1"]
     assert d["relation"] is None and d["skipped"] == "tool_limit" and len(d["tool_calls"]) == 5
     assert len(pub.calls) == 6  # 판단이 없어도 발행은 그대로
+    # 한도를 넘기면 판단 없이 신규 발행으로 처리한다 (TASK-041)
+    assert d["handling"] == {"type": "CREATE", "issue_number": None, "overlap": False, "judged": False}
 
 
 async def test_same_tool_limit(settings):
@@ -159,6 +168,7 @@ async def test_timeout_per_ticket(settings):
     settings.dedupe_timeout_seconds = 0.05
     result, pub = await run_case(settings, FakeToolChat(delay=0.3))
     assert {d["skipped"] for d in by_key(result).values() if d} == {"timeout"}
+    assert {d["handling"]["type"] for d in by_key(result).values() if d} == {"CREATE"}
     assert len(pub.calls) == 6
 
 
