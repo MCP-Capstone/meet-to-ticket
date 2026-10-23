@@ -36,6 +36,13 @@ def list_labels(owner: str, repo: str) -> dict[str, Any]:
         return {"labels": api.list_labels(client, owner, repo)}
 
 
+def check_member_permissions(owner: str, repo: str, github_names: list[str]) -> dict[str, Any]:
+    """멤버별 저장소 권한을 {"members": [{github_name, permission}]}로 돌려준다."""
+    api.check_allowed(owner, repo)
+    with api.make_client() as client:
+        return {"members": api.check_member_permissions(client, owner, repo, github_names)}
+
+
 def list_issues(owner: str, repo: str, state: str = "open", limit: int = 10) -> dict[str, Any]:
     """최근 이슈 목록을 {"issues": [...]}로 돌려준다. 에이전트의 MCP 연결 확인에 쓴다."""
     api.check_allowed(owner, repo)
@@ -67,6 +74,14 @@ def register(mcp: MCPServer) -> None:
         description="GitHub 저장소에 있는 라벨 목록(이름, 설명)을 조회한다. 이슈에 붙일 라벨을 이 안에서 고른다.",
         annotations=titled(READ, "GitHub 라벨 목록 조회"),
     )(list_labels)
+    mcp.tool(
+        description=(
+            "멤버의 GitHub 계정마다 이 저장소 이슈의 담당자로 지정할 수 있는지 확인한다. "
+            "permission은 GRANTED(가능), DENIED(불가), ERROR(확인 실패)이다. "
+            "저장소 자체를 볼 수 없으면 멤버별 결과 없이 오류를 돌려준다."
+        ),
+        annotations=titled(READ, "GitHub 멤버 저장소 권한 확인"),
+    )(check_member_permissions)
     mcp.tool(
         description="GitHub 저장소의 최근 이슈 목록을 조회한다 (PR 제외).",
         annotations=titled(READ, "GitHub 이슈 목록 조회"),

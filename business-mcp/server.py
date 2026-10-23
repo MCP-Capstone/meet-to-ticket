@@ -1,4 +1,4 @@
-"""meet-to-ticket business MCP 서버 (GitHub 도구: 이슈 생성, 라벨 목록 조회, 이슈 목록 조회, 이슈 키워드 검색).
+"""meet-to-ticket business MCP 서버 (GitHub 도구: 이슈 생성, 라벨 목록 조회, 멤버 저장소 권한 확인, 이슈 목록 조회, 이슈 키워드 검색).
 
 실행: python server.py  →  http://127.0.0.1:8000/mcp (Streamable HTTP)
 환경 변수: business-mcp/.env.example 참고
