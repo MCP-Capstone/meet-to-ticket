@@ -45,6 +45,8 @@ public class MyTicketService {
                 i.getTitle(),
                 i.getTicketStatus(),
                 i.getProcessingType(),
+                i.getPublishTarget(),
+                dedupe(content.path("dedupe"), i, meeting.getProject()),
                 meeting.getProject().getId(),
                 meeting.getProject().getName(),
                 meeting.getId(),
@@ -54,6 +56,26 @@ public class MyTicketService {
                 content.path("description").asText(null),
                 new Due(blankToNull(due.path("text").asText(null)), date(due.path("date").asText(null)), blankToNull(due.path("time").asText(null))),
                 assignee == null ? null : new Assignee(assignee.getId(), assignee.getName()));
+    }
+
+    // 카드가 그릴 중복 판단 결과 (REQ-026). 판단하지 않았거나 건너뛰었으면 judged=false.
+    private static Dedupe dedupe(JsonNode d, TaskItem i, com.mcpcapstone.meettoticket.project.Project project) {
+        String relation = blankToNull(d.path("relation").asText(null));
+        Integer number = d.path("issue_number").isIntegralNumber() ? d.path("issue_number").intValue() : null;
+        if (relation == null)
+            return new Dedupe(false, blankToNull(d.path("skipped").asText(null)), null, null, false, null, null, null, false);
+        ExistingIssue issue = number == null ? null : new ExistingIssue(
+                number,
+                blankToNull(d.path("issue_title").asText(null)),
+                blankToNull(d.path("issue_state").asText(null)),
+                "https://github.com/%s/%s/issues/%d".formatted(project.getGithubOwner(), project.getGithubRepo(), number));
+        // 새로 발행하는데 같은 작업이나 관련 이슈가 있으면 겹칠 수 있다 (닫힌 SAME/CHANGE, RELATED, 담당자가 신규로 바꾼 연결/갱신)
+        boolean overlap = issue != null && !"UNRELATED".equals(relation) && i.getProcessingType() == ProcessingType.CREATE;
+        return new Dedupe(true, null, relation, issue, overlap,
+                blankToNull(d.path("reason").asText(null)),
+                blankToNull(d.path("before").asText(null)),
+                blankToNull(d.path("after").asText(null)),
+                d.path("handling").path("changed").asBoolean(false));
     }
 
     private static String blankToNull(String v) {
@@ -82,6 +104,8 @@ public class MyTicketService {
             @Schema(description = "티켓 제목", requiredMode = Schema.RequiredMode.REQUIRED, example = "CSV 빈 결과 오류 수정") String title,
             @Schema(description = "티켓 상태", requiredMode = Schema.RequiredMode.REQUIRED, example = "PENDING_REVIEW") TicketStatus status,
             @Schema(description = "처리 유형. 신규 발행 CREATE, 기존 이슈 연결 LINK, 갱신 UPDATE", requiredMode = Schema.RequiredMode.REQUIRED, example = "CREATE") ProcessingType processingType,
+            @Schema(description = "발행 대상. GitHub 이외는 처리 유형이 항상 CREATE", requiredMode = Schema.RequiredMode.REQUIRED, example = "GITHUB") PublishTarget publishTarget,
+            @Schema(description = "기존 이슈 중복 판단 결과 (읽기 전용)", requiredMode = Schema.RequiredMode.REQUIRED) Dedupe dedupe,
             @Schema(description = "프로젝트 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1") Long projectId,
             @Schema(description = "프로젝트 이름", requiredMode = Schema.RequiredMode.REQUIRED, example = "CSV 내보내기") String projectName,
             @Schema(description = "회의 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "2") Long meetingId,
@@ -91,6 +115,23 @@ public class MyTicketService {
             @Schema(description = "티켓 본문(작업 내용). 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "CSV 내보내기에서 결과가 비면 오류가 난다.") String description,
             @Schema(description = "기한", requiredMode = Schema.RequiredMode.REQUIRED) Due due,
             @Schema(description = "담당 멤버. 담당 지정 필요 상태면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) Assignee assignee) {}
+
+    public record Dedupe(
+            @Schema(description = "중복 판단을 했는지. false면 카드에 \"중복 판단 안 됨\"을 표시", requiredMode = Schema.RequiredMode.REQUIRED, example = "true") boolean judged,
+            @Schema(description = "판단하지 못한 이유 (timeout, tool_limit 등). 판단했으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) String skipped,
+            @Schema(description = "기존 이슈와의 관계", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, allowableValues = {"SAME", "CHANGE", "RELATED", "UNRELATED"}, example = "RELATED") String relation,
+            @Schema(description = "관계가 있는 기존 이슈. 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) ExistingIssue issue,
+            @Schema(description = "\"겹칠 수 있음\" 경고. 신규 발행인데 같은 작업이나 관련 이슈가 있으면 true", requiredMode = Schema.RequiredMode.REQUIRED, example = "true") boolean overlap,
+            @Schema(description = "판단 사유", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "같은 CSV 화면이지만 빈 결과 처리를 더 요구함") String reason,
+            @Schema(description = "갱신(CHANGE)의 변경 전 값", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "동기 처리") String before,
+            @Schema(description = "갱신(CHANGE)의 변경 후 값", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "비동기 처리") String after,
+            @Schema(description = "발행 직전 재대조로 처리 유형이 연결로 바뀌었는지", requiredMode = Schema.RequiredMode.REQUIRED, example = "false") boolean changedByRecheck) {}
+
+    public record ExistingIssue(
+            @Schema(description = "기존 이슈 번호", requiredMode = Schema.RequiredMode.REQUIRED, example = "12") int number,
+            @Schema(description = "기존 이슈 제목", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "CSV 빈 결과 오류 수정") String title,
+            @Schema(description = "기존 이슈 상태", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, allowableValues = {"open", "closed"}, example = "open") String state,
+            @Schema(description = "기존 이슈 링크", requiredMode = Schema.RequiredMode.REQUIRED, example = "https://github.com/MCP-Capstone/mcp-capstone/issues/12") String url) {}
 
     public record Due(
             @Schema(description = "기한 원문 표현", nullable = true, example = "내일 오후 6시") String text,
