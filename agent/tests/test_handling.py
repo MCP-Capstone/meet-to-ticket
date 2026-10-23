@@ -66,3 +66,12 @@ def test_change_section_without_values_skips_change_line():
 
 def test_change_note_mentions_meeting():
     assert "회의(2026-10-23 CSV 점검)" in change_note(meeting_date="2026-10-23", meeting_title="CSV 점검")
+
+
+def test_after_recheck_without_confirmed_uses_recheck():
+    from handling import after_recheck
+
+    rechecked = {**judged("CHANGE", 3, "open"), "handling": decide(judged("CHANGE", 3, "open"))}
+    assert after_recheck(None, rechecked) == {"type": "UPDATE", "issue_number": 3, "overlap": False,
+                                              "judged": True, "changed": False}
+    assert after_recheck(None, None)["type"] == "CREATE"
