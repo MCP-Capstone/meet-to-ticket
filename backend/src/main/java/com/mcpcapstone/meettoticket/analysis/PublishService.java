@@ -43,9 +43,9 @@ public class PublishService {
             List<TaskItem> picked = new ArrayList<>();
             for (UUID id : items.findIdsAssignedTo(userId, TicketStatus.CONFIRMED, projectId)) {
                 // 잠근 뒤 다시 확인해야 그 사이 발행 중으로 바뀐 티켓을 걸러낸다.
-                // Agent 일괄 발행은 GitHub만 처리한다. Slack, Notion 대상은 확인 상태로 두고 해당 발행 기능(TASK-051, 052)이 맡는다.
+                // Agent 일괄 발행은 GitHub와 Notion을 처리한다. Slack 대상은 확인 상태로 두고 해당 발행 기능(TASK-051)이 맡는다.
                 items.findForUpdate(id)
-                        .filter(i -> i.getTicketStatus() == TicketStatus.CONFIRMED && i.getPublishTarget() == PublishTarget.GITHUB)
+                        .filter(i -> i.getTicketStatus() == TicketStatus.CONFIRMED && publishable(i.getPublishTarget()))
                         .ifPresent(picked::add);
             }
             if (picked.isEmpty()) throw new BusinessException(ErrorCode.NO_CONFIRMED_TICKETS);
@@ -73,7 +73,7 @@ public class PublishService {
                 throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
             List<TaskItem> picked = group.stream().filter(i -> i.getTicketStatus() == TicketStatus.CONFIRMED).toList();
             if (picked.isEmpty()) throw new BusinessException(ErrorCode.NO_CONFIRMED_TICKETS);
-            if (picked.stream().anyMatch(i -> i.getPublishTarget() != PublishTarget.GITHUB))
+            if (picked.stream().anyMatch(i -> !publishable(i.getPublishTarget())))
                 throw new BusinessException(ErrorCode.PUBLISH_TARGET_UNSUPPORTED);
             if (expectedTicketIds == null || !new HashSet<>(expectedTicketIds).equals(
                     new HashSet<>(picked.stream().map(TaskItem::getId).toList())))
@@ -94,6 +94,10 @@ public class PublishService {
             if (ticket.getTicketStatus() != TicketStatus.FAILED) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
             return prepare(userId, List.of(ticket));
         }));
+    }
+
+    private static boolean publishable(PublishTarget target) {
+        return target == PublishTarget.GITHUB || target == PublishTarget.NOTION;
     }
 
     private record Prepared(UUID batchId, PublishGateway.Request request) {}
@@ -187,12 +191,14 @@ public class PublishService {
 
     private void record(TaskItem ticket, PublishGateway.Item r) {
         ProcessingType executed = parse(r.processingType());
+        // 저장 칸 이름은 githubIssueUrl이지만 Notion 대상은 만든 페이지 URL을 여기에 담는다(스키마와 API는 그대로).
+        String url = r.notionPageUrl() != null ? r.notionPageUrl() : r.githubIssueUrl();
         switch (r.status() == null ? "" : r.status()) {
-            case "PUBLISHED" -> ticket.recordPublishResult(TicketStatus.PUBLISHED, executed, r.githubIssueNumber(), r.githubIssueUrl(), r.errorCode(), r.errorMessage(), false, false);
-            case "LINKED" -> ticket.recordPublishResult(TicketStatus.LINKED, executed, r.githubIssueNumber(), r.githubIssueUrl(), r.errorCode(), r.errorMessage(), false, false);
+            case "PUBLISHED" -> ticket.recordPublishResult(TicketStatus.PUBLISHED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), false, false);
+            case "LINKED" -> ticket.recordPublishResult(TicketStatus.LINKED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), false, false);
             // 본문은 갱신됐지만 알림 댓글만 실패한 경우처럼 errorCode가 함께 올 수 있다. 갱신됨으로 두고 사유를 남긴다.
-            case "UPDATED" -> ticket.recordPublishResult(TicketStatus.UPDATED, executed, r.githubIssueNumber(), r.githubIssueUrl(), r.errorCode(), r.errorMessage(), retryable(r), false);
-            case "UNKNOWN" -> ticket.recordPublishResult(TicketStatus.FAILED, executed, r.githubIssueNumber(), r.githubIssueUrl(),
+            case "UPDATED" -> ticket.recordPublishResult(TicketStatus.UPDATED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), retryable(r), false);
+            case "UNKNOWN" -> ticket.recordPublishResult(TicketStatus.FAILED, executed, r.githubIssueNumber(), url,
                     r.errorCode() != null ? r.errorCode() : "RESULT_UNKNOWN", r.errorMessage(), retryable(r), true);
             default -> ticket.recordPublishResult(TicketStatus.FAILED, executed, null, null,
                     r.errorCode() != null ? r.errorCode() : "PUBLISH_FAILED", r.errorMessage(), retryable(r), false);
@@ -265,7 +271,7 @@ public class PublishService {
         }
         return new PublishGateway.Ticket(
                 i.getId().toString(),
-                new PublishGateway.Project(project.getId(), project.getName(), project.getGithubOwner(), project.getGithubRepo()),
+                new PublishGateway.Project(project.getId(), project.getName(), project.getGithubOwner(), project.getGithubRepo(), project.getNotionPageUrl()),
                 meeting.getId(), meeting.getTitle(), meeting.getMeetingDate(),
                 i.getTitle(), content, type.name(), target, edited, i.mustRecheckOnPublish(), "CONFIRMED");
     }

@@ -129,7 +129,7 @@ def make_mcp_publisher(tools: dict[str, Any]) -> McpPublisher:
     if "create_issue" not in tools:
         raise RuntimeError(f"create_issue 도구를 찾지 못함: {sorted(tools)}")
     return McpPublisher(tools["create_issue"], tools.get("add_comment"), tools.get("update_issue"), tools.get("post_message"),
-                        tools.get("search_issues"), tools.get("find_marker"))
+                        tools.get("search_issues"), tools.get("find_marker"), tools.get("create_page"))
 
 
 async def make_issue_tools(

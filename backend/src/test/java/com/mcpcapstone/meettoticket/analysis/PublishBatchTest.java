@@ -162,7 +162,7 @@ class PublishBatchTest {
 	}
 
 	@Test
-	void GitHub_이외_발행_대상은_보내지_않고_확인_상태로_둔다() throws Exception {
+	void Slack_발행_대상은_보내지_않고_확인_상태로_둔다() throws Exception {
 		TaskItem github = confirmed(project, "GitHub");
 		TaskItem slack = confirmed(project, "Slack 공지");
 		var slackItem = items.findById(slack.getId()).orElseThrow();
@@ -175,8 +175,62 @@ class PublishBatchTest {
 		verify(gateway).submit(captor.capture());
 		assertThat(captor.getValue().tickets()).extracting(PublishGateway.Ticket::ticketId).containsExactly(github.getId().toString());
 		assertThat(stateOf(slack)).isEqualTo(TicketStatus.CONFIRMED);
-		// GitHub 티켓이 없으면 담을 것이 없다
+		// 보낼 수 있는 티켓이 없으면 담을 것이 없다
 		mvc.perform(post("/api/tickets/publish").session(session)).andExpect(status().isConflict());
+	}
+
+	private TaskItem notionTicket(String title) {
+		TaskItem t = confirmed(project, title);
+		var item = items.findById(t.getId()).orElseThrow();
+		ReflectionTestUtils.setField(item, "publishTarget", PublishTarget.NOTION);
+		return items.save(item);
+	}
+
+	@Test
+	void Notion_대상은_루트_페이지_URL과_함께_Agent로_보내고_만든_페이지_URL을_저장한다() throws Exception {
+		project.update(project.getName(), project.getDescription(), project.getGithubOwner(), project.getGithubRepo(),
+				"https://www.notion.so/root", null);
+		projects.save(project);
+		TaskItem notion = notionTicket("Notion 기획");
+
+		UUID batch = publish(null);
+
+		var captor = ArgumentCaptor.forClass(PublishGateway.Request.class);
+		verify(gateway).submit(captor.capture());
+		var sent = captor.getValue().tickets().get(0);
+		assertThat(sent.ticketId()).isEqualTo(notion.getId().toString());
+		assertThat(sent.project().notionPageUrl()).isEqualTo("https://www.notion.so/root");
+		assertThat(sent.processingType()).isEqualTo("CREATE");
+
+		report(batch, """
+				{"batchId":"%s","status":"SUCCEEDED","summary":{"PUBLISHED":1},"items":[
+				 {"ticketId":"%s","processingType":"CREATE","status":"PUBLISHED","notionPageId":"page-1",
+				  "notionPageUrl":"https://www.notion.so/page-1","droppedLabels":[],"retryable":false}]}"""
+				.formatted(batch, notion.getId()));
+
+		assertThat(stateOf(notion)).isEqualTo(TicketStatus.PUBLISHED);
+		mvc.perform(get("/api/publish-batches/{id}", batch).session(session))
+				.andExpect(jsonPath("$.status").value("SUCCEEDED"))
+				.andExpect(jsonPath("$.tickets[0].githubIssueNumber").doesNotExist())
+				.andExpect(jsonPath("$.tickets[0].githubIssueUrl").value("https://www.notion.so/page-1"));
+	}
+
+	@Test
+	void Notion_루트_페이지가_없다는_보고는_실패로_기록한다() throws Exception {
+		TaskItem notion = notionTicket("루트 없음");
+		UUID batch = publish(null);
+
+		report(batch, """
+				{"batchId":"%s","status":"FAILED","summary":{"FAILED":1},"items":[
+				 {"ticketId":"%s","processingType":"CREATE","status":"FAILED","errorCode":"NOTION_ROOT_MISSING",
+				  "errorMessage":"Notion 기획 페이지 URL이 없습니다","retryable":false}]}"""
+				.formatted(batch, notion.getId()));
+
+		var saved = items.findById(notion.getId()).orElseThrow();
+		assertThat(saved.getTicketStatus()).isEqualTo(TicketStatus.FAILED);
+		assertThat(saved.getPublishErrorCode()).isEqualTo("NOTION_ROOT_MISSING");
+		assertThat(saved.isPublishRetryable()).isFalse();
+		assertThat(saved.getGithubIssueUrl()).isNull();
 	}
 
 	@Test

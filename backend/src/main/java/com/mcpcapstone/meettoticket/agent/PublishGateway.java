@@ -30,7 +30,7 @@ public interface PublishGateway {
             boolean previousOutcomeUnknown,
             String reviewStatus) {}
 
-    record Project(Long projectId, String name, String githubOwner, String githubRepo) {}
+    record Project(Long projectId, String name, String githubOwner, String githubRepo, String notionPageUrl) {}
 
     record Result(
             String batchId,
@@ -40,7 +40,7 @@ public interface PublishGateway {
             String errorCode,
             String errorMessage) {}
 
-    // status: PUBLISHED, LINKED, UPDATED, FAILED, UNKNOWN
+    // status: PUBLISHED, LINKED, UPDATED, FAILED, UNKNOWN. NOTION 대상은 notionPageId, notionPageUrl로 만든 페이지를 알려 준다.
     record Item(
             String ticketId,
             String processingType,
@@ -51,5 +51,7 @@ public interface PublishGateway {
             List<String> droppedLabels,
             String errorCode,
             String errorMessage,
-            Boolean retryable) {}
+            Boolean retryable,
+            String notionPageId,
+            String notionPageUrl) {}
 }

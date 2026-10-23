@@ -1,4 +1,4 @@
-"""확인된 티켓을 처리 유형에 따라 GitHub에 일괄 발행한다 (TASK-034)."""
+"""확인된 티켓을 발행 대상(GitHub 이슈, Notion 페이지, Slack 공지)에 따라 일괄 발행한다 (TASK-034)."""
 
 from __future__ import annotations
 
@@ -7,13 +7,13 @@ from collections import Counter
 from typing import Any
 
 from handling import change_note, change_section, link_comment
-from publisher import ToolCallError, build_issue_body
+from publisher import ToolCallError, build_issue_body, build_notion_page
 from schemas import PublishBatchRequest, PublishBatchResult, PublishItemResult, PublishTicket
 from state import PUBLISH_FAILED
 
 log = logging.getLogger("agent.batch_publish")
 
-_RETRYABLE = {"GITHUB_RATE_LIMIT", "GITHUB_ERROR", "MCP_UNAVAILABLE", "PUBLISH_FAILED"}
+_RETRYABLE = {"GITHUB_RATE_LIMIT", "GITHUB_ERROR", "MCP_UNAVAILABLE", "PUBLISH_FAILED", "NOTION_RATE_LIMIT", "NOTION_ERROR"}
 
 
 def _ticket(source: PublishTicket) -> dict[str, Any]:
@@ -97,6 +97,20 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             out = await publisher.post_message(channel_id=channel_id, text=text, mentions=mentions)
             return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="POSTED",
                                      message_url=out.get("url"))
+        if source.publish_target == "NOTION":
+            # 루트 페이지가 없으면 Notion을 부르지 않는다. GitHub 이슈로 대신 만들지도 않는다.
+            root = (source.project.notion_page_url or "").strip()
+            if not root:
+                raise ToolCallError("NOTION_ROOT_MISSING", "프로젝트 설정에 Notion 기획 페이지 URL이 없어 Notion 페이지를 만들 수 없습니다")
+            page = build_notion_page(ticket, str(source.meeting_id), ticket.get("background", ""))
+            # create_page는 같은 요청을 다시 보내면 페이지가 하나 더 생긴다. 찾아볼 도구가 없어 재시도 전 확인은 담당자 몫이다.
+            sent = True
+            out = await publisher.create_page(root_page_url_or_id=root, title=source.title or page["title"],
+                                              markdown=page["markdown"])
+            if out.get("status") != "dry_run" and not out.get("url"):
+                raise ToolCallError(PUBLISH_FAILED, "Notion 페이지는 만들었지만 URL을 받지 못했습니다", ambiguous=True)
+            return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="PUBLISHED",
+                                     notion_page_id=out.get("page_id"), notion_page_url=out.get("url"))
         if kind == "LINK":
             if not number:
                 raise ToolCallError("INVALID_ARGUMENT", "LINK 처리에는 target_issue_number가 필요합니다")
