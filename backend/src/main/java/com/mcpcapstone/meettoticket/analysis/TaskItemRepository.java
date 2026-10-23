@@ -19,4 +19,9 @@ public interface TaskItemRepository extends JpaRepository<TaskItem, UUID> {
              where i.assignee.user.id = :userId and (:projectId is null or p.id = :projectId)
              order by t.createdAt desc, i.id""")
     List<TaskItem> findAssignedTo(Long userId, Long projectId);
+
+    // 같은 티켓을 동시에 고치거나 상태를 바꾸지 못하게 잠근다. 연관 객체는 필요할 때 읽는다.
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select i from TaskItem i where i.id = :id")
+    Optional<TaskItem> findForUpdate(UUID id);
 }
