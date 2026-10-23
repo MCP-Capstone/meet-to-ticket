@@ -613,14 +613,30 @@ class AgentNodes:
 
     # ------------------------------------------------------------ 4. 발행
 
+    @staticmethod
+    def unconfirmed_reason(t: dict[str, Any]) -> str | None:
+        """자동 발행을 막을 사유. 사람이 확정하지 않은 항목은 PUBLISH_ON_RUN이어도 외부에 쓰지 않는다."""
+        if t["review_status"] != REVIEW_APPROVED or t.get("action") == "NEEDS_CHECK":
+            return "확인 필요: 검수를 통과하지 못해 자동 발행하지 않음"
+        if t.get("unresolved_assignees"):
+            return "담당자 미확정: " + ", ".join(t["unresolved_assignees"]) + " (자동 발행하지 않음)"
+        return None
+
     async def publish(self, state: AgentState) -> dict[str, Any]:
         await self._progress(state, STAGE_PUBLISHING)
         tickets = _copy(state["tickets"])
         fatal: str | None = None
         fatal_message: str | None = None
         for t in tickets:
-            if t["review_status"] != REVIEW_APPROVED:
+            blocked = self.unconfirmed_reason(t)
+            if blocked:
                 t["publish_status"] = "BLOCKED"
+                if t["review_status"] == REVIEW_APPROVED:
+                    # 백엔드가 APPROVED 항목을 발행된 것으로 오해하지 않게 확인 필요로 내린다
+                    t["review_status"] = REVIEW_NEEDS_CHECK
+                    t["action"] = "NEEDS_CHECK"
+                    t["reason"] = blocked
+                    t["warnings"].append(blocked)
                 continue
             existing = _open_same_issue(t)
             if existing:

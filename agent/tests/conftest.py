@@ -20,6 +20,12 @@ MEMBERS = [
     ProjectMember(name="오지훈", github_name="jihoon-o"),
 ]
 
+# 기본 요청용: 전원 GitHub 계정이 매핑돼 있다. 담당자 미확정 티켓은 자동 발행이 막히므로(#267)
+# 발행 경로 테스트는 이 목록을 쓰고, 미확정 케이스는 MEMBERS(정하늘 미매핑)를 직접 넘긴다
+MAPPED_MEMBERS = [
+    ProjectMember(name=m.name, github_name=m.github_name or "haneul-j") for m in MEMBERS
+]
+
 
 @pytest.fixture(autouse=True)
 def no_tracing():
@@ -54,7 +60,7 @@ def make_request(name: str = "10min_1", content: str | None = None, members=None
         task_id=f"task-{name}",
         meeting=Meeting(meeting_id=name, title="t", original_content=content if content is not None else sample(name)),
         project=Project(github_owner="MCP-Capstone", github_repo="mcp-capstone"),
-        project_members=MEMBERS if members is None else members,
+        project_members=MAPPED_MEMBERS if members is None else members,
     )
 
 
