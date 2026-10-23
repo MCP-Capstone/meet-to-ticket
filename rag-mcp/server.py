@@ -39,6 +39,12 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 # 에이전트가 http://<MCP_HOST>:<MCP_PORT>/mcp 로 연결해 아래 도구를 부른다
 mcp = MCPServer("meet-to-ticket-rag")
 
+# 도구 성격 힌트. 모든 도구가 외부 서비스(GitHub, 질문 임베딩용 OpenAI)를 부르므로 openWorldHint는 True다
+READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True)
+# 색인 갱신: 색인을 바꾸지만(GitHub 이슈는 바꾸지 않음) 같은 요청을 반복해도 결과가 같다.
+# full=true로 지워도 GitHub에서 다시 만들 수 있어 destructive로 보지 않는다
+INDEX_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True)
+
 
 # ---------------------------------------------------------------- 의존성 (테스트에서 가짜로 바꾼다)
 
@@ -75,13 +81,7 @@ def get_embedder() -> Embedder:
         "각 결과의 state(open/closed)와 closed_at으로 진행 중인 작업인지 끝난 작업인지 구분한다. "
         "색인이 비어 있으면 [INDEX_EMPTY]를 돌려준다."
     ),
-    annotations=ToolAnnotations(
-        title="유사 이슈 검색",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=True,  # 질문 문장을 임베딩하려고 OpenAI를 부른다
-    ),
+    annotations=READ.model_copy(update={"title": "유사 이슈 검색"}),
 )
 def search_similar_issues(
     owner: str,
@@ -100,13 +100,7 @@ def search_similar_issues(
         "기본은 마지막 색인 이후 바뀐 이슈만 다시 임베딩하고, full=true면 색인을 지우고 전체를 다시 만든다. "
         "Agent는 실행을 시작할 때 한 번 부른다."
     ),
-    annotations=ToolAnnotations(
-        title="이슈 색인 갱신",
-        readOnlyHint=False,  # 색인을 바꾼다 (GitHub 이슈는 바꾸지 않음)
-        destructiveHint=False,  # full=true로 지워도 GitHub에서 다시 만들 수 있다
-        idempotentHint=True,  # 같은 요청을 반복해도 결과가 같다
-        openWorldHint=True,
-    ),
+    annotations=INDEX_WRITE.model_copy(update={"title": "이슈 색인 갱신"}),
 )
 def sync_issues(owner: str, repo: str, full: bool = False) -> dict[str, Any]:
     """색인 결과 {repository, indexed, skipped, total, full, updated_at}."""
@@ -116,13 +110,7 @@ def sync_issues(owner: str, repo: str, full: bool = False) -> dict[str, Any]:
 
 @mcp.tool(
     description="이슈 한 건을 바로 색인에 추가하거나 갱신한다. Agent가 방금 발행한 이슈를 색인에 더할 때 쓴다.",
-    annotations=ToolAnnotations(
-        title="이슈 한 건 색인",
-        readOnlyHint=False,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
-    ),
+    annotations=INDEX_WRITE.model_copy(update={"title": "이슈 한 건 색인"}),
 )
 def index_issue(owner: str, repo: str, number: int) -> dict[str, Any]:
     """색인 결과 {repository, number, indexed}."""

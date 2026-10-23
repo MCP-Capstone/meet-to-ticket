@@ -1,17 +1,18 @@
 """GitHub 이슈 읽기 (색인용, 읽기 전용).
 
-business-mcp/github.py와 같은 방식(허용 저장소 검사, 상태 코드별 오류 태그)을 따른다.
+business-mcp/integrations/github/api.py와 같은 방식(허용 저장소 검사, 상태 코드별 오류 태그)을 따른다.
+토큰과 허용 저장소는 config.load_settings()로 읽는다. GITHUB_ALLOWED_REPOS가 비어 있으면 저장소를 검사하지 않는다.
 두 서버는 가상환경이 따로라 코드를 공유하지 않고, 이 서버에 필요한 읽기 기능만 둔다.
 테스트에서는 make_client(transport=httpx.MockTransport(...))로 실제 요청 없이 검증한다.
 """
 
 from __future__ import annotations
 
-import os
 from typing import Any, Iterator
 
 import httpx
 
+from config import load_settings
 from errors import (
     GITHUB_AUTH,
     GITHUB_ERROR,
@@ -27,22 +28,18 @@ PER_PAGE = 100  # GitHub가 허용하는 한 페이지 최대 개수
 
 
 def allowed_repos() -> set[str]:
-    """허용 저장소 목록. GITHUB_ALLOWED_REPOS가 없으면 GITHUB_OWNER/GITHUB_REPO 하나만 허용한다."""
-    raw = os.environ.get("GITHUB_ALLOWED_REPOS", "")
+    """GITHUB_ALLOWED_REPOS(쉼표 구분 owner/repo). 비어 있으면 빈 집합 = 검사하지 않음."""
+    raw = load_settings().github_allowed_repos
     # GitHub는 owner/repo 대소문자를 구분하지 않으므로 소문자로 맞춰 비교한다
-    repos = {item.strip().lower() for item in raw.split(",") if item.strip()}
-    owner = os.environ.get("GITHUB_OWNER", "").strip()
-    repo = os.environ.get("GITHUB_REPO", "").strip()
-    if owner and repo:
-        repos.add(f"{owner}/{repo}".lower())
-    return repos
+    return {item.strip().lower() for item in raw.split(",") if item.strip()}
 
 
 def check_allowed(owner: str, repo: str) -> None:
-    """허용되지 않은 저장소면 REPOSITORY_NOT_ALLOWED를 던진다. GitHub를 호출하기 전에 부른다."""
+    """저장소 값을 확인하고, 허용 목록이 있으면 그 안에 있는지 본다. GitHub를 호출하기 전에 부른다."""
     if not owner.strip() or not repo.strip():
         raise tool_error(INVALID_ARGUMENT, "owner와 repo를 모두 입력해야 합니다")
-    if f"{owner}/{repo}".strip().lower() not in allowed_repos():
+    allowed = allowed_repos()
+    if allowed and f"{owner}/{repo}".strip().lower() not in allowed:
         raise tool_error(REPOSITORY_NOT_ALLOWED, f"{owner}/{repo}는 허용되지 않은 저장소입니다")
 
 
@@ -53,7 +50,7 @@ def make_client(transport: httpx.BaseTransport | None = None) -> httpx.Client:
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "meet-to-ticket-rag-mcp",  # GitHub API는 User-Agent가 없으면 요청을 거부한다
     }
-    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    token = load_settings().github_token
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return httpx.Client(base_url=API_BASE, headers=headers, timeout=20.0, transport=transport)
