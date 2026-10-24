@@ -8,6 +8,11 @@ server:
 spring:
   application:
     name: backend
+  task:
+    scheduling:
+      # 기본은 스레드 1개라 느린 주기 작업 하나가 분석 디스패치와 outbox 릴레이까지 막는다.
+      pool:
+        size: 4
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}

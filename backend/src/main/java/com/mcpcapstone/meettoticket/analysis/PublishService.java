@@ -27,6 +27,8 @@ import java.util.*;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class PublishService {
+    private static final int MAX_RECONCILE_PER_CYCLE = 10;
+
     private final TaskItemRepository items;
     private final PublishBatchRepository batches;
     private final UserRepository users;
@@ -141,17 +143,24 @@ public class PublishService {
         });
     }
 
-	@Transactional(propagation = Propagation.NOT_SUPPORTED)
-	public void reconcileRunning() {
-		for (UUID id : batches.findIdsByStatusCreatedBefore(PublishBatchStatus.RUNNING, OffsetDateTime.now())) {
-			try {
-				gateway.status(id.toString()).ifPresent(result ->
-						tx.executeWithoutResult(status -> applyResult(id, result)));
-			} catch (RuntimeException e) {
-				log.warn("일괄 발행 {} 결과 조회 실패, 다음 주기에 다시 조회: {}", id, e.getMessage());
-			}
-		}
-	}
+    // Agent 결과 보고가 오지 않아도 실행 중인 묶음을 조회해 끝낸다.
+    // 스케줄러 스레드를 오래 잡지 않도록 한 주기에 조회하는 묶음 수를 제한하고, Agent에 닿지 않으면 그 주기는 바로 멈춘다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void reconcileRunning() {
+        List<UUID> running = batches.findIdsByStatusCreatedBefore(PublishBatchStatus.RUNNING, OffsetDateTime.now());
+        for (UUID id : running.stream().limit(MAX_RECONCILE_PER_CYCLE).toList()) {
+            try {
+                gateway.status(id.toString()).ifPresent(result ->
+                        tx.executeWithoutResult(status -> applyResult(id, result)));
+            } catch (AgentException e) {
+                // 묶음마다 타임아웃을 기다리면 주기가 묶음 수만큼 늘어난다. Agent가 응답하지 않으면 다음 주기에 다시 조회한다.
+                log.warn("Agent 결과 조회 실패로 이번 주기의 일괄 발행 조회를 멈춤, 다음 주기에 다시 조회: {}", e.getMessage());
+                return;
+            } catch (RuntimeException e) {
+                log.warn("일괄 발행 {} 결과 반영 실패, 다음 주기에 다시 조회: {}", id, e.getMessage());
+            }
+        }
+    }
 
     // 접수 확인에 실패했거나 Agent가 보고하지 못한 묶음은 기한이 지나면 결과 모름으로 끝낸다.
     // 그대로 두면 티켓이 발행 중에 묶여 다시 발행할 수 없다. 기한 뒤에 온 보고는 이미 끝난 묶음이라 무시된다.
