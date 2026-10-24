@@ -1,15 +1,17 @@
-"""#299: 발행이 멈추거나 오래 기다리는 지점의 현재 동작을 고정한다.
+"""#299에서 재현한 발행 멈춤 지점이 #302의 시간 상한 안에 끝나는지 확인한다.
 
 실제 MCP HTTP 서버가 필요한 외부 쓰기 무응답은 test_publish_mcp_http.py에, Agent 재시작 후 404는 test_publish_result_api.py에 있다.
-"#302에서 바꿀 현재 동작"이라고 적은 테스트는 시간 상한을 넣을 때 기대 동작으로 바꾼다.
 """
 import asyncio
 import socket
 import time
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
+import runner
+from batch_publish import publish_batch
 from config import Settings
 from runner import run_publish_batch
 from schemas import Project, PublishBatchRequest, PublishTicket
@@ -29,17 +31,98 @@ def closed_port_url() -> str:
     return f"http://127.0.0.1:{port}/mcp"
 
 
-def test_mcp_client_sets_no_timeouts():
-    """#302에서 바꿀 현재 동작: MCP 연결에 시간 상한을 하나도 넘기지 않는다.
+class SlowPublisher:
+    """hang_first면 첫 이슈 생성 요청을 보낸 뒤 응답하지 않는다."""
 
-    ClientSession read_timeout_seconds가 없으면 도구 호출 응답을 끝없이 기다린다. 라이브러리의 응답 스트림 읽기
-    시간 초과는 mcp 클라이언트가 예외를 삼키고 스트림만 끝내므로 호출을 끝내지 못한다. 그래서 대기 상한이 사실상 없다.
-    """
+    def __init__(self, hang_first: bool = True):
+        self.hang_first = hang_first
+        self.calls = []
+
+    async def create_issue(self, **args):
+        self.calls.append(args["title"])
+        if self.hang_first and len(self.calls) == 1:
+            await asyncio.sleep(60)
+        return {"number": 100 + len(self.calls), "url": "issue-url"}
+
+
+class HangingIndexTools:
+    async def index(self, number):
+        await asyncio.sleep(60)
+
+
+def test_mcp_client_applies_configured_timeouts():
+    """MCP 연결·응답 대기 상한을 설정값으로 건다. 응답 대기는 read_timeout_seconds로만 끝난다 (#299)."""
     from runner import _mcp_client
 
-    connection = _mcp_client("github", "http://127.0.0.1:8000/mcp").connections["github"]
-    assert "timeout" not in connection and "sse_read_timeout" not in connection
-    assert "read_timeout_seconds" not in (connection.get("session_kwargs") or {})
+    settings = Settings(mcp_http_timeout_seconds=7, mcp_call_timeout_seconds=45)
+    connection = _mcp_client("github", "http://127.0.0.1:8000/mcp", settings).connections["github"]
+    assert connection["timeout"] == 7
+    assert connection["session_kwargs"] == {"read_timeout_seconds": timedelta(seconds=45)}
+
+    off = _mcp_client("github", "http://127.0.0.1:8000/mcp", Settings(mcp_call_timeout_seconds=0)).connections["github"]
+    assert "session_kwargs" not in off
+    # 전체 재색인(reindex.py)은 오래 걸리므로 settings 없이 만들어 상한을 두지 않는다
+    assert "timeout" not in _mcp_client("rag", "http://127.0.0.1:8002/mcp").connections["rag"]
+
+
+@pytest.mark.anyio
+async def test_publish_deadline_leaves_inflight_unknown_and_unsent_retryable():
+    """마감에 걸리면 처리 중이던 티켓은 결과 모름, 시작하지 않은 티켓은 보내지 않은 재시도 가능 실패다."""
+    publisher = SlowPublisher()
+    request = PublishBatchRequest(batch_id="deadline", tickets=[ticket("first"), ticket("second")])
+    started = time.monotonic()
+    result = await publish_batch(request, publisher, deadline=time.monotonic() + 0.5)
+    assert time.monotonic() - started < 2
+    first, second = result.items
+    assert (first.status, first.error_code, first.retryable) == ("UNKNOWN", "PUBLISH_DEADLINE", True)
+    assert (second.status, second.error_code, second.retryable) == ("FAILED", "PUBLISH_DEADLINE", True)
+    assert len(publisher.calls) == 1 and result.status == "FAILED"
+
+
+@pytest.mark.anyio
+async def test_unreachable_business_mcp_reports_every_ticket_unsent():
+    """발행 MCP 도구를 가져오지 못하면 아무것도 보내지 않았으므로 결과 모름이 아니라 재시도 가능 실패로 보고한다."""
+    settings = Settings(mcp_server_url=closed_port_url(), rag_enabled=False, dry_run=False)
+    result = await asyncio.wait_for(
+        run_publish_batch(PublishBatchRequest(batch_id="mcp-down", tickets=[ticket("a"), ticket("b")]), settings), timeout=10)
+    assert result.status == "FAILED"
+    assert {(i.status, i.error_code, i.retryable) for i in result.items} == {("FAILED", "MCP_UNAVAILABLE", True)}
+
+
+@pytest.mark.anyio
+async def test_hung_rag_tool_listing_is_bounded(monkeypatch):
+    """응답 없이 멈춘 rag-mcp의 도구 목록 조회도 응답 대기 상한 안에 끝나고, 재대조 없이 진행한다."""
+    class HangingClient:
+        async def get_tools(self, server_name):
+            await asyncio.sleep(60)
+
+    monkeypatch.setattr(runner, "_mcp_client", lambda *args, **kwargs: HangingClient())
+    settings = Settings(rag_enabled=True, mcp_call_timeout_seconds=1)
+    started = time.monotonic()
+    tools, status = await runner.make_issue_tools(settings, "o", "r", None)
+    assert (tools, status) == (None, "unavailable")
+    assert time.monotonic() - started < 3
+
+
+@pytest.mark.anyio
+async def test_hung_index_after_publish_does_not_hold_result(monkeypatch):
+    """발행 후 색인이 멈춰도 발행 결과는 그대로 시간 안에 돌려준다 (#299에서는 묶음이 RUNNING으로 남았다)."""
+    import recheck
+
+    async def ready_tools(settings, owner, repo, github):
+        return HangingIndexTools(), "ready"
+
+    async def unchanged(tickets, **kwargs):
+        return {"tickets": tickets}
+
+    monkeypatch.setattr(runner, "make_issue_tools", ready_tools)
+    monkeypatch.setattr(recheck, "recheck", unchanged)
+    settings = Settings(rag_enabled=True, rag_sync_timeout_seconds=1)
+    started = time.monotonic()
+    result = await run_publish_batch(PublishBatchRequest(batch_id="index", tickets=[ticket()]), settings,
+                                     publisher=SlowPublisher(hang_first=False), llm=object())
+    assert time.monotonic() - started < 3
+    assert [(i.status, i.github_issue_number) for i in result.items] == [("PUBLISHED", 101)]
 
 
 def test_result_stays_readable_after_result_callback_fails(monkeypatch):
@@ -72,11 +155,7 @@ def test_result_stays_readable_after_result_callback_fails(monkeypatch):
 
 @pytest.mark.anyio
 async def test_refused_rag_mcp_connection_does_not_hold_publish_batch():
-    """rag-mcp 연결이 거부되면(꺼짐) 재대조만 건너뛰고 발행은 바로 진행한다.
-
-    응답 없이 멈춘 rag-mcp는 다르다: 도구 목록 조회(runner.make_issue_tools)와 발행 후 색인(IssueTools.index)에
-    시간 상한이 없어 묶음이 끝나지 않는다. #302 범위다.
-    """
+    """rag-mcp 연결이 거부되면(꺼짐) 재대조만 건너뛰고 발행은 바로 진행한다."""
     settings = Settings(rag_enabled=True, rag_mcp_url=closed_port_url(), dry_run=True)
     started = time.monotonic()
     result = await asyncio.wait_for(

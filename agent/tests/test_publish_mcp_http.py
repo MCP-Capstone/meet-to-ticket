@@ -110,22 +110,24 @@ async def test_serialized_pre_send_connection_failure_remains_retryable(mcp_url)
 
 
 @pytest.mark.anyio
-async def test_hung_external_write_holds_publish_batch_without_agent_deadline(mcp_url):
-    """#299 재현: 외부 쓰기가 응답하지 않으면 Agent에는 묶음 마감도 도구 호출 대기 상한도 없어 MCP 도구 응답을 계속 기다린다.
+@pytest.mark.parametrize("limits, code", [
+    ({"mcp_call_timeout_seconds": 1, "publish_deadline_seconds": 0}, "PUBLISH_FAILED"),    # 도구 호출 대기 상한
+    ({"mcp_call_timeout_seconds": 0, "publish_deadline_seconds": 1}, "PUBLISH_DEADLINE"),  # 묶음 마감
+])
+async def test_hung_external_write_ends_as_unknown_within_limit(mcp_url, limits, code):
+    """#302: 외부 쓰기가 응답하지 않아도 도구 호출 대기 상한이나 묶음 마감 안에 끝난다 (#299에서는 끝나지 않았다).
 
-    MCP 도구 안의 외부 요청은 20초 뒤 끝나지만, MCP 서버가 응답하지 않으면 Agent는 끝없이 기다린다
-    (ClientSession read_timeout_seconds 미설정, 응답 스트림 읽기 시간 초과는 mcp 클라이언트가 삼킨다).
-    #302에서 시간 상한을 넣으면 이 테스트를 기대 동작(마감 안에 결과 모름으로 끝남)으로 바꾼다.
+    이슈 생성 요청은 이미 외부로 나갔으므로 재시도 가능 실패가 아니라 결과 모름이다.
     """
-    settings = Settings(mcp_server_url=mcp_url, rag_enabled=False, dry_run=False)
+    settings = Settings(mcp_server_url=mcp_url, rag_enabled=False, dry_run=False, **limits)
     tools = await github_tools(settings)
     await tools["fixture_mode"].ainvoke({"mode": "hang"})
     try:
-        with pytest.raises(TimeoutError):
-            await asyncio.wait_for(
-                run_publish_batch(PublishBatchRequest(batch_id="hang", tickets=[ticket()]), settings), timeout=2)
+        result = await asyncio.wait_for(
+            run_publish_batch(PublishBatchRequest(batch_id="hang", tickets=[ticket()]), settings), timeout=5)
+        [item] = result.items
+        assert (item.status, item.error_code, item.retryable) == ("UNKNOWN", code, True)
         state = parse_tool_result(await tools["fixture_snapshot"].ainvoke({}))
-        # 이슈 생성 요청은 이미 외부로 나갔다. 마감으로 끊더라도 재시도 가능 실패가 아니라 결과 모름이어야 하는 이유다
         assert [(w["method"], w["path"]) for w in state["writes"]] == [("POST", "/repos/o/r/issues")]
     finally:
         await tools["fixture_mode"].ainvoke({"mode": "ok"})
