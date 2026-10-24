@@ -101,6 +101,8 @@ async def test_sync_and_index_are_code_only():
     assert "sync_issues" not in [t.name for t in tools.judge_tools()]
     assert await tools.sync() == {"indexed": 3, "skipped": 10}
     assert sync.calls == [{"owner": "o", "repo": "r", "full": False}]
+    assert await tools.sync(recheck_empty=True) == {"indexed": 3, "skipped": 10}
+    assert sync.calls[-1] == {"owner": "o", "repo": "r", "full": False, "recheck_empty": True}
     assert await tools.index(15) is True and index.calls == [{"owner": "o", "repo": "r", "number": 15}]
     failing, _ = make_tools(sync_tool=FakeMcpTool(error="[EMBEDDING_ERROR] x"), index_tool=FakeMcpTool(error="[GITHUB_ERROR] y"))
     assert await failing.sync() is None and await failing.index(1) is False  # 실패해도 예외 없이 계속
@@ -146,5 +148,6 @@ async def test_runner_syncs_index_once(settings):
     tools, _ = make_tools(sync_tool=sync)
     result = await run(make_request(), settings, llm=FakeLLM(), publisher=FakePublisher(), reporter=FakeReporter(),
                        issue_tools=tools)
-    assert len(sync.calls) == 1
+    # 분석 경로만 변경 없음 응답을 한 번 더 확인하도록 요청한다 (발행 전 재대조는 test_recheck에서 기본값 확인)
+    assert sync.calls == [{"owner": "o", "repo": "r", "full": False, "recheck_empty": True}]
     assert result.metrics["rag"] == {"status": "ready", "sync": {"indexed": 2, "skipped": 5, "updated_at": "2026-10-21T06:00:00Z"}}

@@ -30,6 +30,7 @@ export function AnalysisProgress({ taskId, meetingTitle, onFinish, onCancel }: P
 
   const states = progressStates(task)
   const details = progressDetails(task?.progress)
+  const contextWarnings = task?.progress?.context?.warnings ?? []
   const missingProgress = task?.status === 'RUNNING' && progressIndex(task) < 0
 
   if (error) {
@@ -75,6 +76,7 @@ export function AnalysisProgress({ taskId, meetingTitle, onFinish, onCancel }: P
           <dl>{values.map(({ label, value }) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
         </section>)}
       </div>}
+      {contextWarnings.length > 0 && <div className="notice" role="status"><p>프로젝트 맥락 수집 안내</p><ul>{contextWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
       <p className="muted hint">진행 상황은 2초마다 갱신됩니다. 초안 생성 완료는 티켓 발행 완료를 의미하지 않습니다.</p>
     </section>
   )

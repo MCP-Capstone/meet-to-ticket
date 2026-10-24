@@ -78,6 +78,43 @@ def test_parse_due_year_rollover():
 
 
 @pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("10. 31.", ("2026-10-31", None)),
+        ("10. 31", ("2026-10-31", None)),
+        ("10. 31일", ("2026-10-31", None)),
+        ("10.31", ("2026-10-31", None)),
+        ("10/31", ("2026-10-31", None)),
+        ("2026. 10. 31.", ("2026-10-31", None)),
+        ("2026.10.31", ("2026-10-31", None)),
+        ("2026/10/31", ("2026-10-31", None)),
+        ("10/31 오후 3시", ("2026-10-31", "15:00")),
+        ("10. 31. 15:00", ("2026-10-31", "15:00")),
+        ("10.31 오전", ("2026-10-31", "12:00")),
+        # 날짜가 아니거나 잘못된 날짜는 예외 없이 기한 없음
+        ("13/40", (None, None)),
+        ("2/30", (None, None)),
+        ("2026-13-40", (None, None)),
+        ("2026/02/30", (None, None)),
+        ("10:30", (None, None)),
+        ("v1.2", (None, None)),
+        ("1.2.3", (None, None)),
+        ("1.5일", (None, None)),
+        ("2.5배", (None, None)),
+    ],
+)
+def test_parse_due_numeric_dates(raw, expected):
+    due = parse_due(raw, date(2026, 10, 26))
+    assert (due.date, due.time) == expected
+
+
+def test_parse_due_numeric_year_rollover():
+    assert parse_due("1/5", date(2026, 12, 20)).date == "2027-01-05"
+    assert parse_due("1. 5.", date(2026, 12, 20)).date == "2027-01-05"
+    assert parse_due("12/31", date(2026, 12, 20)).date == "2026-12-31"
+
+
+@pytest.mark.parametrize(
     "raw,kind,keys",
     [
         ("신규 티켓", "new", []),
