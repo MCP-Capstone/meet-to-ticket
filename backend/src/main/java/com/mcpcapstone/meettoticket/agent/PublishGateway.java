@@ -36,7 +36,8 @@ public interface PublishGateway {
             String publishTarget,
             // Slack 공지 멘션 대상. SLACK 대상일 때만 채운다.
             List<SlackMember> slackMembers,
-            String reviewStatus) {}
+			String reviewStatus,
+			boolean retryCommentOnly) {}
 
     record Project(Long projectId, String name, String githubOwner, String githubRepo, String notionPageUrl, String slackChannelId) {}
 

@@ -3,7 +3,7 @@
 import pytest
 
 import nodes as nodes_module
-from conftest import FakeLLM, FakePublisher, FakeReporter, make_request, run_plain
+from conftest import PUBLISHED_10MIN, FakeLLM, FakePublisher, FakeReporter, make_request, run_plain
 from nodes import AgentNodes
 from runner import initial_state, run
 
@@ -71,7 +71,8 @@ async def test_publish_is_not_cut_by_deadline(settings, clock):
     pub = SlowPublisher()
     result = await run_case(settings, state_with_deadline(1000), publisher=pub)
     assert result["status"] == "SUCCEEDED"
-    assert len(pub.calls) == 6 and result["summary"]["published"] == 6  # 끝까지 발행한다
+    n = len(PUBLISHED_10MIN)
+    assert len(pub.calls) == n and result["summary"]["published"] == n  # 끝까지 발행한다
 
 
 async def test_no_deadline_when_disabled(settings):

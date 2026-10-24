@@ -58,6 +58,8 @@ async def test_tools_and_resource_are_registered():
     assert tools["index_status"]["annotations"]["readOnlyHint"] is True
     assert tools["sync_issues"]["annotations"]["readOnlyHint"] is False
     assert tools["drop_index"]["annotations"]["readOnlyHint"] is False
+    sync_props = tools["sync_issues"]["inputSchema"]["properties"]
+    assert sync_props["recheck_empty"]["default"] is False and sync_props["full"]["default"] is False
     assert set(tools["search_similar_issues"]["inputSchema"]["required"]) == {"owner", "repo", "query"}
     assert tools["search_similar_issues"]["inputSchema"]["properties"]["state"]["enum"] == ["open", "closed", "all"]
     templates = await server.mcp.list_resource_templates()

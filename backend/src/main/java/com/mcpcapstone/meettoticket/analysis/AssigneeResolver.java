@@ -41,6 +41,15 @@ final class AssigneeResolver {
             for (JsonNode n : assignees.path("names")) {
                 String name = n.asText("").trim();
                 List<ProjectMember> same = members.stream().filter(m -> m.getName().trim().equals(name)).toList();
+				// 시드 멤버와 가입 멤버가 같은 GitHub 계정으로 공존하면 가입된 계정을 연결한다.
+				// 서로 다른 계정의 동명이인은 계속 담당 지정 대상으로 남긴다.
+				if (same.size() > 1) {
+					var registered = same.stream().filter(m -> m.getUser() != null).toList();
+					if (registered.size() == 1 && registered.get(0).getGithubName() != null
+							&& !registered.get(0).getGithubName().isBlank()
+							&& same.stream().allMatch(m -> registered.get(0).getGithubName().equalsIgnoreCase(m.getGithubName())))
+						same = registered;
+				}
                 // 이름이 멤버와 맞지 않거나 동명이인이면 담당자를 정할 수 없다.
                 if (same.size() != 1) return Optional.empty();
                 found.add(same.get(0));

@@ -165,12 +165,18 @@ class IssueTools:
 
     # ------------------------------------------------------------ 코드용
 
-    async def sync(self) -> dict[str, Any] | None:
-        """색인을 저장소의 최신 상태로 맞춘다 (바뀐 이슈만). 실패하면 None."""
+    async def sync(self, *, recheck_empty: bool = False) -> dict[str, Any] | None:
+        """색인을 저장소의 최신 상태로 맞춘다 (바뀐 이슈만). 실패하면 None.
+
+        recheck_empty=True면 변경 없음 응답을 rag-mcp가 잠시 뒤 한 번 더 확인한다 (분석 시작 경로 전용).
+        """
         if self._sync is None:
             return None
+        args: dict[str, Any] = {"full": False}
+        if recheck_empty:
+            args["recheck_empty"] = True
         try:
-            return await self._call(self._sync, {"full": False})
+            return await self._call(self._sync, args)
         except ToolCallError as exc:
             log.warning("색인 갱신 실패 %s/%s: [%s] %s", self.owner, self.repo, exc.code, exc.message)
             return None

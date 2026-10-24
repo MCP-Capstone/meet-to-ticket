@@ -16,7 +16,7 @@ from typing import Any
 import httpx
 from mcp.server.mcpserver.exceptions import ToolError
 
-from common import INVALID_ARGUMENT, env, make_http_client, tool_error
+from common import INVALID_ARGUMENT, env, make_http_client, request_with_outcome, tool_error
 
 API_BASE = "https://api.github.com"
 TITLE_MAX = 256  # GitHub 이슈 제목 최대 길이
@@ -95,9 +95,9 @@ def request(client: httpx.Client, method: str, path: str, *, check: bool = True,
     """GitHub를 호출하고 실패 응답을 에러 태그로 바꾼다.
 
     check=False면 실패 응답도 그대로 돌려준다 (호출한 쪽이 응답을 보고 다시 시도할지 정할 때).
-    연결 실패·시간 초과는 태그 없이 그대로 올라가고, 에이전트는 이를 "결과 모름"으로 처리한다.
+    요청 전 연결 실패는 MCP_UNAVAILABLE, 쓰기 뒤 응답 유실은 RESULT_UNKNOWN으로 구분한다.
     """
-    resp = client.request(method, path, **kwargs)
+    resp = request_with_outcome(client, method, path, **kwargs)
     if check:
         raise_for_status(resp)
     return resp

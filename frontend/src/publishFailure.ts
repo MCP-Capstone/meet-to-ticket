@@ -12,6 +12,7 @@ const guides: Record<string, string> = {
   RESULT_TIMEOUT: '기한 안에 발행 결과를 받지 못했습니다.',
   RESULT_UNKNOWN: '요청은 보냈지만 결과를 받지 못했습니다.',
   RESULT_MISSING: '발행 결과를 받지 못했습니다.',
+  COMMENT_FAILED: '이슈 본문은 갱신됐지만 알림 댓글을 확인하지 못했습니다. 알림 댓글만 다시 보낼 수 있습니다.',
   NOTION_VERIFY_REQUIRED: '지난 Notion 발행 결과를 몰라 중복 페이지를 막으려고 다시 만들지 않았습니다. Notion에서 확인한 결과를 알려 주세요.',
   SLACK_VERIFY_REQUIRED: '지난 Slack 공지 결과를 몰라 중복 게시를 막으려고 다시 보내지 않았습니다. Slack 채널에서 확인한 결과를 알려 주세요.',
 }
@@ -27,3 +28,7 @@ export const needsOutcomeCheck = (failure: PublishFailure) => failure.resolution
 
 // 권한 문제는 다시 시도해도 같은 결과이므로 먼저 권한을 풀어야 한다.
 export const needsPermissionFix = (failure: PublishFailure) => failure.failureCategory === 'REPOSITORY_PERMISSION'
+
+export const canRetryFailure = (failure: PublishFailure | null) => Boolean(failure?.retryable && !needsOutcomeCheck(failure))
+export const canRetryComment = (ticket: { status: string; publishTarget: string; publishFailure: PublishFailure | null }) =>
+  ticket.status === 'UPDATED' && ticket.publishTarget === 'GITHUB' && ticket.publishFailure?.errorCode === 'COMMENT_FAILED'

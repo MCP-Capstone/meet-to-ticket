@@ -201,6 +201,13 @@ public class TaskItem {
         return previousOutcomeUnknown || publishOutcomeUnknown;
     }
 
+    // 다시 시도 버튼을 열어도 되는 실패인지. Agent가 재시도 가능하다고 알린 실패와, 지금 실패가 결과 모름인 경우다.
+    // 결과 모름(RESULT_TIMEOUT, RESULT_MISSING, 묶음 전체 실패 등)은 담당자가 확인한 뒤 다시 시도하면 GitHub는 재대조하고,
+    // 재대조할 수 없는 대상(Notion, Slack)은 PublishResolution.MANUAL_CHECK가 먼저 막는다.
+    public boolean canRetryPublish() {
+        return publishRetryable || publishOutcomeUnknown;
+    }
+
     public void moveTo(TicketStatus status) {
         this.ticketStatus = status;
     }
@@ -215,7 +222,14 @@ public class TaskItem {
     // Agent가 접수하지 않은 것이 확실하면 담기 전 상태(확인 또는 실패)로 돌려놓는다.
     public void cancelPublishing() {
         this.publishBatch = null;
-        this.ticketStatus = this.publishErrorCode != null ? TicketStatus.FAILED : TicketStatus.CONFIRMED;
+		this.ticketStatus = isCommentRetry() ? TicketStatus.UPDATED
+				: this.publishErrorCode != null ? TicketStatus.FAILED : TicketStatus.CONFIRMED;
+	}
+
+	public boolean isCommentRetry() {
+		return publishTarget == PublishTarget.GITHUB && processingType == ProcessingType.UPDATE
+				&& "COMMENT_FAILED".equals(publishErrorCode) && githubIssueNumber != null
+				&& (ticketStatus == TicketStatus.UPDATED || ticketStatus == TicketStatus.PUBLISHING);
     }
 
     public void recordPublishResult(

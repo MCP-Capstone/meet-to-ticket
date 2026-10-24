@@ -10,6 +10,14 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def skip_index_recheck_wait(monkeypatch):
+    # recheck_empty 대기는 실제로 기다리지 않는다. 대기 시간을 확인하려는 테스트는 다시 덮어쓴다.
+    import indexer
+
+    monkeypatch.setattr(indexer, 'sleep', lambda seconds: None)
+
+
+@pytest.fixture(autouse=True)
 def block_real_network(monkeypatch):
     for name in ("GITHUB_TOKEN", "OPENAI_API_KEY"):
         monkeypatch.delenv(name, raising=False)

@@ -31,6 +31,8 @@ def _ticket(source: PublishTicket) -> dict[str, Any]:
             "assignee_names": assignees.get("names") or [],
             "assignees": assignees.get("github") or [],
             "unresolved_assignees": assignees.get("unresolved") or [],
+            "unmatched_assignees": assignees.get("unmatched") or [],
+            "ambiguous_assignees": assignees.get("ambiguous") or [],
         })
     content.update({
         "title": source.title,
@@ -69,6 +71,7 @@ def publication_preview(source: PublishTicket) -> dict[str, Any]:
         else:
             body = change_section(ticket, meeting_date=date, meeting_title=source.meeting_title)
             secondary = change_note(meeting_date=date, meeting_title=source.meeting_title)
+            secondary += "\n\n" + marker("update-comment", source, ticket)
         # 원문은 보존하면서 담당자가 저장한 설명도 실제 댓글/추가 섹션에 반영한다.
         description = (ticket.get("description") or "").strip()
         if description and description != (ticket.get("action_text") or "").strip():
@@ -89,6 +92,22 @@ async def _already_applied(publisher: Any, source: PublishTicket, number: int, t
     if out.get("truncated"):
         raise ToolCallError("MARKER_CHECK_INCOMPLETE", "댓글이 많아 이미 반영됐는지 끝까지 확인하지 못했습니다. GitHub에서 확인하세요")
     return None
+
+
+async def _comment_already_sent(publisher: Any, source: PublishTicket, number: int,
+                                ticket: dict[str, Any]) -> dict[str, Any] | None:
+    """갱신 알림 댓글이 이미 있는지 찾는다. 표식으로 먼저 찾고, 없으면 표식 없는 알림 문구로 한 번 더 찾는다.
+
+    #291 이전에 갱신한 티켓은 알림 댓글에 update-comment 표식이 없어 표식만 보면 이미 보낸 댓글을 놓치고 중복으로 보낸다.
+    같은 회의의 알림 문구는 work_key와 상관없이 같으므로, 같은 회의의 다른 티켓이 남긴 알림이 있어도 보낸 것으로 본다(같은 문구를 두 번 올리지 않는다).
+    """
+    found = await _already_applied(publisher, source, number, marker("update-comment", source, ticket))
+    if found:
+        return found
+    date = source.meeting_date.isoformat() if source.meeting_date else ""
+    legacy = await _already_applied(publisher, source, number,
+                                    change_note(meeting_date=date, meeting_title=source.meeting_title))
+    return legacy if legacy and legacy.get("where") == "comment" else None
 
 
 async def _existing_issue(publisher: Any, source: PublishTicket, ticket: dict[str, Any]) -> dict[str, Any] | None:
@@ -132,6 +151,20 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
     number = handling.get("issue_number")
     sent = False  # GitHub 쓰기 요청을 보낸 뒤의 예외는 결과를 모르므로 UNKNOWN으로 남긴다
     try:
+        if source.retry_comment_only:
+            if source.publish_target != "GITHUB" or kind != "UPDATE" or not number:
+                raise ToolCallError("INVALID_ARGUMENT", "댓글 재전송은 갱신 완료한 GitHub 이슈만 가능합니다")
+            found = await _comment_already_sent(publisher, source, number, ticket)
+            out = found or await publisher.add_comment(
+                owner=source.project.github_owner, repo=source.project.github_repo, number=number,
+                body=publication_preview(source)["secondaryBody"],
+            )
+            if out.get("status") == "dry_run":
+                raise ToolCallError("COMMENT_FAILED", "댓글을 실제 전송하지 않았습니다")
+            return PublishItemResult(ticket_id=source.ticket_id, processing_type="UPDATE", status="UPDATED",
+                                     github_issue_number=number,
+                                     github_issue_url=f"https://github.com/{source.project.github_owner}/{source.project.github_repo}/issues/{number}",
+                                     comment_url=out.get("url"))
         if source.publish_target == "SLACK":
             channel_id = source.project.slack_channel_id
             if not channel_id:
@@ -234,12 +267,28 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
                                  github_issue_number=out.get("number"), github_issue_url=out.get("url"),
                                  dropped_labels=out.get("dropped_labels") or [])
     except ToolCallError as exc:
+        if source.retry_comment_only:
+            if exc.code == "MARKER_CHECK_INCOMPLETE":
+                # 이미 보냈는지 끝까지 확인하지 못했다. 다시 보내도 같은 결과라 재전송을 막고 GitHub에서 직접 확인하게 한다.
+                return _comment_failure(source, exc.message, code=exc.code, retryable=False)
+            return _comment_failure(source, exc.message)
         return _failure(source.ticket_id, kind, exc)
     except Exception as exc:  # noqa: BLE001
         # 한 티켓의 예외가 묶음 전체를 멈추면 앞서 발행된 결과까지 사라져 재요청 때 중복 발행된다.
         log.exception("티켓 발행 중 예상하지 못한 오류 ticket=%s", source.ticket_id)
+        if source.retry_comment_only:
+            return _comment_failure(source, f"{type(exc).__name__}: {exc}")
         return _failure(source.ticket_id, kind,
                         ToolCallError(PUBLISH_FAILED, f"{type(exc).__name__}: {exc}", ambiguous=sent))
+
+
+def _comment_failure(source: PublishTicket, message: str, *, code: str = "COMMENT_FAILED",
+                     retryable: bool = True) -> PublishItemResult:
+    # 본문 갱신 성공은 유지한다. 다음 재전송도 반드시 댓글 표식을 먼저 확인한다.
+    return PublishItemResult(ticket_id=source.ticket_id, processing_type="UPDATE", status="UPDATED",
+                             github_issue_number=source.target_issue_number,
+                             github_issue_url=f"https://github.com/{source.project.github_owner}/{source.project.github_repo}/issues/{source.target_issue_number}",
+                             error_code=code, error_message=message[:1000], retryable=retryable)
 
 
 async def publish_batch(request: PublishBatchRequest, publisher: Any) -> PublishBatchResult:

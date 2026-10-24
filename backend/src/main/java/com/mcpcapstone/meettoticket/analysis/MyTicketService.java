@@ -67,7 +67,7 @@ public class MyTicketService {
     // 실패 카드가 다시 시도할지, 먼저 GitHub를 확인할지 안내하는 데 쓴다.
     private static PublishFailure failure(TaskItem i, com.mcpcapstone.meettoticket.project.Project project) {
         return new PublishFailure(i.getPublishErrorCode(), i.getErrorMessage(), PublishFailureCategory.of(i.getPublishErrorCode()),
-                i.isPublishRetryable(), i.mustRecheckOnPublish(), PublishResolution.of(i),
+                i.canRetryPublish(), i.mustRecheckOnPublish(), PublishResolution.of(i),
                 i.mustRecheckOnPublish() ? checkUrl(i.getPublishTarget(), project) : null);
     }
 
