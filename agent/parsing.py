@@ -101,30 +101,43 @@ def _bullets(lines: list[str]) -> list[str]:
     return out
 
 
+# 결정 섹션에서 결정이 아닌 마크다운 구조: 소제목, 표 행, 구분선
+_DECISION_SKIP = re.compile(r"^\s{0,3}#{1,6}(?:\s|$)|^\s*\||^\s{0,3}([-*_])(?:\s*\1){2,}\s*$")
+# 목록 표시: 글머리표, 또는 1~3자리 번호 뒤 공백. "2026. 11월"처럼 연도로 시작하는 문장이나
+# "11. 3. 출시"처럼 날짜로 시작하는 문장은 번호 목록으로 보지 않는다.
+_DECISION_MARKER = re.compile(r"^\s*(?:[-*+]|\d{1,3}[.)](?!\s+\d{1,2}\.(?:\s|$)))\s+(.+)$")
+
+
 def _decision_items(lines: list[str]) -> list[str]:
     """결정 섹션의 목록과 일반 문단을 원문 그대로 보존한다. 다른 섹션의 해석은 바꾸지 않는다."""
     out: list[str] = []
-    paragraph: list[str] = []
-
-    def append(item: str) -> None:
-        item = item.strip()
-        if item and item not in {"별도 명시 없음", "없음"}:
-            out.append(item)
+    block: list[str] = []  # 지금 모으는 문단 또는 목록 항목의 줄
+    in_item = False
 
     def flush() -> None:
-        append('\n'.join(paragraph))
-        paragraph.clear()
+        nonlocal in_item
+        item = '\n'.join(block).strip()
+        if item and item not in {"별도 명시 없음", "없음"}:
+            out.append(item)
+        block.clear()
+        in_item = False
 
     for line in lines:
-        if not line.strip():
+        if not line.strip() or _DECISION_SKIP.match(line):
             flush()
             continue
-        bullet = re.match(r"^\s*(?:[-*+]|\d+[.)])\s+(.+)$", line)
+        bullet = _DECISION_MARKER.match(line)
         if bullet:
             flush()
-            append(bullet.group(1))
+            block.append(bullet.group(1))
+            in_item = True
+        elif in_item and line[:1] in (" ", "\t"):
+            # 들여쓴 줄은 앞 목록 항목의 이어지는 줄이다. 근거 인용이 원문과 맞도록 줄을 그대로 붙인다
+            block.append(line)
         else:
-            paragraph.append(line)
+            if in_item:
+                flush()
+            block.append(line)
     flush()
     return out
 

@@ -7,6 +7,7 @@ import json
 
 import pytest
 
+import project_context
 from project_context import ProjectContextTools
 
 
@@ -82,3 +83,46 @@ async def test_조회_상한을_넘은_문서는_생략_안내를_남긴다():
 
     assert len(result["notionDocs"]) == 10
     assert "Notion 문서 1건은 분석 맥락에서 생략됨" in result["warnings"]
+
+
+class DelayedReadTool(FakeTool):
+    """문서마다 다른 시간 뒤에 응답하고, 동시에 읽는 수의 최댓값을 기록한다."""
+
+    def __init__(self, delays):
+        super().__init__({})
+        self.delays = delays
+        self.active = 0
+        self.max_active = 0
+
+    async def ainvoke(self, args):
+        self.calls.append(args)
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        try:
+            await asyncio.sleep(self.delays[args["page_url_or_id"]])
+        finally:
+            self.active -= 1
+        return json.dumps({"page_id": args["page_url_or_id"], "markdown": "본문"})
+
+
+@pytest.mark.asyncio
+async def test_Notion_문서는_끝난_순서와_관계없이_목록_순서를_유지한다():
+    pages = FakeTool({"pages": [{"page_id": "p0"}, {"page_id": "p1"}, {"page_id": "p2"}]})
+    # 동시에 읽는 두 문서 중 뒤 문서가 먼저 끝나고, 세 번째 문서는 그보다 늦게 끝난다
+    read = DelayedReadTool({"p0": 0.05, "p1": 0.0, "p2": 0.0})
+
+    result = await ProjectContextTools(None, pages, read, max_chars=1000).collect("org", "repo", "root")
+
+    assert [call["page_url_or_id"] for call in read.calls][:2] == ["p0", "p1"]
+    assert [doc["page_id"] for doc in result["notionDocs"]] == ["p0", "p1", "p2"]
+
+
+@pytest.mark.asyncio
+async def test_Notion_문서는_동시_조회_수를_제한한다():
+    pages = FakeTool({"pages": [{"page_id": f"p{n}"} for n in range(10)]})
+    read = DelayedReadTool({f"p{n}": 0.01 for n in range(10)})
+
+    result = await ProjectContextTools(None, pages, read, max_chars=1000).collect("org", "repo", "root")
+
+    assert len(result["notionDocs"]) == 10
+    assert read.max_active == project_context.NOTION_READ_CONCURRENCY

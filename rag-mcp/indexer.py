@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import re
-from time import sleep
 from typing import Any, Callable
 
 import httpx
@@ -25,7 +24,6 @@ from store import IssueStore
 BODY_MAX = 2000  # 색인 텍스트에 넣는 본문 최대 길이 (긴 본문의 뒷부분은 중복 판단에 거의 쓰이지 않음)
 INDEX_FORMAT_VERSION = "2"  # 템플릿 제거·댓글 포함 규칙이 바뀌면 전체 재색인을 강제한다
 SYNC_LOOKBACK_SECONDS = 300  # GitHub 목록 반영 지연을 위해 겹쳐 조회한다. 검색 순위/점수와 무관하다.
-SYNC_RETRY_DELAYS = (1, 2)   # 변경 없음 응답을 한 번의 재검수 안에서도 재확인한다 (대기 총 3초).
 _MEETING_BACKGROUND = re.compile(r"(?is)<details>\s*<summary>회의 배경</summary>.*?</details>\s*")
 _PUBLISHED_FOOTER = re.compile(r"(?im)^---\s*\n회의: .*?회의 후속조치 Agent가 작성\s*$")
 
@@ -113,23 +111,15 @@ def sync_issues(
     previous_cursor = meta.get('sync_cursor') or meta.get('last_synced_at')
     since = None if full else _sync_since(previous_cursor)
 
-    def read_changed() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        issues = list(github.iter_issues(client, owner, repo, since=since))
-        stored: dict[str, str] = {}
-        if issues:
-            got = col.get(ids=[str(i['number']) for i in issues], include=['metadatas'])
-            stored = {id_: (m or {}).get('updated_at', '') for id_, m in zip(got['ids'], got['metadatas'])}
-        # 겹쳐 읽은 응답이 지연된 옛 버전이면 더 최신인 색인을 되돌리지 않는다.
-        # GitHub updated_at은 UTC ISO 8601 형식으로 정규화되어 있다.
-        return issues, [i for i in issues if str(i['number']) not in stored or i['updated_at'] > stored[str(i['number'])]]
-
-    issues, changed = read_changed()
-    if previous_cursor and not full and not changed:
-        for delay in SYNC_RETRY_DELAYS:
-            sleep(delay)
-            issues, changed = read_changed()
-            if changed:
-                break
+    issues = list(github.iter_issues(client, owner, repo, since=since))
+    stored: dict[str, str] = {}
+    if issues:
+        got = col.get(ids=[str(i['number']) for i in issues], include=['metadatas'])
+        stored = {id_: (m or {}).get('updated_at', '') for id_, m in zip(got['ids'], got['metadatas'])}
+    # 겹쳐 읽은 응답이 지연된 옛 버전이면 더 최신인 색인을 되돌리지 않는다.
+    # GitHub updated_at은 UTC ISO 8601 형식으로 정규화되어 있다.
+    # 변경 없음이면 같은 호출 안에서 다시 묻지 않는다. 커서를 유지하므로 늦게 보인 이슈는 다음 동기화가 받는다.
+    changed = [i for i in issues if str(i['number']) not in stored or i['updated_at'] > stored[str(i['number'])]]
 
     dimension = _upsert(col, changed, embedder)
     meta.update({"embedding_model": embedder.model, "index_format_version": INDEX_FORMAT_VERSION,

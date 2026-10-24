@@ -13,6 +13,8 @@ log = logging.getLogger("agent.project_context")
 MAX_NOTION_PAGES = 10
 NOTION_LIST_TIMEOUT_SECONDS = 30
 NOTION_PAGE_TIMEOUT_SECONDS = 30
+# 문서마다 MCP 세션을 열고 블록을 재귀 조회하므로, Notion 요청 한도(약 3회/초)를 넘지 않게 동시에 읽는 수를 묶는다.
+NOTION_READ_CONCURRENCY = 2
 
 
 class ProjectContextTools:
@@ -58,14 +60,21 @@ class ProjectContextTools:
                 pages = result.get("pages")
                 if not isinstance(pages, list):
                     raise ValueError("list_pages 응답에 pages 목록이 없습니다")
-                async def read_document(page: Any) -> None:
+                limit = asyncio.Semaphore(NOTION_READ_CONCURRENCY)
+                # 끝난 순서와 관계없이 목록 순서로 넣어, 실행마다 프롬프트의 문서 순서가 같게 한다.
+                # 끝날 때마다 다시 정렬해 두므로 호출자가 중간에 끊어도 읽은 문서는 남는다.
+                base = len(notion_docs)
+                done: dict[int, dict[str, Any]] = {}
+
+                async def read_document(index: int, page: Any) -> None:
                     if not isinstance(page, dict) or not page.get("page_id"):
                         return
                     try:
-                        read = await asyncio.wait_for(
-                            self._call(self._read_page, {"page_url_or_id": page["page_id"], "max_chars": self._max_chars}, "read_page"),
-                            timeout=NOTION_PAGE_TIMEOUT_SECONDS,
-                        )
+                        async with limit:
+                            read = await asyncio.wait_for(
+                                self._call(self._read_page, {"page_url_or_id": page["page_id"], "max_chars": self._max_chars}, "read_page"),
+                                timeout=NOTION_PAGE_TIMEOUT_SECONDS,
+                            )
                     except asyncio.TimeoutError:
                         warning = f"Notion 문서 '{page.get('title') or page['page_id']}' 조회가 {NOTION_PAGE_TIMEOUT_SECONDS}초를 넘어 생략됨"
                         log.warning(warning)
@@ -76,14 +85,15 @@ class ProjectContextTools:
                         log.warning(warning)
                         warnings.append(warning)
                         return
-                    notion_docs.append({
+                    done[index] = {
                         "page_id": read.get("page_id", page["page_id"]),
                         "title": read.get("title", page.get("title", "")),
                         "url": read.get("url"),
                         "markdown": read.get("markdown", ""),
                         "truncated": bool(read.get("truncated", False)),
-                    })
-                await asyncio.gather(*(read_document(page) for page in pages[:MAX_NOTION_PAGES]))
+                    }
+                    notion_docs[base:] = [done[i] for i in sorted(done)]
+                await asyncio.gather(*(read_document(index, page) for index, page in enumerate(pages[:MAX_NOTION_PAGES])))
                 if len(pages) > MAX_NOTION_PAGES:
                     warnings.append(f"Notion 문서 {len(pages) - MAX_NOTION_PAGES}건은 분석 맥락에서 생략됨")
             except asyncio.TimeoutError:

@@ -43,7 +43,7 @@ class Settings:
     rag_enabled: bool = False           # rag-mcp(기존 이슈 색인·검색)를 쓸지. 끄면 중복 판단 없이 발행
     rag_mcp_url: str = "http://127.0.0.1:8002/mcp"
     rag_sync_timeout_seconds: int = 30  # 실행마다 색인 갱신(sync_issues)을 기다리는 시간
-    context_timeout_seconds: int = 120  # GitHub·Notion 조회의 실제 소요 시간을 포함하며, 넘으면 읽은 부분까지 사용
+    context_timeout_seconds: int = 120  # GitHub/Notion 조회의 실제 소요 시간을 포함하며, 넘으면 읽은 부분까지 사용
     tool_result_max_chars: int = 2000   # 모델에게 넘기는 도구 결과 길이 한도
     dedupe_model: str = "gpt-5.4-mini"  # 중복 판단(도구 고르기) 모델. 판단이 중요해 검수와 같은 모델
     dedupe_max_tool_calls: int = 4      # 티켓 하나에 모델이 부를 수 있는 도구 호출 수

@@ -169,7 +169,7 @@ def test_delayed_issue_before_previous_sync_is_not_permanently_skipped(store):
     assert store.get_collection('o', 'r').get(ids=['50'])['ids'] == ['50']
 
 
-def test_incremental_sync_rechecks_empty_result_in_same_call(store, monkeypatch):
+def test_empty_incremental_result_is_caught_by_next_sync(store, monkeypatch):
     gh = FakeGitHub({'o/r': [gh_item(1, '기존', updated_at='2026-10-24T04:53:00Z')]})
     emb = FakeEmbedder()
     sync(gh, emb, store, now=clock('2026-10-24T04:54:57Z'))
@@ -186,20 +186,21 @@ def test_incremental_sync_rechecks_empty_result_in_same_call(store, monkeypatch)
         return original(request)
 
     monkeypatch.setattr(gh, 'handler', delayed)
+    # 변경 없음 응답은 같은 호출 안에서 재조회하지 않는다.
     out = sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
-    assert len(attempts) == 2
+    assert len(attempts) == 1 and out['indexed'] == 0
+    # 커서를 유지했으므로 다음 동기화가 늦게 보인 이슈를 받는다.
+    out = sync(gh, emb, store, now=clock('2026-10-24T04:57:00Z'))
     assert out['indexed'] == 1 and store.get_collection('o', 'r').get(ids=['50'])['ids'] == ['50']
 
 
-def test_empty_incremental_sync_has_bounded_retries_and_separate_status_time(store, monkeypatch):
+def test_empty_incremental_sync_reads_once_and_separates_status_time(store):
     gh = FakeGitHub({'o/r': []})
     emb = FakeEmbedder()
     sync(gh, emb, store, now=clock('2026-10-24T04:54:57Z'))
     gh.requests.clear()
-    waits = []
-    monkeypatch.setattr(indexer, 'sleep', waits.append)
     out = sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
-    assert len(gh.requests) == 3 and waits == [1, 2]
+    assert len(gh.requests) == 1
     assert out['updated_at'] == '2026-10-24T04:55:43Z' and out['indexed'] == 0
     meta = store.get_collection('o', 'r').metadata
     assert meta['last_synced_at'] == '2026-10-24T04:55:43Z'
@@ -240,18 +241,13 @@ def test_overlapping_read_does_not_roll_back_newer_indexed_issue(store):
     assert meta['title'] == '최신' and meta['state'] == 'closed'
 
 
-def test_retry_read_error_keeps_previous_cursor_and_status_time(store, monkeypatch):
+def test_read_error_keeps_previous_cursor_and_status_time(store, monkeypatch):
     gh, emb = FakeGitHub({'o/r': []}), FakeEmbedder()
     sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
     before = dict(store.get_collection('o', 'r').metadata)
-    original = gh.handler
-    attempts = []
-    def fail_retry(request):
-        attempts.append(request)
-        if len(attempts) == 2:
-            raise RuntimeError('read failed')
-        return original(request)
-    monkeypatch.setattr(gh, 'handler', fail_retry)
+    def fail_read(request):
+        raise RuntimeError('read failed')
+    monkeypatch.setattr(gh, 'handler', fail_read)
     with pytest.raises(RuntimeError, match='read failed'):
         sync(gh, emb, store, now=clock('2026-10-24T04:57:00Z'))
     assert store.get_collection('o', 'r').metadata == before

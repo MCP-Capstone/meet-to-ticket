@@ -21,6 +21,8 @@ NOTION_VERSION = "2022-06-28"
 _PAGE_ID_PATTERN = r"(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
 PAGE_ID = re.compile(_PAGE_ID_PATTERN, re.IGNORECASE)
 _PAGE_ID_SUFFIX = re.compile(r"(?:^|-)(" + _PAGE_ID_PATTERN + r")$", re.IGNORECASE)
+# 주소창에서 scheme 없이 복사한 Notion 주소 (notion.so, *.notion.site, app.notion.com)
+_SCHEMELESS_NOTION = re.compile(r"^(?:[a-z0-9-]+\.)*notion\.(?:so|site|com)(?:[/?#]|$)", re.IGNORECASE)
 MAX_READ_CHARS = 12_000
 DEFAULT_READ_CHARS = 4_000
 TICKET_FOLDER_TITLE = "회의 후속 티켓"
@@ -44,7 +46,7 @@ def normalize_page_id(page_url_or_id: str) -> str:
         # 제목의 날짜/숫자와 query의 view ID, fragment의 block ID는 페이지 ID가 아니다.
         # 정규 UUID 또는 URL 마지막 경로의 완전한 ID만 허용한다.
         try:
-            url = urlsplit(value)
+            url = urlsplit(f"https://{value}" if _SCHEMELESS_NOTION.match(value) else value)
             segment = unquote(url.path).rstrip('/').rsplit('/', 1)[-1]
             matched = _PAGE_ID_SUFFIX.search(segment) if url.scheme in {'http', 'https'} and url.netloc else None
         except ValueError:

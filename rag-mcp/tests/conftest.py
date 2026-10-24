@@ -10,13 +10,6 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def skip_index_retry_wait(monkeypatch):
-    import indexer
-
-    monkeypatch.setattr(indexer, 'sleep', lambda seconds: None)
-
-
-@pytest.fixture(autouse=True)
 def block_real_network(monkeypatch):
     for name in ("GITHUB_TOKEN", "OPENAI_API_KEY"):
         monkeypatch.delenv(name, raising=False)

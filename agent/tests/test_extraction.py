@@ -57,6 +57,34 @@ def test_mixed_decision_paragraphs_and_lists_keep_order():
     assert parsed.decisions == ['문서로 공유한다.', '기존 결정', '첫 순서', '두 번째 순서']
 
 
+def test_decision_section_ignores_headings_tables_and_rules():
+    parsed = parse_summary(
+        '## 결정사항\n### 일정\n- 11월에 출시한다.\n\n---\n| 항목 | 결정 |\n| --- | --- |\n| 범위 | CSV |\n\n'
+        '***\n문서로 공유한다.\n'
+    )
+    assert parsed.decisions == ['11월에 출시한다.', '문서로 공유한다.']
+
+
+def test_indented_continuation_line_belongs_to_previous_decision():
+    text = '## 결정사항\n- 결정 A\n  (이유: 일정)\n- 결정 B\n2. 결정 C\n   상세 설명\n바로 이어진 문단\n'
+    ex = from_table(parse_summary(text))
+    assert [d.content for d in ex.decisions] == [
+        '결정 A\n  (이유: 일정)', '결정 B', '결정 C\n   상세 설명', '바로 이어진 문단',
+    ]
+    assert all(q in text for d in ex.decisions for q in d.evidence_quotes)
+
+
+@pytest.mark.parametrize('line', ['2026. 11월에 출시한다.', '11. 3. 출시로 확정한다.'])
+def test_sentence_starting_with_date_is_not_numbered_list(line):
+    parsed = parse_summary(f'## 결정\n{line}\n')
+    assert parsed.decisions == [line]
+
+
+def test_real_numbered_list_keeps_number_stripped():
+    parsed = parse_summary('## 결정\n1. 2단계로 나눠 출시한다.\n10) 열 번째 결정\n')
+    assert parsed.decisions == ['2단계로 나눠 출시한다.', '열 번째 결정']
+
+
 @pytest.mark.parametrize('body', ['', '없음', '- 없음', '별도 명시 없음'])
 def test_empty_decision_section_stays_empty(body):
     parsed = parse_summary('## 결정\n' + body)

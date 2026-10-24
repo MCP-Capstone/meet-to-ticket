@@ -63,6 +63,36 @@ def test_normalize_page_id_rejects_partial_ids_and_non_page_query_ids(value):
         notion.normalize_page_id(value)
 
 
+@pytest.mark.parametrize("value", [
+    "www.notion.so/Plan-12345678123456789abcdef012345678",
+    "notion.so/12345678123456789abcdef012345678",
+    "team.notion.site/%EC%A0%95%EC%82%B0-12345678123456789abcdef012345678?pvs=4",
+    "app.notion.com/p/YUNK-EVAL-20261024-1233-12345678123456789abcdef012345678",
+])
+def test_normalize_page_id_accepts_schemeless_notion_address(value):
+    assert notion.normalize_page_id(value) == "12345678-1234-5678-9abc-def012345678"
+
+
+@pytest.mark.parametrize("value", [
+    "example.com/Plan-12345678123456789abcdef012345678",
+    "notion.so.example.com/12345678123456789abcdef012345678",
+    "www.notion.so/not-a-page?v=12345678123456789abcdef012345678",
+])
+def test_normalize_page_id_rejects_schemeless_non_notion_or_non_page_address(value):
+    with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
+        notion.normalize_page_id(value)
+
+
+def test_check_page_accepts_schemeless_notion_address(client_with):
+    actual = "12345678-1234-5678-9abc-def012345678"
+    def handler(request):
+        assert request.url.path == f"/v1/pages/{actual}"
+        return httpx.Response(200, json=page(actual))
+    with client_with(handler) as client:
+        result = notion.check_notion_page(client, "www.notion.so/Plan-" + actual.replace('-', ''))
+    assert result['page_id'] == actual
+
+
 def test_check_page_numeric_title_uses_actual_page_endpoint(client_with):
     actual = "12345678-1234-5678-9abc-def012345678"
     def handler(request):
