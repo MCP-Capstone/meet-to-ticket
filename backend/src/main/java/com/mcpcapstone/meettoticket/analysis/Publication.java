@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 
 import lombok.*;
 
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
@@ -21,7 +22,8 @@ import java.util.UUID;
                         columnNames = {"target", "idempotency_key"}),
         indexes = {
             @Index(name = "idx_publications_task_item_id", columnList = "task_item_id"),
-            @Index(name = "idx_publications_publish_batch_id", columnList = "publish_batch_id")
+            @Index(name = "idx_publications_publish_batch_id", columnList = "publish_batch_id"),
+            @Index(name = "idx_publications_status_updated_at", columnList = "status, updated_at")
         })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -73,10 +75,16 @@ public class Publication {
     @Column(name = "error_code", length = 50)
     private String errorCode;
 
+    // 이 키가 한 번이라도 UNCERTAIN이 됐고 아직 확인되지 않았는지 (V6). 재예약해도 유지되고, CONFIRMED나 담당자의 반영 안 됨 확인에서만 풀린다.
+    // 이 표시가 있으면 확정 실패, 접수 취소, 발행 생략으로 끝나도 FAILED로 되돌리지 않고 UNCERTAIN을 유지한다.
+    @ColumnDefault("false")
+    @Column(name = "outcome_unknown", nullable = false)
+    private boolean outcomeUnknown;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
-    // 마지막으로 RESERVED가 된 시각. 멈춘 예약을 찾는 기준이다 (복구 워커, PR2).
+    // 마지막으로 RESERVED가 된 시각. 멈춘 예약을 찾는 기준이다 (복구 워커).
     @Column(name = "reserved_at", nullable = false)
     private OffsetDateTime reservedAt;
 
