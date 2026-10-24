@@ -49,12 +49,12 @@
 | Backend 결과 대기 기한 | 30분 | 15분 (Agent 마감 10분보다 길게 두는 마지막 안전망) | `application.yml` `app.publish.result-timeout` |
 | 화면 결과 폴링 | 스피너만 표시 | 경과 시간 표시, 2분이 지나면 "화면을 닫아도 발행은 계속되며 늦어도 약 16분 뒤에는 정리된다"는 안내 (경과 시간은 묶음 생성 시각 기준) | `PublishBatchResult.tsx`, `batchPublish.ts` |
 
-#302 전후 비교 (계산값, Agent 재시작은 Docker 측정값 포함)
+#302 전후 비교 (계산값과 Docker 측정값)
 
 | 시나리오 | 수정 전 | 수정 후 |
 |---|---|---|
 | 발행 중 Agent 재시작 | 결과 대기 기한까지, 최대 31분 | 유예 시간 1분 + 조회 주기 5초. Docker 측정 **60초** (`pause agent` → 발행 → `kill agent` → `up agent`, `DRY_RUN=true`. 묶음 FAILED, 티켓 `RESULT_LOST` 결과 모름·재시도 가능) |
-| MCP 서버 무응답 | 끝나지 않음 (Backend 기한 30분 뒤 결과 모름) | 도구 호출 하나 최대 90초, 묶음 최대 600초 + 연결 정리 90초. MCP_DOCKER_PLACEHOLDER |
+| MCP 서버 무응답 | 끝나지 않음 (Backend 기한 30분 뒤 결과 모름) | 도구 호출 하나 최대 90초, 묶음 최대 600초 + 연결 정리 90초. Docker 측정 **91초** (`pause business-mcp` → 재시도, `DRY_RUN=false`. 도구 목록 조회가 응답 대기 상한 90초에 끝나 아무것도 보내지 않았으므로 티켓은 `MCP_UNAVAILABLE` 재시도 가능 실패, 결과 모름 아님). 호출 도중 멈추는 경우는 `test_frozen_mcp_server_ends_within_limits_including_session_close`로 확인 |
 | rag-mcp 무응답 | 끝나지 않음 (Backend 기한 30분 뒤 결과 모름, 발행 후 색인이면 실제로 발행된 티켓도 결과 모름) | 도구 목록 조회 최대 90초 뒤 재대조 없이 발행, 발행 후 색인은 최대 30초 |
 
 ## 재현 테스트
