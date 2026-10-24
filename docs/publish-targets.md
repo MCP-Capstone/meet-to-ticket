@@ -58,7 +58,7 @@
 
 공통:
 
-- 재시도 API(`PublishService.retry`)는 담당자와 `FAILED` 상태를 검사하고, `MANUAL_CHECK`이면 409로 막는다. 재시도할 수 없는 실패(`retryable=false`이고 결과 모름도 아님)는 `409 PUBLISH_RETRY_NOT_ALLOWED`로 거절하고 화면 버튼을 비활성화한다. 원인/설정을 해결한 뒤 수정→재승인 경로를 이용한다. GitHub 결과 모름(`RESULT_TIMEOUT`, `RESULT_MISSING`, 묶음 전체 실패)은 담당자 확인 후 다시 시도할 수 있고 Agent가 재대조한다 (#291).
+- 재시도 API(`PublishService.retry`)는 담당자와 `FAILED` 상태를 검사하고, `MANUAL_CHECK`이면 409로 막는다. 재시도할 수 없는 실패(`retryable=false`이고 결과 모름도 아님)는 `409 PUBLISH_RETRY_NOT_ALLOWED`로 거절하고 화면 버튼을 비활성화한다. 원인/설정을 해결한 뒤 수정 후 재승인 경로를 이용한다. GitHub 결과 모름(`RESULT_TIMEOUT`, `RESULT_MISSING`, 묶음 전체 실패)은 담당자 확인 후 다시 시도할 수 있고 Agent가 재대조한다 (#291).
 - 기존 Issue 갱신(`UPDATE`)에서 알림 댓글만 실패하면 `UPDATED + COMMENT_FAILED`를 유지한다. 담당자는 전용 `POST /api/tickets/{ticketId}/retry-comment`로 댓글만 다시 보낼 수 있다. 실제 갱신한 이슈 번호를 사용하며 LLM/재대조/본문 PATCH를 실행하지 않는다. `meettoticket:update-comment` 표식을 먼저 확인하고, 없으면 표식 없는 과거 알림 문구도 찾는다. 댓글 조회가 불완전하면 전송하지 않고 `UPDATED + MARKER_CHECK_INCOMPLETE`(재전송 불가, GitHub 직접 확인)로 남긴다. 응답 유실에도 본문 성공은 유지한다 (#291).
 - 실패 티켓은 재시도 대신 "수정하려고 검토 대기로 되돌리기"(`TicketService.revise`)도 할 수 있다. 되돌리면 지난 발행 결과는 비우고, 결과 불명이었다는 사실만 `previousOutcomeUnknown`으로 남겨 다음 발행에서 재대조를 강제한다. `MANUAL_CHECK` 실패는 확인 결과를 먼저 남겨야 하므로 되돌리기도 409다.
 - 결과 불명이 남아 있으면(`mustRecheckOnPublish`) 검토 대기에서도 발행 대상을 바꿀 수 없다 (`PUBLISH_TARGET_LOCKED`, 409). 같은 업무가 두 대상에 생기는 것을 막으려는 잠금이며, 본문 수정은 할 수 있다. 그 대상에서 결론(GitHub 재시도 재대조, Notion/Slack 확인 결과)을 내면 풀린다.
@@ -110,7 +110,7 @@
 - 원인: 쓰기 요청을 보낸 뒤 예외가 난 경우(Agent 내부 `UNKNOWN` 상태), Agent 보고에 빠진 티켓, 기한 안에 보고가 오지 않은 묶음.
 - 저장: 티켓은 `FAILED` + `outcomeUnknown=true`로 저장된다 (`RESULT_UNKNOWN`, `RESULT_MISSING`, `RESULT_TIMEOUT` 등의 오류 코드).
 - 기한 정리: 접수 확인에 실패했거나 Agent가 보고하지 못한 묶음은 기한(`app.publish.result-timeout`, 기본 30분)이 지나면 `PublishBatchExpiry`가 1분(`app.publish.expire-interval-ms`, 기본 60000) 주기로 `RESULT_TIMEOUT` 실패로 끝낸다. 그 전까지 티켓은 발행 중에 머문다.
-- 화면(GitHub 등 `RETRY`): 결과 불명 안내와 확인 체크박스를 표시한다. `retryable=true`이고 확인한 경우만 "다시 시도"가 활성화된다. `RESULT_TIMEOUT`/`RESULT_MISSING`처럼 재시도 불가인 결과는 원인 확인 후 수정→재승인 경로를 사용하며, 지난 결과 불명 표시는 유지해 Agent 재대조를 강제한다.
+- 화면(GitHub 등 `RETRY`): 결과 불명 안내와 확인 체크박스를 표시한다. 재시도 가능(`retryable=true`이거나 결과 불명)하고 확인한 경우만 "다시 시도"가 활성화된다. `RESULT_TIMEOUT`/`RESULT_MISSING` 같은 결과 불명도 담당자가 확인한 뒤 다시 시도할 수 있고, 지난 결과 불명 표시가 유지돼 Agent가 재대조한다 (2.3 참고, #291). 수정 후 재승인 경로를 택해도 결과 불명 표시는 남아 재대조를 강제한다.
 - 화면(Notion/Slack, `MANUAL_CHECK`): 다시 시도 대신 "이미 반영됨"/"반영되지 않음" 버튼과 선택 링크 입력을 보여 준다. 각각 확인 창을 거쳐 `resolve-outcome`을 호출한다. 결과 화면(`PublishBatchResult.tsx`)에는 "{도구명}에 반영됐을 수 있습니다. 다시 시도하기 전에 확인하세요."라는 다른 문구가 있다.
 - 자동 회수(자동으로 반영 여부를 확인해 상태를 바로잡는 것)와 "발행 확인 중" 표시, 5분 뒤 수동 확인 전환은 코드에 없다. 코드가 하는 재대조는 사용자가 다시 시도할 때 대상별로 돌아간다 (2.3 참고).
 

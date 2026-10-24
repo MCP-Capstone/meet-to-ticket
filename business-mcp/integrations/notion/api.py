@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 import httpx
@@ -30,6 +31,12 @@ NOTION_NOT_FOUND = "NOTION_NOT_FOUND"
 NOTION_VALIDATION = "NOTION_VALIDATION"
 NOTION_RATE_LIMIT = "NOTION_RATE_LIMIT"
 NOTION_ERROR = "NOTION_ERROR"
+
+# 429 응답의 Retry-After를 따르되 도구 호출이 오래 묶이지 않도록 대기와 횟수를 제한한다.
+RATE_LIMIT_ATTEMPTS = 3
+RETRY_AFTER_CAP_SECONDS = 5.0
+RETRY_AFTER_DEFAULT_SECONDS = 1.0
+_sleep = time.sleep
 
 
 def normalize_page_id(page_url_or_id: str) -> str:
@@ -97,7 +104,7 @@ def _page_summary(page: dict[str, Any]) -> dict[str, str]:
 
 
 def check_notion_page(client: httpx.Client, page_url_or_id: str) -> dict[str, str]:
-    """페이지가 토큰에 공유되었는지 확인하고, 정규 페이지 ID·제목·URL을 돌려준다."""
+    """페이지가 토큰에 공유되었는지 확인하고, 정규 페이지 ID/제목/URL을 돌려준다."""
     page_id = normalize_page_id(page_url_or_id)
     return _page_summary(request(client, "GET", f"/pages/{page_id}").json())
 
@@ -190,32 +197,58 @@ def create_page(client: httpx.Client, root_page_url_or_id: str, title: str, mark
     return {"status": "created", "page_id": page.get("id"), "url": page.get("url"), "folder_page_id": folder_id}
 
 
+def _retry_after(resp: httpx.Response) -> float:
+    """Retry-After(초)를 읽어 0 이상 상한 이하로 자른다. 없거나 숫자가 아니면 기본값을 쓴다."""
+    try:
+        seconds = float(resp.headers.get("Retry-After", RETRY_AFTER_DEFAULT_SECONDS))
+    except ValueError:
+        seconds = RETRY_AFTER_DEFAULT_SECONDS
+    return min(max(seconds, 0.0), RETRY_AFTER_CAP_SECONDS)
+
+
+def _archive_page(client: httpx.Client, page_id: str) -> None:
+    """페이지를 보관 처리한다. 429면 Retry-After만큼 기다린 뒤 한 번 더 시도한다."""
+    path = f"/pages/{page_id}"
+    resp = request_with_outcome(client, "PATCH", path, json={"archived": True})
+    if resp.status_code == 429:
+        _sleep(_retry_after(resp))
+        resp = request_with_outcome(client, "PATCH", path, json={"archived": True})
+    raise_for_status(resp)
+
+
 def _append_or_discard(client: httpx.Client, page: dict[str, Any], group: list[dict[str, Any]]) -> None:
     """만든 페이지에 남은 본문을 붙인다. 붙이지 못하면 본문이 잘린 페이지를 발행됨으로 남기지 않는다.
 
-    Notion이 4xx로 확실히 거절했거나 요청 전에 연결이 끊겼으면 만든 페이지를 보관(archive) 처리하고 원래 오류로 실패시킨다.
-    페이지가 남지 않으므로 다시 시도해도 중복되지 않는다. 시간 초과, 5xx, 요청 중 연결 끊김처럼 반영됐는지 모르거나
-    보관 처리에 실패하면 페이지가 남아 있으므로 RESULT_UNKNOWN으로 확인 대상으로 남긴다.
+    Notion 속도 제한(429)은 통합 단위로 걸리므로 곧바로 보관 처리하면 그 요청도 429가 나기 쉽다.
+    그래서 429는 Retry-After(상한 있음)만큼 기다렸다가 본문 추가를 제한된 횟수만큼 다시 시도한다.
+    Notion이 4xx로 확실히 거절했거나(429 재시도 소진 포함) 요청 전에 연결이 끊겼으면 만든 페이지를 보관(archive) 처리하고
+    원래 오류로 실패시킨다. 페이지가 남지 않으므로 다시 시도해도 중복되지 않는다. 시간 초과, 5xx, 요청 중 연결 끊김처럼
+    반영됐는지 모르거나 보관 처리에 실패하면 페이지가 남아 있으므로 RESULT_UNKNOWN으로 확인 대상으로 남긴다.
     """
     url = page.get("url", "")
     unknown = f"Notion 페이지 생성 후 본문 추가를 완료하지 못했습니다. {url} 확인 필요"
-    try:
-        resp = request_with_outcome(client, "PATCH", f"/blocks/{page['id']}/children", json={"children": group})
-    except ToolError as exc:
-        if not str(exc).startswith("[MCP_UNAVAILABLE]"):
-            raise tool_error("RESULT_UNKNOWN", f"{unknown}: {exc}") from exc
-        definite = exc
-    else:
+    for attempt in range(RATE_LIMIT_ATTEMPTS):
+        try:
+            resp = request_with_outcome(client, "PATCH", f"/blocks/{page['id']}/children", json={"children": group})
+        except ToolError as exc:
+            if not str(exc).startswith("[MCP_UNAVAILABLE]"):
+                raise tool_error("RESULT_UNKNOWN", f"{unknown}: {exc}") from exc
+            definite = exc
+            break
         if resp.is_success:
             return
+        if resp.status_code == 429 and attempt < RATE_LIMIT_ATTEMPTS - 1:
+            _sleep(_retry_after(resp))
+            continue
         try:
             raise_for_status(resp)
         except ToolError as exc:
             if resp.status_code >= 500:
                 raise tool_error("RESULT_UNKNOWN", f"{unknown}: {exc}") from exc
             definite = exc
+        break
     try:
-        request(client, "PATCH", f"/pages/{page['id']}", json={"archived": True})
+        _archive_page(client, page["id"])
     except (ToolError, httpx.HTTPError) as exc:
         raise tool_error("RESULT_UNKNOWN", f"Notion 페이지 생성 후 본문 추가가 거절됐고({definite}) 본문이 잘린 페이지를 보관 처리하지 못했습니다. {url} 확인 필요: {exc}") from exc
     raise ToolError(f"{definite} (본문이 잘린 페이지 {url}는 보관 처리했습니다)") from definite
