@@ -146,6 +146,7 @@ Notion 페이지와 Slack 공지는 결과 모름 뒤 재발행을 Agent가 보�
   - `canAssign`과 `members`: 회의록을 올린 사람이면 대표 담당 후보를 함께 준다
   - 미리보기 본문에는 회의록 원문이 섞여 있다. HTML로 그릴 때는 sanitize한다 (프론트 `IssueMarkdown`은 HTML을 넣지 않고 React 요소로만 그린다)
 - `PUT /api/tickets/{ticketId}/assignee` `{"memberId": 11}`: 담당 지정 필요(`ASSIGNEE_REQUIRED`) 티켓에 같은 프로젝트 팀원을 대표 담당으로 지정하면 검토 대기가 되어 그 팀원의 내 티켓으로 간다 (REQ-011). 회의록을 올린 사람만 할 수 있다 (아니면 403 `TICKET_UPLOADER_REQUIRED`). 담당 지정 필요가 아니면 409 `TICKET_STATUS_CONFLICT`, 같은 프로젝트 팀원이 아니면 404 `PROJECT_MEMBER_NOT_FOUND`
+- `GET /api/tickets/{ticketId}/history`: 티켓의 에이전트 원본(`AGENT`), 확정한 수정본(`USER_EDIT`, 바뀐 것이 있을 때만), 발행 성공 최종본(`PUBLISHED`) 스냅샷과 상태 전이 이력(`statusHistory`), 마지막 승인(`approval`: 누가 언제 CONFIRMED로 승인했는지)을 준다. 티켓 담당자나 회의록을 올린 사람만 볼 수 있다 (아니면 403 `TICKET_HISTORY_FORBIDDEN`, 없는 티켓은 404 `TICKET_NOT_FOUND`). 기록 시점과 한계는 [리비전과 상태 이력](../revisions-and-history.md)
 
 ### 회의록 처리 요청 (#153)
 
