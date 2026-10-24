@@ -170,6 +170,15 @@ async def publish_confirmed(req: PublishBatchRequest):
     return {"batchId": req.batch_id, "status": "ACCEPTED"}
 
 
+@app.get("/publish/{batch_id}", tags=["분석 실행"], operation_id="getPublishBatch")
+async def get_publish_batch(batch_id: str):
+    """결과 콜백 실패 시 Backend가 결과만 다시 조회한다. 발행을 실행하지 않는다."""
+    result = _publish_jobs.get(batch_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="없는 batch_id입니다")
+    return result
+
+
 @app.post(
     "/projects/check-members", tags=["프로젝트"], operation_id="checkProjectMembers",
     summary="멤버별 저장소 권한 확인", response_model=CheckMembersResponse, responses=CHECK_MEMBERS_RESPONSES,

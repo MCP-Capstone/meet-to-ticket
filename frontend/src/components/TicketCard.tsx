@@ -10,7 +10,7 @@ import { TicketPublicationPreview } from './TicketPublicationPreview'
 
 const ticketStatusLabel: Record<TicketStatus, string> = {
   ASSIGNEE_REQUIRED: '담당 지정 필요', PENDING_REVIEW: '검토 대기', CONFIRMED: '확인', REJECTED: '거절',
-  PUBLISHING: '발행 중', PUBLISHED: '발행됨', LINKED: '연결됨', UPDATED: '갱신됨', FAILED: '실패',
+  PUBLISHING: '발행 중', PUBLISHED: '발행됨', LINKED: '연결됨', UPDATED: '갱신됨', SKIPPED: '발행 생략', FAILED: '실패',
 }
 const actions: Partial<Record<TicketStatus, { action: TicketAction; label: string }[]>> = {
   PENDING_REVIEW: [{ action: 'confirm', label: '확인' }, { action: 'reject', label: '거절' }],
@@ -32,6 +32,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
   const [publicationEditing, setPublicationEditing] = useState(false)
   const [publishTarget, setPublishTarget] = useState(ticket.publishTarget)
   const [processingType, setProcessingType] = useState(ticket.processingType)
+  const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [assignee, setAssignee] = useState('')
   const [dueText, setDueText] = useState('')
@@ -55,6 +56,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
   // 다시 시도나 확인 결과를 보낼 때 비운다. 같은 오류 코드로 다시 실패해도 지난 체크가 되살아나지 않는다.
   const clearOutcomeInput = () => setOutcomeInput({ key: '', checked: false, url: '' })
   const checkUrl = ticket.publishFailure ? safePublishUrl(ticket.publishFailure.checkUrl, ticket.publishTarget) : null
+  const resultUrl = safePublishUrl(ticket.githubIssueUrl ?? null, ticket.publishTarget)
   const typedOutcomeUrl = outcomeUrl.trim()
   // 서버로는 정리된 링크(기본 포트 제거 등)를 보낸다. 서버도 2048자를 넘는 링크는 받지 않는다.
   const normalizedOutcomeUrl = typedOutcomeUrl === '' ? null : safePublishUrl(typedOutcomeUrl, ticket.publishTarget)
@@ -63,11 +65,12 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
   const memberRequest = useRef(0)
   useEffect(() => () => { ++memberRequest.current }, [])
 
+  const titleChanged = title !== ticket.title
   const descriptionChanged = description !== (ticket.description ?? '')
   const assigneeChanged = assignee !== String(ticket.assignee?.projectMemberId ?? '')
   const dueChanged = dueText !== (ticket.due.text ?? '') || dueDate !== (ticket.due.date ?? '') || dueTime !== (ticket.due.time ?? '')
   const publicationDirty = publishTarget !== ticket.publishTarget || processingType !== ticket.processingType
-  const dirty = (editing && (descriptionChanged || assigneeChanged || dueChanged)) || (publicationEditing && publicationDirty)
+  const dirty = (editing && (titleChanged || descriptionChanged || assigneeChanged || dueChanged)) || (publicationEditing && publicationDirty)
   const existingIssueAvailable = canUseExistingIssue(ticket)
   useEffect(() => {
     onDirtyChange(ticket.ticketId, dirty)
@@ -90,6 +93,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
     }
   }
   const startEditing = () => {
+    setTitle(ticket.title)
     setDescription(ticket.description ?? '')
     setAssignee(String(ticket.assignee?.projectMemberId ?? ''))
     setDueText(ticket.due.text ?? '')
@@ -124,6 +128,10 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
   }
   const save = () => {
     const body: TicketEditRequest = {}
+    if (titleChanged) {
+      if (!title.trim() || title.length > 255) { setError('제목은 공백만 입력할 수 없으며 255자 이하여야 합니다.'); return }
+      body.title = title
+    }
     if (descriptionChanged) {
       if (!description.trim() || description.length > 4000) { setError('본문은 공백만 입력할 수 없으며 4,000자 이하여야 합니다.'); return }
       body.description = description
@@ -169,10 +177,12 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
         <span className={`badge ticket-status ${ticket.status.toLowerCase()}`}>{ticketStatusLabel[ticket.status] ?? ticket.status}</span>
       </div>
       <p className="meta">{({ GITHUB: 'GitHub', SLACK: 'Slack', NOTION: 'Notion' })[ticket.publishTarget]} · {({ CREATE: '신규 발행', LINK: '기존 이슈 연결', UPDATE: '기존 이슈 갱신' })[ticket.processingType]}</p>
+      {resultUrl && <a href={resultUrl} target="_blank" rel="noreferrer">{toolName[ticket.publishTarget]}에서 발행 결과 보기 ↗</a>}
       <TicketDedupeDetails ticket={ticket} />
       {editing ? (
         <fieldset className="ticket-fields" disabled={busy || pending || blocked}>
           <legend className="sr-only">티켓 수정</legend>
+          <label>제목<input aria-label="제목" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={255} /></label>
           <label>본문<textarea aria-label="본문" rows={6} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={4000} /></label>
           <label>담당자
             <select aria-label="담당자" value={assignee} onChange={(e) => setAssignee(e.target.value)} disabled={membersLoading || Boolean(membersError)}>

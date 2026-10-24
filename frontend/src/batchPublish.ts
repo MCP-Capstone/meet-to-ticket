@@ -24,7 +24,7 @@ export const toolName: Record<PublishTarget, string> = { GITHUB: 'GitHub', NOTIO
 // 발행 대상별로 결과 링크가 가리킬 수 있는 도메인. 그 밖의 주소는 링크로 만들지 않는다.
 const allowedHost: Record<PublishTarget, (host: string) => boolean> = {
   GITHUB: (host) => host === 'github.com',
-  NOTION: (host) => host === 'notion.so' || host.endsWith('.notion.so') || host.endsWith('.notion.site'),
+  NOTION: (host) => host === 'app.notion.com' || host === 'notion.so' || host.endsWith('.notion.so') || host.endsWith('.notion.site'),
   SLACK: (host) => host === 'slack.com' || host.endsWith('.slack.com'),
 }
 
@@ -32,7 +32,7 @@ export function safePublishUrl(url: string | null, target: PublishTarget) {
   if (!url) return null
   try {
     const parsed = new URL(url)
-    return parsed.protocol === 'https:' && allowedHost[target](parsed.hostname) && !parsed.username && !parsed.password ? parsed.href : null
+    return parsed.protocol === 'https:' && !parsed.port && allowedHost[target](parsed.hostname) && !parsed.username && !parsed.password ? parsed.href : null
   } catch { return null }
 }
 

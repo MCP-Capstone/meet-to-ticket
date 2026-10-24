@@ -31,6 +31,8 @@ def _ticket(source: PublishTicket) -> dict[str, Any]:
             "assignee_names": assignees.get("names") or [],
             "assignees": assignees.get("github") or [],
             "unresolved_assignees": assignees.get("unresolved") or [],
+            "unmatched_assignees": assignees.get("unmatched") or [],
+            "ambiguous_assignees": assignees.get("ambiguous") or [],
         })
     content.update({
         "title": source.title,
@@ -132,6 +134,14 @@ def _failure(ticket_id: str, processing_type: str, error: ToolCallError) -> Publ
     )
 
 
+def _skipped(ticket_id: str, processing_type: str) -> PublishItemResult:
+    """외부 시스템에 쓰지 않은 항목은 성공처럼 보이지 않게 결과를 분리한다."""
+    return PublishItemResult(
+        ticket_id=ticket_id, processing_type=processing_type, status="SKIPPED",
+        error_message="발행하지 않음: 외부 시스템에 변경을 만들지 않았습니다.",
+    )
+
+
 async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResult:
     """이미 재대조가 반영된 티켓 하나를 CREATE/LINK/UPDATE로 실행한다."""
     ticket = _ticket(source)
@@ -167,6 +177,8 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             _block_unverified_retry(source)
             sent = True
             out = await publisher.post_message(channel_id=channel_id, text=text, mentions=mentions)
+            if out.get("status") == "dry_run":
+                return _skipped(source.ticket_id, "CREATE")
             # business-mcp post_message는 메시지 링크를 permalink로 돌려준다 (url 키 없음)
             return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="POSTED",
                                      message_url=out.get("permalink"))
@@ -180,7 +192,9 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             sent = True
             out = await publisher.create_page(root_page_url_or_id=root, title=source.title or page["title"],
                                               markdown=page["markdown"])
-            if out.get("status") != "dry_run" and not out.get("url"):
+            if out.get("status") == "dry_run":
+                return _skipped(source.ticket_id, "CREATE")
+            if not out.get("url"):
                 raise ToolCallError(PUBLISH_FAILED, "Notion 페이지는 만들었지만 URL을 받지 못했습니다", ambiguous=True)
             return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="PUBLISHED",
                                      notion_page_id=out.get("page_id"), notion_page_url=out.get("url"))
@@ -199,6 +213,8 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             out = await publisher.add_comment(
                 owner=source.project.github_owner, repo=source.project.github_repo, number=number, body=body,
             )
+            if out.get("status") == "dry_run":
+                return _skipped(source.ticket_id, kind)
             return PublishItemResult(ticket_id=source.ticket_id, processing_type=kind, status="LINKED",
                                      github_issue_number=number,
                                      github_issue_url=f"https://github.com/{source.project.github_owner}/{source.project.github_repo}/issues/{number}",
@@ -222,6 +238,8 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
                 owner=source.project.github_owner, repo=source.project.github_repo, number=number,
                 append_section=section, add_labels=ticket.get("labels") or [], note=note,
             )
+            if out.get("status") == "dry_run":
+                return _skipped(source.ticket_id, kind)
             if out.get("comment_error"):
                 # 본문 갱신은 성공했으므로 실패로 바꾸지 않는다. 백엔드에는 재시도할 수 있게 오류를 남긴다.
                 return PublishItemResult(ticket_id=source.ticket_id, processing_type=kind, status="UPDATED",
@@ -242,6 +260,8 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             owner=source.project.github_owner, repo=source.project.github_repo, title=source.title, body=body,
             labels=ticket.get("labels") or [], assignees=ticket.get("assignees") or [],
         )
+        if out.get("status") == "dry_run":
+            return _skipped(source.ticket_id, "CREATE")
         return PublishItemResult(ticket_id=source.ticket_id, processing_type="CREATE", status="PUBLISHED",
                                  github_issue_number=out.get("number"), github_issue_url=out.get("url"),
                                  dropped_labels=out.get("dropped_labels") or [])

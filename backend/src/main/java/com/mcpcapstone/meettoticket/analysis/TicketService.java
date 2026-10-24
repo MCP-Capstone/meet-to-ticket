@@ -98,7 +98,7 @@ public class TicketService {
         }
         String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(java.util.Locale.ROOT);
         boolean allowed = switch (target) {
-            case NOTION -> host.equals("notion.so") || host.endsWith(".notion.so") || host.endsWith(".notion.site");
+			case NOTION -> host.equals("app.notion.com") || host.equals("notion.so") || host.endsWith(".notion.so") || host.endsWith(".notion.site");
             case SLACK -> host.equals("slack.com") || host.endsWith(".slack.com");
             case GITHUB -> false;
         };
@@ -117,7 +117,7 @@ public class TicketService {
     // 검토 대기에서만 고칠 수 있다. 보내지 않은 항목은 그대로 둔다.
     @Transactional
     public MyTicketService.Ticket edit(UUID id, Long userId, EditRequest request) {
-        if (request.description() == null && request.assigneeMemberId() == null && request.due() == null)
+		if (request.title() == null && request.description() == null && request.assigneeMemberId() == null && request.due() == null)
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);
         TaskItem item = ownedBy(id, userId);
         if (item.getTicketStatus() != TicketStatus.PENDING_REVIEW) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
@@ -144,7 +144,7 @@ public class TicketService {
                     "github", github,
                     "unresolved", github.isEmpty() ? List.of(newAssignee.getName()) : List.of())));
         }
-        item.edit(newAssignee, json.write(content));
+		item.edit(request.title() == null ? null : request.title().trim(), newAssignee, json.write(content));
         return view.view(item);
     }
 
@@ -195,10 +195,12 @@ public class TicketService {
     public record ResolveOutcomeRequest(
             @Schema(description = "대상 도구에서 확인한 결과. true면 이미 반영됨, false면 반영되지 않음", requiredMode = Schema.RequiredMode.REQUIRED, example = "false")
             @NotNull Boolean applied,
-            @Schema(description = "반영됐을 때 확인한 링크. 선택이며 Notion이면 notion.so/notion.site, Slack이면 slack.com의 https 링크여야 한다. applied=false면 검사하지 않고 무시한다", nullable = true, example = "https://www.notion.so/page")
+			@Schema(description = "반영됐을 때 확인한 링크. 선택이며 Notion이면 app.notion.com/notion.so/notion.site, Slack이면 slack.com의 https 링크여야 한다. applied=false면 검사하지 않고 무시한다", nullable = true, example = "https://app.notion.com/p/page")
             String url) {}
 
     public record EditRequest(
+			@Schema(description = "고칠 티켓 제목. 보내지 않으면 그대로", nullable = true, example = "CSV 빈 결과 500 오류 수정")
+			@Size(max = 255) @Pattern(regexp = "(?s).*\\S.*", message = "제목은 비울 수 없습니다.") String title,
             @Schema(description = "고칠 본문(작업 내용). 보내지 않으면 그대로", nullable = true, example = "CSV 내보내기에서 결과가 비면 오류가 난다.")
             @Size(max = 4000) @Pattern(regexp = "(?s).*\\S.*", message = "본문은 비울 수 없습니다.") String description,
             @Schema(description = "바꿀 담당 멤버의 프로젝트 팀원 ID. 같은 프로젝트 멤버여야 한다", nullable = true, example = "12")

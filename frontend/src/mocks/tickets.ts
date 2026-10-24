@@ -72,7 +72,7 @@ function owned(user: User, ticketId: string) {
 export function editMockTicket(user: User, ticketId: string, body: TicketEditRequest) {
   const { tickets, ticket } = owned(user, ticketId)
   if (ticket.status !== 'PENDING_REVIEW') throw fail(409, 'TICKET_STATUS_CONFLICT', '검토 대기에서만 수정할 수 있습니다.')
-  if (!Object.keys(body).length || (body.description !== undefined && (!body.description.trim() || body.description.length > 4000))) throw fail(400, 'VALIDATION_FAILED', '본문과 수정 항목을 확인해 주세요.')
+  if (!Object.keys(body).length || (body.title !== undefined && (!body.title.trim() || body.title.length > 255)) || (body.description !== undefined && (!body.description.trim() || body.description.length > 4000))) throw fail(400, 'VALIDATION_FAILED', '제목과 수정 항목을 확인해 주세요.')
   if (body.due && ((body.due.text?.length ?? 0) > 200 || (body.due.date && !validMeetingDate(body.due.date)) || (body.due.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(body.due.time)))) throw fail(400, 'VALIDATION_FAILED', '기한 형식을 확인해 주세요.')
   if (body.assigneeMemberId !== undefined) {
     const member = listMockMembers(ticket.projectId, user).find((m) => m.projectMemberId === body.assigneeMemberId && m.userId !== null)
@@ -80,6 +80,7 @@ export function editMockTicket(user: User, ticketId: string, body: TicketEditReq
     ticket.assignee = { projectMemberId: member.projectMemberId, name: member.name }
     ticket.assigneeUserId = member.userId!
   }
+  if (body.title !== undefined) ticket.title = body.title.trim()
   if (body.description !== undefined) ticket.description = body.description.trim()
   if (body.due) ticket.due = { ...body.due, text: body.due.text?.trim() || null }
   write(tickets)
@@ -152,6 +153,7 @@ export function resolveMockTicketOutcome(user: User, ticketId: string, body: Tic
   ticket.publishTargetLocked = false
   if (body.applied) {
     ticket.status = 'PUBLISHED'
+    ticket.githubIssueUrl = body.url ? safePublishUrl(body.url.trim(), ticket.publishTarget) : null
     ticket.publishFailure = null
   } else {
     // 백엔드처럼 결과 모름 자체의 실패만 '반영되지 않음' 사유로 바꾸고, 설정 오류 사유는 남긴다.
@@ -179,7 +181,7 @@ export function publishMockTickets(user: User, projectId: number, meetingId: num
   const batchId = crypto.randomUUID()
   const result: PublishBatchResult = {
     batchId, status: 'RUNNING', executionMode: 'MOCK', createdAt: new Date().toISOString(), finishedAt: null,
-    summary: { total: ids.size, published: 0, linked: 0, updated: 0, failed: 0, publishing: ids.size },
+    summary: { total: ids.size, published: 0, linked: 0, updated: 0, skipped: 0, failed: 0, publishing: ids.size },
     tickets: selection.confirmed.map((ticket) => ({ ticketId: ticket.ticketId, title: ticket.title, status: 'PUBLISHING', processingType: ticket.processingType, projectId, projectName: ticket.projectName, githubIssueNumber: null, githubIssueUrl: null, errorCode: null, errorMessage: null, failureCategory: null, retryable: false, outcomeUnknown: false, publishTarget: ticket.publishTarget })),
   }
   const batches = readBatches()

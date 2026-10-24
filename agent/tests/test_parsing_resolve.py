@@ -4,6 +4,7 @@ import pytest
 
 from conftest import MEMBERS, sample
 from parsing import parse_summary
+from schemas import ProjectMember
 from resolve import classify_expected, map_assignees, parse_due, split_names
 
 
@@ -37,7 +38,18 @@ def test_split_and_map_names():
     a = map_assignees(names, MEMBERS)
     assert a.logins == ["minjun-k", "seoyeon-p", "doyun-l", "yujin-c", "jihoon-o"]
     assert a.unresolved == ["정하늘"]
-    assert map_assignees(["없는사람"], MEMBERS).unresolved == ["없는사람"]
+    assert a.unmatched == [] and a.ambiguous == []  # 정하늘은 멤버이고 계정만 없다
+    missing = map_assignees(["없는사람"], MEMBERS)
+    assert missing.unresolved == ["없는사람"] and missing.unmatched == ["없는사람"]
+
+
+def test_map_names_with_duplicate_members_is_ambiguous():
+    # 동명이인은 누구인지 정할 수 없어 로그인을 붙이지 않는다
+    members = [*MEMBERS, ProjectMember(name="박서연", github_name=None)]
+    a = map_assignees(["박서연", "김민준"], members)
+    assert a.logins == ["minjun-k"]
+    assert a.ambiguous == ["박서연"] and a.unmatched == []
+    assert a.unresolved == ["박서연"]
 
 
 @pytest.mark.parametrize(

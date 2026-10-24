@@ -172,7 +172,7 @@ class MigrationSchemaTest {
 		boot(FRESH, true, "validate").close();
 
 		assertThat(query(FRESH, "select version || ':' || type || ':' || success from flyway_schema_history order by installed_rank"))
-			.containsExactly("1:SQL:true", "2:SQL:true");
+			.containsExactly("1:SQL:true", "2:SQL:true", "3:SQL:true");
 
 		var fresh = describe(FRESH);
 		assertThat(fresh).contains(DISPATCH_FK);
@@ -187,7 +187,7 @@ class MigrationSchemaTest {
 		boot(LEGACY, true, "validate").close();
 
 		assertThat(query(LEGACY, "select version || ':' || type from flyway_schema_history order by installed_rank"))
-			.containsExactly("1:BASELINE", "2:SQL");
+			.containsExactly("1:BASELINE", "2:SQL", "3:SQL");
 		assertThat(query(LEGACY, "select task_id::text from analysis_dispatches")).containsExactly(TASK);
 		// 지운 고아 행은 보관 테이블에 그대로 남는다.
 		assertThat(query(LEGACY, "select task_id::text || ':' || state || ':' || attempts from analysis_dispatches_orphans"))
@@ -195,6 +195,32 @@ class MigrationSchemaTest {
 		assertThat(query(LEGACY, "select convalidated::text from pg_constraint where conname = 'fk_analysis_dispatches_task' and conrelid = 'analysis_dispatches'::regclass"))
 			.containsExactly("true");
 		assertThat(describe(LEGACY)).containsExactlyElementsOf(describe(FRESH));
+	}
+
+	@Test
+	void v3AllowsSkippedWithoutChangingExistingTickets() throws Exception {
+		legacyDatabase(LEGACY);
+		Flyway.configure()
+			.dataSource(url(LEGACY), USER, PASSWORD)
+			.schemas(LEGACY)
+			.locations("classpath:db/migration")
+			.baselineOnMigrate(true)
+			.baselineVersion("1")
+			.target("2")
+			.load().migrate();
+		exec(LEGACY, """
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status)
+			values ('00000000-0000-0000-0000-0000000000a2', '%s', '기존 티켓', '{}', 'CREATE', 'PENDING', 'DRAFT', 'FAILED')""".formatted(TASK));
+
+		// V2에서는 거부되던 값이 V3 적용 후 허용되는지 확인한다.
+		assertThatThrownBy(() -> exec(LEGACY, "update task_items set ticket_status = 'SKIPPED'"))
+			.isInstanceOf(SQLException.class)
+			.hasMessageContaining("task_items_ticket_status_check");
+		flyway(LEGACY).migrate();
+		assertThat(query(LEGACY, "select title || ':' || ticket_status from task_items"))
+			.containsExactly("기존 티켓:FAILED");
+		exec(LEGACY, "update task_items set ticket_status = 'SKIPPED'");
+		assertThat(query(LEGACY, "select ticket_status from task_items")).containsExactly("SKIPPED");
 	}
 
 	@Test
@@ -217,10 +243,10 @@ class MigrationSchemaTest {
 		assertThat(query(LEGACY, "select to_regclass('analysis_dispatches_orphans')::text")).containsNull();
 		assertThat(query(LEGACY, "select ticket_status from task_items")).containsExactly("RETIRED_VALUE");
 
-		// 값을 정리하면 다음 기동에서 V2가 적용된다.
+		// 값을 정리하면 다음 기동에서 V2와 후속 마이그레이션이 적용된다.
 		exec(LEGACY, "update task_items set ticket_status = 'FAILED' where ticket_status = 'RETIRED_VALUE'");
 		flyway(LEGACY).migrate();
 		assertThat(query(LEGACY, "select version from flyway_schema_history where success order by installed_rank"))
-			.containsExactly("1", "2");
+			.containsExactly("1", "2", "3");
 	}
 }

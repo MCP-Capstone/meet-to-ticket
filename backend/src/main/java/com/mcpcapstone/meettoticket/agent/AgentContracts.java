@@ -75,7 +75,15 @@ public final class AgentContracts {
             @Schema(description = "실제 이슈 URL. 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
             String githubIssueUrl,
             @Schema(description = "항목별 발행 실패·결과 불명 사유. 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
-            String errorMessage) {}
+			String errorMessage,
+			@Schema(description = "발행 대상. 과거 Agent 응답은 null", nullable = true) String publishTarget) {
+		public Item(UUID itemId, String workKey, String title, JsonNode contentJson, String action,
+					String reason, String reviewStatus, String publishStatus, Integer githubIssueNumber,
+					String githubIssueUrl, String errorMessage) {
+			this(itemId, workKey, title, contentJson, action, reason, reviewStatus, publishStatus,
+					githubIssueNumber, githubIssueUrl, errorMessage, null);
+		}
+	}
 
     public record Summary(
             @Schema(description = "최종 항목 수", requiredMode = Schema.RequiredMode.REQUIRED, example = "0")

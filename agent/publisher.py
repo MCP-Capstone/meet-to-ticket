@@ -168,6 +168,10 @@ class DryRunPublisher:
         self.calls.append(args)
         return {"status": "dry_run", "page_id": None, "url": None}
 
+    async def post_message(self, **args: Any) -> dict[str, Any]:
+        self.calls.append(args)
+        return {"status": "dry_run", "permalink": None}
+
     async def search_issues(self, **args: Any) -> dict[str, Any]:
         return {"issues": []}
 

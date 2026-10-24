@@ -8,6 +8,11 @@ server:
 spring:
   application:
     name: backend
+  task:
+    scheduling:
+      # 기본은 스레드 1개라 느린 주기 작업 하나가 분석 디스패치와 outbox 릴레이까지 막는다.
+      pool:
+        size: 4
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
@@ -66,6 +71,7 @@ agent:
   poll-interval-ms: ${AGENT_POLL_INTERVAL_MS:2000}
   connect-timeout: 3s
   read-timeout: 5s
+  connection-read-timeout: 45s
   task-timeout: ${AGENT_TASK_TIMEOUT:10m}
   mock-scenario: ${AGENT_MOCK_SCENARIO:draft}
 

@@ -8,6 +8,7 @@ import org.springframework.web.client.*;
 import tools.jackson.databind.JsonNode;
 
 import java.util.Optional;
+import java.util.Set;
 
 public class LivePublishGateway implements PublishGateway {
     private static final Logger log = LoggerFactory.getLogger(LivePublishGateway.class);
@@ -22,6 +23,22 @@ public class LivePublishGateway implements PublishGateway {
     public String mode() {
         return "LIVE";
     }
+
+	@Override
+	public Optional<Result> status(String batchId) {
+		try {
+			Result result = client.get().uri("/publish/{id}", batchId).retrieve().body(Result.class);
+			if (result == null || result.status() == null || !batchId.equals(result.batchId())
+					|| !Set.of("SUCCEEDED", "PARTIAL_FAILED", "FAILED").contains(result.status()))
+				return Optional.empty();
+			return Optional.of(result);
+		} catch (RestClientResponseException e) {
+			if (e.getStatusCode().value() == 404) return Optional.empty();
+			throw new AgentException(true);
+		} catch (RestClientException e) {
+			throw new AgentException(true);
+		}
+	}
 
     @Override
     public Optional<Result> submit(Request request) {
