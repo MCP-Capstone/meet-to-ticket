@@ -31,6 +31,7 @@ public class TicketService {
     private final MyTicketService view;
     private final JsonCodec json;
     private final TicketHistoryRecorder recorder;
+    private final PublicationLedger ledger;
 
     // 상태 전이. 이 표 밖의 전이는 409다.
     private enum Action {
@@ -86,6 +87,8 @@ public class TicketService {
         String url = request.applied() ? resultUrl(request.url(), item.getPublishTarget()) : null;
         TicketStatus from = item.getTicketStatus();
         item.resolveUnknownOutcome(request.applied(), url);
+        // 발행 기록의 결과 모름도 같은 확인 결과로 끝낸다 (#263).
+        ledger.resolveUncertain(item, request.applied(), url);
         // 반영 확인이면 발행됨으로 끝난다. 반영되지 않음 확인은 상태가 그대로라 남기지 않는다.
         if (item.getTicketStatus() == TicketStatus.PUBLISHED) recorder.published(item, userId);
         recorder.statusChanged(item, from, userId, TicketHistoryRecorder.REASON_OUTCOME_VERIFIED);

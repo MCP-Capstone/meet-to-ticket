@@ -37,6 +37,7 @@ public class PublishService {
     private final TransactionTemplate tx;
     private final PublicationTicketMapper publicationMapper;
     private final TicketHistoryRecorder recorder;
+    private final PublicationLedger ledger;
 
     // 확인한 티켓을 발행 중으로 바꿔 한 묶음으로 보낸다. 중복 클릭은 이미 발행 중이어서 담기지 않는다.
     // Agent 호출은 트랜잭션 밖에서 해 DB 연결을 붙잡지 않는다.
@@ -127,12 +128,21 @@ public class PublishService {
         PublishBatch batch = batches.save(new PublishBatch(users.getReferenceById(userId), gateway.mode()));
         List<PublishGateway.Ticket> tickets = new ArrayList<>();
         for (TaskItem i : picked) {
-            tickets.add(toTicket(i));
+            PublishGateway.Ticket sent = toTicket(i);
+            tickets.add(sent);
+            reserve(i, sent, batch.getId());
             TicketStatus from = i.getTicketStatus();
             i.startPublishing(batch);
             recorder.statusChanged(i, from, userId, TicketHistoryRecorder.REASON_PUBLISH_REQUESTED);
         }
         return new Prepared(batch.getId(), new PublishGateway.Request(batch.getId().toString(), tickets));
+    }
+
+    // Agent에 보내기 전에 멱등키를 예약한다 (#263). 예약하지 못하면(이미 확정, 진행 중, 확인 필요) 외부에 쓰지 않고 요청 전체를 거절한다.
+    private void reserve(TaskItem ticket, PublishGateway.Ticket sent, UUID batchId) {
+        PublishOperation operation = PublishOperation.of(sent.processingType(), sent.retryCommentOnly());
+        if (ledger.reserve(ticket.getId(), ticket.getPublishTarget(), operation, batchId) != PublicationLedger.Reservation.RESERVED)
+            throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
     }
 
     private Started dispatch(Prepared prepared) {
@@ -149,13 +159,25 @@ public class PublishService {
             log.warn("일괄 발행 {} 접수 확인 실패, 결과를 기다림", prepared.batchId());
             immediate = Optional.empty();
         }
+        markSent(prepared.batchId());
         // 같은 클래스 호출은 프록시를 거치지 않으므로 트랜잭션을 직접 연다.
         immediate.ifPresent(result -> tx.executeWithoutResult(status -> applyResult(prepared.batchId(), result)));
         return new Started(prepared.batchId(), prepared.request().tickets().size());
     }
 
+    // 접수(또는 접수 확인 실패)를 발행 기록에 남긴다. 기록이 실패해도 이미 Agent에 간 발행은 되돌릴 수 없으므로 예외로 바꾸지 않는다.
+    // 남지 않은 RESERVED는 결과 보고가 오면 그대로 결과 상태로 바뀐다.
+    private void markSent(UUID batchId) {
+        try {
+            tx.executeWithoutResult(status -> ledger.markSent(batchId));
+        } catch (RuntimeException e) {
+            log.warn("일괄 발행 {} 접수를 발행 기록에 남기지 못함: {}", batchId, e.getMessage());
+        }
+    }
+
     private void abort(UUID batchId, String message) {
         tx.executeWithoutResult(status -> {
+            ledger.releaseBatch(batchId);
             items.findByBatch(batchId).forEach(i -> {
                 TicketStatus from = i.getTicketStatus();
                 i.cancelPublishing();
@@ -215,6 +237,7 @@ public class PublishService {
             TicketStatus from = ticket.getTicketStatus();
             boolean commentRetry = ticket.isCommentRetry();
             record(ticket, r);
+            ledger.settle(ticket, batchId, r, commentRetry);
             recordHistory(ticket, from, batch.getUser().getId(), commentRetry);
         }
         // 보고에 없는 티켓은 발행됐는지 알 수 없다. 실패로 두되 결과 모름으로 구분한다.
@@ -223,6 +246,7 @@ public class PublishService {
 			TicketStatus from = ticket.getTicketStatus();
 			if (ticket.isCommentRetry()) {
 				recordCommentFailure(ticket, "알림 댓글 결과를 받지 못했습니다. 다시 보내면 기존 댓글 표식을 먼저 확인합니다.");
+				ledger.settle(ticket, batchId, null, true);
 				recordHistory(ticket, from, batch.getUser().getId(), true);
 				continue;
 			}
@@ -231,6 +255,7 @@ public class PublishService {
                     result.errorCode() != null ? result.errorCode() : "RESULT_MISSING",
                     result.errorMessage() != null ? result.errorMessage() : "발행 결과를 받지 못했습니다.",
                     true, true);
+			ledger.settle(ticket, batchId, null, false);
 			recordHistory(ticket, from, batch.getUser().getId(), false);
 		}
 
