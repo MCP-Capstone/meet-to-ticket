@@ -31,6 +31,8 @@ def _ticket(source: PublishTicket) -> dict[str, Any]:
             "assignee_names": assignees.get("names") or [],
             "assignees": assignees.get("github") or [],
             "unresolved_assignees": assignees.get("unresolved") or [],
+            "unmatched_assignees": assignees.get("unmatched") or [],
+            "ambiguous_assignees": assignees.get("ambiguous") or [],
         })
     content.update({
         "title": source.title,

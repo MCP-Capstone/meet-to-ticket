@@ -28,6 +28,11 @@ MAPPED_MEMBERS = [
 ]
 _default_members = {"value": MEMBERS}
 
+# 10min_1 샘플을 자동 발행하면 GitHub에 쓰는 티켓: 승인된 신규 티켓 중 담당자가 한 명인 것.
+# a2, a8은 조건부 기존 이슈 갱신(확인 필요)이고, a7은 담당자가 여러 명이라 막힌다 (#292).
+# 중복 판단은 발행 전 검수 승인 기준이라 a7을 포함해 6건을 본다
+PUBLISHED_10MIN = ("10m1-a1", "10m1-a3", "10m1-a4", "10m1-a5", "10m1-a6")
+
 
 @pytest.fixture(autouse=True)
 def no_tracing():

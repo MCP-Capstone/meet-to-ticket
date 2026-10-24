@@ -2,7 +2,7 @@
 
 import pytest
 
-from conftest import FakeLLM, FakePublisher, FakeReporter, make_request
+from conftest import PUBLISHED_10MIN, FakeLLM, FakePublisher, FakeReporter, make_request
 from publisher import DryRunPublisher, ToolCallError
 from runner import history, run
 
@@ -17,9 +17,9 @@ async def run_once(settings, llm=None, publisher=None):
 async def test_published_task_is_not_run_again(settings):
     pub = FakePublisher()
     first = await run_once(settings, publisher=pub)
-    assert first.summary["published"] == 6 and len(pub.calls) == 6
+    assert first.summary["published"] == len(PUBLISHED_10MIN) and len(pub.calls) == len(PUBLISHED_10MIN)
     second = await run_once(settings, publisher=pub)
-    assert len(pub.calls) == 6  # 이슈를 다시 만들지 않는다
+    assert len(pub.calls) == len(PUBLISHED_10MIN)  # 이슈를 다시 만들지 않는다
     assert second.model_dump() == first.model_dump()  # 같은 결과 (traceId 포함)
 
 
@@ -37,7 +37,7 @@ async def test_failed_before_publish_runs_again(settings):
     first = await run_once(settings, llm=FakeLLM(fail_on="review"), publisher=pub)
     assert first.error_code == "LLM_ERROR" and pub.calls == []
     second = await run_once(settings, publisher=pub)  # 같은 taskId로 다시 보내면 처음부터 다시 실행
-    assert second.status == "SUCCEEDED" and len(pub.calls) == 6
+    assert second.status == "SUCCEEDED" and len(pub.calls) == len(PUBLISHED_10MIN)
     assert second.trace_id != first.trace_id
 
 
@@ -45,7 +45,7 @@ async def test_dry_run_runs_again(settings):
     pub = DryRunPublisher()
     await run_once(settings, publisher=pub)
     await run_once(settings, publisher=pub)
-    assert len(pub.calls) == 12  # 발행하지 않았으므로 다시 실행해도 된다
+    assert len(pub.calls) == 2 * len(PUBLISHED_10MIN)  # 발행하지 않았으므로 다시 실행해도 된다
 
 
 async def test_history_follows_graph(settings):
@@ -55,7 +55,7 @@ async def test_history_follows_graph(settings):
     assert [s["stage"] for s in steps[1:]] == ["NORMALIZING", "NORMALIZING", "REVIEWING", "REVIEWING", "PUBLISHING", "DONE"]
     review = steps[3]
     assert review["tickets"] == 8 and review["reviewStatus"] == {"APPROVED": 6, "NEEDS_CHECK": 2}
-    assert steps[-1]["next"] == [] and steps[-1]["published"] == 6
+    assert steps[-1]["next"] == [] and steps[-1]["published"] == len(PUBLISHED_10MIN)
 
 
 async def test_history_shows_revision_loop(settings):

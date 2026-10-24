@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from conftest import FakeLLM, FakePublisher, FakeReporter, make_request
+from conftest import PUBLISHED_10MIN, FakeLLM, FakePublisher, FakeReporter, make_request
 from issue_tools import IssueTools
 from runner import run
 
@@ -137,7 +137,7 @@ async def test_runner_continues_when_rag_is_down(settings):
     settings.rag_mcp_url = "http://127.0.0.1:9/mcp"  # 아무것도 듣지 않는 포트
     pub = FakePublisher()
     result = await run(make_request(), settings, llm=FakeLLM(), publisher=pub, reporter=FakeReporter())
-    assert result.status == "SUCCEEDED" and len(pub.calls) == 6  # 중복 확인 없이 기존처럼 발행
+    assert result.status == "SUCCEEDED" and len(pub.calls) == len(PUBLISHED_10MIN)  # 중복 확인 없이 기존처럼 발행
     assert result.metrics["rag"]["status"] == "unavailable"
 
 
