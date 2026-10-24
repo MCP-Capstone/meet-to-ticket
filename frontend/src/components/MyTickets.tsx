@@ -1,30 +1,52 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiRequestError } from '../api'
-import type { MyTicket, MyTicketList, Project } from '../api'
+import type { MyTicket, MyTicketList } from '../api'
 import { Spinner } from './Spinner'
 import { TicketCard } from './TicketCard'
-import { TicketFailureBanner } from './TicketFailureBanner'
 import { BatchPublishFlow } from './BatchPublishFlow'
 
 interface Props {
-  projects: Project[]
-  projectsLoading: boolean
   onBusyChange: (busy: boolean) => void
   onDirtyChange: (dirty: boolean) => void
   onOpenProjectSettings: (projectId: number) => void
 }
 const unauthorized = (e: unknown) => e instanceof ApiRequestError && e.code === 'UNAUTHORIZED'
 const countKey = (status: MyTicket['status']) => status === 'PENDING_REVIEW' ? 'pendingReview' : status === 'CONFIRMED' ? 'confirmed' : status === 'REJECTED' ? 'rejected' : status === 'FAILED' ? 'failed' : null
+type TicketTab = 'review' | 'approved' | 'rejected' | 'attention'
 
-export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChange, onOpenProjectSettings }: Props) {
-  const [projectId, setProjectId] = useState<number | undefined>()
-  const [data, setData] = useState<{ filter: number | undefined; value: MyTicketList } | null>(null)
+const tabLabel: Record<TicketTab, string> = {
+  review: '검토할 것',
+  approved: '승인됨',
+  rejected: '거절됨',
+  attention: '확인 필요',
+}
+
+const tabTickets = (tickets: MyTicket[], tab: TicketTab) => tickets.filter((ticket) => {
+  if (tab === 'review') return ticket.status === 'PENDING_REVIEW' || ticket.status === 'ASSIGNEE_REQUIRED'
+  if (tab === 'approved') return ticket.status === 'CONFIRMED' || ticket.status === 'PUBLISHING' || ticket.status === 'PUBLISHED' || ticket.status === 'LINKED' || ticket.status === 'UPDATED' || ticket.status === 'SKIPPED'
+  if (tab === 'rejected') return ticket.status === 'REJECTED'
+  return ticket.status === 'FAILED'
+})
+
+const groupByProjectAndMeeting = (tickets: MyTicket[]) => {
+  const groups = new Map<string, { projectName: string; meetingTitle: string; tickets: MyTicket[] }>()
+  for (const ticket of tickets) {
+    const key = `${ticket.projectId}:${ticket.meetingId}`
+    const group = groups.get(key) ?? { projectName: ticket.projectName, meetingTitle: ticket.meetingTitle, tickets: [] }
+    group.tickets.push(ticket)
+    groups.set(key, group)
+  }
+  return [...groups.values()]
+}
+
+export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }: Props) {
+  const [data, setData] = useState<MyTicketList | null>(null)
+  const [tab, setTab] = useState<TicketTab>('review')
   const [loading, setLoading] = useState(true)
   const [mutating, setMutating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [revision, setRevision] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
-  const [onlyFailed, setOnlyFailed] = useState(false)
   const [settingsFeedback, setSettingsFeedback] = useState<{ message: string; error: boolean; pending?: boolean } | null>(null)
   const listHeading = useRef<HTMLHeadingElement>(null)
   const settingsMessage = useRef<HTMLParagraphElement>(null)
@@ -65,9 +87,11 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
     setLoading(true)
     setError(null)
     try {
-      const result = await api.listMyTickets(projectId)
+      // 내 티켓은 프로젝트를 먼저 고르는 화면이 아니라, 현재 사용자에게 할당된 일을 처리하는 인박스다.
+      // 프로젝트·회의는 목록 내부의 그룹으로 보여 주고, 서버에는 전체 목록만 요청한다.
+      const result = await api.listMyTickets()
       if (!lifecycle.current.mounted || version !== lifecycle.current.version) return false
-      setData({ filter: projectId, value: result })
+      setData(result)
       return true
     } catch (e) {
       if (lifecycle.current.mounted && version === lifecycle.current.version && !unauthorized(e)) {
@@ -77,7 +101,7 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
     } finally {
       if (lifecycle.current.mounted && version === lifecycle.current.version) setLoading(false)
     }
-  }, [projectId])
+  }, [])
   useEffect(() => {
     let cancelled = false
     const life = lifecycle.current
@@ -99,12 +123,12 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
       // 저장 성공을 먼저 반영한다. 후속 조회 실패 때문에 변경 요청을 재전송하지 않는다.
       setData((current) => {
         if (!current) return current
-        const counts = { ...current.value.counts }
+        const counts = { ...current.counts }
         const oldKey = countKey(previous.status)
         const newKey = countKey(updated.status)
         if (oldKey) counts[oldKey] = Math.max(0, counts[oldKey] - 1)
         if (!transferred && newKey) counts[newKey] += 1
-        return { ...current, value: { counts, tickets: current.value.tickets.flatMap((ticket) => ticket.ticketId !== updated.ticketId ? [ticket] : transferred ? [] : [updated]) } }
+        return { counts, tickets: current.tickets.flatMap((ticket) => ticket.ticketId !== updated.ticketId ? [ticket] : transferred ? [] : [updated]) }
       })
       setNotice(transferred ? '담당자를 변경했습니다. 해당 티켓은 새 담당자의 내 티켓으로 이동했습니다.' : '티켓 변경을 저장했습니다.')
       const refreshed = await load()
@@ -115,20 +139,20 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
     }
   }
   // 발행 중인 티켓이 있으면 결과가 올 때까지 목록을 다시 불러온다.
-  const publishing = Boolean(data?.value.tickets.some((ticket) => ticket.status === 'PUBLISHING'))
+  const publishing = Boolean(data?.tickets.some((ticket) => ticket.status === 'PUBLISHING'))
   useEffect(() => {
     if (!publishing || mutating) return
     const timer = window.setTimeout(() => { if (!dirtyIds.current.size) void load() }, 3000)
     return () => window.clearTimeout(timer)
   }, [publishing, mutating, data, load])
   const canDiscard = () => !dirtyIds.current.size || window.confirm('저장하지 않은 수정을 버리고 목록을 변경할까요?')
-  const current = data && data.filter === projectId ? data.value : null
+  const current = data
   const manualRefresh = async () => {
     if (canDiscard() && await load()) setRevision((value) => value + 1)
   }
-  const showFailed = (value: boolean) => {
-    if (mutationLock.current || loading || !canDiscard()) return
-    setOnlyFailed(value)
+  const changeTab = (next: TicketTab) => {
+    if (next === tab || mutationLock.current || loading || !canDiscard()) return
+    setTab(next)
     setRevision((n) => n + 1)
     requestAnimationFrame(() => listHeading.current?.focus())
   }
@@ -161,7 +185,8 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
       if (lifecycle.current.mounted) { setMutating(false); onBusyChange(false) }
     }
   }
-  const visibleTickets = current?.tickets.filter((ticket) => !onlyFailed || ticket.status === 'FAILED') ?? []
+  const visibleTickets = tabTickets(current?.tickets ?? [], tab)
+  const ticketGroups = groupByProjectAndMeeting(visibleTickets)
   const publishLock = useCallback((value: boolean) => {
     mutationLock.current = value
     setMutating(value)
@@ -172,45 +197,31 @@ export function MyTickets({ projects, projectsLoading, onBusyChange, onDirtyChan
   return (
     <section className="my-tickets" aria-labelledby="my-tickets-title">
       <div className="card">
-        <div className="card-header"><div><h2 id="my-tickets-title">내 티켓</h2><p className="muted">내가 담당인 티켓을 수정하고 확인하거나 거절하세요.</p></div></div>
-        <div className="ticket-toolbar">
-          <label>프로젝트 필터
-            <select value={projectId ?? ''} disabled={mutating || projectsLoading} onChange={(e) => {
-              if (!canDiscard()) return
-              setNotice(null)
-              setSettingsFeedback(null)
-              setOnlyFailed(false)
-              setProjectId(e.target.value === '' ? undefined : Number(e.target.value))
-            }}>
-              <option value="">전체 프로젝트</option>
-              {projects.map((project) => <option key={project.projectId} value={project.projectId}>{project.name}</option>)}
-            </select>
-          </label>
+        <div className="card-header"><div><h2 id="my-tickets-title">내 티켓</h2><p className="muted">할당된 티켓을 검토하고 승인 또는 거절하세요.</p></div>
           <button type="button" className="secondary" disabled={busy} onClick={() => void manualRefresh()}>목록 새로고침</button>
         </div>
-        {current && <dl className="ticket-counts" aria-label="상태별 건수">
-          <div><dt>검토 대기</dt><dd>{current.counts.pendingReview}</dd></div>
-          <div><dt>확인</dt><dd>{current.counts.confirmed}</dd></div>
-          <div><dt>거절</dt><dd>{current.counts.rejected}</dd></div>
-          <div><dt>실패</dt><dd>{current.counts.failed}</dd></div>
-        </dl>}
-        <p className="muted">확인은 발행 전 검토를 마쳤다는 뜻입니다. 거절한 티켓은 발행되지 않습니다.</p>
+        {current && <div className="ticket-tabs" role="tablist" aria-label="티켓 상태별 목록">
+          {(['review', 'approved', 'rejected', 'attention'] as TicketTab[]).map((key) => {
+            const count = key === 'review' ? current.counts.pendingReview : key === 'approved' ? current.counts.confirmed : key === 'rejected' ? current.counts.rejected : current.counts.failed
+            return <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? 'active' : ''} onClick={() => changeTab(key)} disabled={busy}>{tabLabel[key]} <span>{count}</span></button>
+          })}
+        </div>}
       </div>
-      {current && <TicketFailureBanner count={current.counts.failed} onlyFailed={onlyFailed} busy={busy} stale={Boolean(error)} onShowFailed={() => showFailed(true)} />}
       {settingsFeedback && <p ref={settingsMessage} tabIndex={-1} className={settingsFeedback.error ? 'error ticket-settings-feedback' : 'notice ticket-settings-feedback'} role={settingsFeedback.error ? 'alert' : 'status'}>{settingsFeedback.message}</p>}
       {notice && <p className="project-success" role="status">{notice}</p>}
       {error && <div className="ticket-error" role="alert"><p className="error">{error}</p><button type="button" className="link" disabled={busy} onClick={() => void manualRefresh()}>목록 다시 시도</button></div>}
       {loading && <p className="inline-status" role="status"><Spinner size="sm" label="내 티켓 조회 중" />내 티켓을 불러오고 있습니다.</p>}
       {current && current.tickets.length > 0 && <BatchPublishFlow tickets={current.tickets} busy={busy || Boolean(error)} dirty={hasDirty} onLock={publishLock} onRefresh={load} />}
-      {current && !onlyFailed && !current.tickets.length && !loading && <p className="card empty">{projectId === undefined ? '아직 나에게 전달된 티켓이 없습니다.' : '이 프로젝트에 내가 담당인 티켓이 없습니다.'}</p>}
+      {current && !current.tickets.length && !loading && <p className="card empty">아직 나에게 전달된 티켓이 없습니다.</p>}
       {current && <>
-        <div className="ticket-list-heading"><h3 ref={listHeading} tabIndex={-1}>{onlyFailed ? '실패한 티켓' : '티켓 목록'}</h3>
-          {onlyFailed && <button type="button" className="secondary" disabled={busy} onClick={() => showFailed(false)}>전체 티켓 보기</button>}
-        </div>
-        {onlyFailed && !visibleTickets.length && !loading && <p className="card empty" role="status">현재 프로젝트 필터에 해당하는 실패한 티켓이 없습니다.</p>}
+        <div className="ticket-list-heading"><h3 ref={listHeading} tabIndex={-1}>{tabLabel[tab]}</h3></div>
+        {!visibleTickets.length && !loading && <p className="card empty" role="status">이 상태의 티켓이 없습니다.</p>}
       </>}
       {current && <div className="ticket-list" aria-busy={busy}>
-        {visibleTickets.map((ticket) => <TicketCard key={`${ticket.ticketId}-${revision}`} ticket={ticket} busy={busy} onCommit={commit} onRefresh={load} onDirtyChange={dirtyChange} onOpenProjectSettings={(id) => void openSettings(id)} />)}
+        {ticketGroups.map((group) => <section className="ticket-group" key={`${group.projectName}:${group.meetingTitle}`}>
+          <header><strong>{group.projectName}</strong><span>{group.meetingTitle}</span><em>{group.tickets.length}건</em></header>
+          {group.tickets.map((ticket) => <TicketCard key={`${ticket.ticketId}-${revision}`} ticket={ticket} busy={busy} onCommit={commit} onRefresh={load} onDirtyChange={dirtyChange} onOpenProjectSettings={(id) => void openSettings(id)} />)}
+        </section>)}
       </div>}
     </section>
   )

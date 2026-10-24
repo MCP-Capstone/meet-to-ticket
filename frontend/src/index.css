@@ -973,9 +973,17 @@ button.secondary {
 .ticket-card .card-header > div { min-width: 0; }
 .ticket-card .card-header p { overflow-wrap: anywhere; }
 .ticket-body { white-space: pre-wrap; overflow-wrap: anywhere; }
-.ticket-toolbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
-.ticket-toolbar label { flex: 1; min-width: 180px; }
-.ticket-toolbar select, .ticket-fields select { width: 100%; min-width: 0; padding: 10px; font: inherit; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); }
+.ticket-fields select { width: 100%; min-width: 0; padding: 10px; font: inherit; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); }
+.ticket-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border); }
+.ticket-tabs button { position: relative; padding: 8px 0 10px; color: var(--muted); font-weight: 600; }
+.ticket-tabs button.active { color: var(--text); }
+.ticket-tabs button.active::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: var(--text); content: ''; }
+.ticket-tabs span { margin-left: 4px; color: var(--muted); font-size: 13px; font-weight: 400; }
+.ticket-group { display: flex; flex-direction: column; gap: 12px; }
+.ticket-group > header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: 8px; padding: 0 4px; }
+.ticket-group > header strong { font-size: 15px; }
+.ticket-group > header span { overflow: hidden; color: var(--muted); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-group > header em { color: var(--muted); font-size: 13px; font-style: normal; }
 .ticket-counts { display: flex; gap: 24px; margin: 0; }
 .ticket-counts dt { color: var(--muted); font-size: 13px; }
 .ticket-counts dd { margin: 0; font-size: 24px; font-weight: 700; }
@@ -991,6 +999,10 @@ button.secondary {
   .ticket-card, .my-tickets > .card { padding: 16px; }
   .ticket-card .card-header { flex-wrap: wrap; }
   .ticket-counts { justify-content: space-between; gap: 12px; }
+  .ticket-tabs { gap: 16px; overflow-x: auto; }
+  .ticket-tabs button { flex: 0 0 auto; }
+  .ticket-group > header { grid-template-columns: minmax(0, 1fr) auto; }
+  .ticket-group > header span { grid-column: 1 / -1; grid-row: 2; }
 }
 
 .publish-failure { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--danger); border-radius: 6px; background: var(--danger-soft); }

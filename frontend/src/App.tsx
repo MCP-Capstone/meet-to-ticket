@@ -387,7 +387,7 @@ function App() {
         </nav>
       )}
 
-      {user && page === 'my-tickets' && <MyTickets projects={projects} projectsLoading={projectsLoading} onBusyChange={setTicketBusy} onDirtyChange={setTicketDirty}
+      {user && page === 'my-tickets' && <MyTickets onBusyChange={setTicketBusy} onDirtyChange={setTicketDirty}
         onOpenProjectSettings={(projectId) => { setEditorProjectId(projectId); setProjectSavedMessage(null); setPage('project-editor') }} />}
 
       {user && page === 'project-list' && <ProjectList projects={projects} loading={projectsLoading} error={projectError}
