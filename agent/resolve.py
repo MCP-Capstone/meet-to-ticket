@@ -177,10 +177,7 @@ def parse_due(raw: str, meeting_date: date | None) -> Due:
         if k.group(1) == "오후" and hour < 12:
             hour += 12
         due.time = f"{hour:02d}:{int(k.group(3) or 0):02d}"
-    elif "오전" in text:
-        due.time = "12:00"
-    elif "오후" in text or "퇴근" in text:
-        due.time = "18:00"
+    # "오전", "오후", "퇴근 전"만 있으면 시각을 정하지 않는다. 임의의 시각을 만들지 않고 원문 표현(text)으로만 남긴다
     return due
 
 
