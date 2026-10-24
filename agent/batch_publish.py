@@ -25,6 +25,7 @@ _RETRYABLE = {"GITHUB_RATE_LIMIT", "GITHUB_ERROR", "MCP_UNAVAILABLE", "PUBLISH_F
 def _ticket(source: PublishTicket) -> dict[str, Any]:
     """저장된 contentJson을 기존 본문·연결 문안 함수가 쓰는 내부 티켓 모양으로 바꾼다."""
     content = dict(source.content_json)
+    github = source.publish_target == "GITHUB"
     assignees = content.get("assignees")
     if isinstance(assignees, dict):
         content.update({
@@ -39,8 +40,9 @@ def _ticket(source: PublishTicket) -> dict[str, Any]:
         "work_key": content.get("work_key") or source.ticket_id,
         "action_text": content.get("action_text") or content.get("description") or source.title,
         "handling": {
-            "type": source.processing_type,
-            "issue_number": source.target_issue_number,
+            # Slack·Notion은 항상 신규 발행이다 (백엔드 REQ-015). 저장된 유형·대상 이슈가 달라도 CREATE로 다룬다 (#297)
+            "type": source.processing_type if github else "CREATE",
+            "issue_number": source.target_issue_number if github else None,
             # 결과 모름 재시도는 담당자가 유형을 바꿨어도 재대조가 반드시 돌아야 한다
             "edited": source.processing_type_edited and not source.previous_outcome_unknown,
         },

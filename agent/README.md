@@ -679,6 +679,8 @@ model ──(조회 도구 호출)──▶ tools ──▶ model ── … ─
 
 대조는 초안 생성 때(그래프의 `dedupe` 노드) 1회, 발행 직전 1회 한다. 초안을 만든 뒤 담당자가 확인하기까지 그사이에 생긴 이슈를 잡기 위해서다. 일괄 발행(TASK-034)이 저장소마다 한 번 부른다.
 
+- 대조 대상은 발행 대상이 GitHub인 티켓뿐이다. 초안 생성 때와 같다. Slack 공지와 Notion 티켓은 기존 GitHub 이슈와 연결할 수 없어 재대조하지 않고, 처리 유형은 성공이든 실패든 항상 `CREATE`로 보고한다 (#297).
+
 ```python
 out = await recheck(tickets, issue_tools=tools, llm=llm, settings=settings)
 for t in out["tickets"]:
