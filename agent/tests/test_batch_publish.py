@@ -100,6 +100,23 @@ async def test_slack_notice_posts_once_and_mentions_only_connected_reviewers():
 
 
 @pytest.mark.anyio
+async def test_slack_uses_saved_description_before_legacy_notice_text():
+    publisher = BatchPublisher()
+    notice = ticket("notice", "CREATE")
+    notice.project = Project(github_owner="o", github_repo="r", slack_channel_id="C123")
+    notice.publish_target = "SLACK"
+    notice.content_json = {
+        "description": "담당자가 저장한 최종 공지",
+        "slack": {"text": "수정 전 공지", "reviewers": []},
+    }
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[notice]), publisher)
+
+    assert out.items[0].status == "POSTED"
+    assert publisher.calls[0][1]["text"] == "담당자가 저장한 최종 공지"
+
+
+@pytest.mark.anyio
 async def test_slack_retry_after_unknown_outcome_does_not_post_again():
     """post_message는 비멱등이라 결과 모름 뒤 재발행은 같은 공지를 다시 올리지 않는다 (#278)."""
     publisher = BatchPublisher()
