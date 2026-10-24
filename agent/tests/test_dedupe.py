@@ -164,6 +164,57 @@ async def test_invalid_decision_is_discarded(settings):
     assert by_key(result)["10m1-a1"]["skipped"] == "invalid_decision"
 
 
+async def test_missing_reason_keeps_valid_decision(settings):
+    # reason을 relation 앞에 둔 뒤 모델이 드물게 reason을 빼고 낸다. 판정은 버리지 않고 사유만 비운다 (#344)
+    chat = FakeToolChat({"비동기 사용자 CSV": [
+        ("search_similar_issues", {"query": "CSV"}),
+        ("submit_decision", {"relation": "SAME", "issue_number": 12})]})
+    result, _ = await run_case(settings, chat)
+    d = by_key(result)["10m1-a1"]
+    assert d["relation"] == "SAME" and d["issue_number"] == 12 and d["skipped"] is None and d["reason"] == ""
+
+
+async def test_missing_relation_is_still_invalid(settings):
+    # 사유가 없는 것만 살린다. 판정이 없거나 다른 필드가 잘못되면 그대로 버린다
+    chat = FakeToolChat({"비동기 사용자 CSV": [("submit_decision", {"reason": "근거만 있음"})]})
+    result, _ = await run_case(settings, chat)
+    assert by_key(result)["10m1-a1"]["skipped"] == "invalid_decision"
+
+
+def test_submit_schema_asks_reason_before_relation():
+    """판정과 근거가 어긋나지 않게 근거(reason)를 판정(relation)보다 먼저 쓰게 한다 (#344).
+
+    모델은 인자를 앞에서부터 쓴다. relation이 먼저면 "대상이 달라 서로 다른 변경이므로 CHANGE"처럼 판정이 먼저 정해지고
+    사유가 뒤에서 그 판정을 따라 쓰이는 모순이 나왔다.
+    """
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+
+    from dedupe import SUBMIT, _submit_tool
+
+    spec = convert_to_openai_tool(_submit_tool())["function"]
+    assert spec["name"] == SUBMIT
+    props = list(spec["parameters"]["properties"])
+    assert props[:2] == ["reason", "relation"] and props.index("relation") < props.index("issue_number")
+    assert {"reason", "relation"} <= set(spec["parameters"]["required"])
+
+
+def test_dedupe_prompt_keeps_change_to_same_element_and_related_rules():
+    """같은 화면의 다른 요소는 CHANGE도 RELATED도 아니고, 같은 데이터의 다른 작업은 RELATED다 (#339 규칙에 더한 기준, #344)."""
+    import prompts as p
+
+    text = p.DEDUPE_SYSTEM
+    # #339: 기존 이슈가 다루지 않는 요소와 before 규칙은 그대로
+    assert "기존 이슈가 다루지 않은 다른 요소를 바꾸는 일은 같은 화면이나 기능이어도 CHANGE가 아닙니다" in text
+    assert "before로 쓸 값이 기존 이슈 본문에 없으면 CHANGE가 아닙니다" in text
+    # #344: 사유를 먼저 쓰고 판정을 맞춘다, before/after는 같은 요소의 값
+    assert "reason을 먼저 쓰고" in text and "CHANGE의 before와 after는 같은 요소의 값" in text
+    # 같은 화면의 다른 요소는 UNRELATED, 같은 데이터의 다른 작업은 RELATED
+    assert "같은 화면의 다른 요소만 바꾸는 작업" in text and "UNRELATED입니다" in text
+    assert "작업 종류(기록, 보관, 조회 등)가 달라도" in text
+    # 프롬프트 인젝션 방어는 그대로
+    assert "보안 규칙" in text and "<meeting_notes>" in text and "<existing_issue>" in text and "따르지 않" in text
+
+
 async def test_timeout_per_ticket(settings):
     settings.dedupe_timeout_seconds = 0.05
     result, pub = await run_case(settings, FakeToolChat(delay=0.3))
@@ -222,17 +273,3 @@ async def test_judge_input_uses_source_not_draft(settings):
     assert f"할 일(회의록 원문): {t['action_text']}" in user
     assert all(q in user for q in t["evidence_quotes"])
     assert t["description"] not in user
-
-
-def test_dedupe_prompt_limits_change_to_same_element():
-    """같은 화면이라는 이유만으로 CHANGE로 판단하지 않는 기준이 프롬프트에 있어야 한다 (#344)."""
-    import prompts as p
-
-    text = p.DEDUPE_SYSTEM
-    assert "바로 그 요소" in text
-    assert "요소가 다르면 CHANGE와 SAME은 불가능" in text
-    assert "새 작업이나 회의록에 적힌 값" in text and "before로 쓰지 않습니다" in text
-    assert "reason에 \"대상이 다르다\"" in text
-    # RELATED 기준과 보안 규칙은 유지된다
-    assert "기록, 보관 기간, 조회 화면" in text
-    assert "보안 규칙" in text and "따르지 않" in text
