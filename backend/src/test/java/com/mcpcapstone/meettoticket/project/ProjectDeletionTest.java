@@ -25,6 +25,10 @@ import com.mcpcapstone.meettoticket.agent.AgentContracts;
 import com.mcpcapstone.meettoticket.agent.AgentException;
 import com.mcpcapstone.meettoticket.analysis.AnalysisTask;
 import com.mcpcapstone.meettoticket.analysis.AnalysisTaskRepository;
+import com.mcpcapstone.meettoticket.analysis.PublicationLedger;
+import com.mcpcapstone.meettoticket.analysis.PublicationRepository;
+import com.mcpcapstone.meettoticket.analysis.PublishOperation;
+import com.mcpcapstone.meettoticket.analysis.PublishTarget;
 import com.mcpcapstone.meettoticket.analysis.TaskItem;
 import com.mcpcapstone.meettoticket.analysis.TaskItemRepository;
 import com.mcpcapstone.meettoticket.analysis.TaskStatus;
@@ -53,6 +57,9 @@ class ProjectDeletionTest {
 	@Autowired TaskItemRepository items;
 	@Autowired AnalysisDispatchRepository dispatches;
 	@Autowired ProjectReindexRepository reindexes;
+	@Autowired PublicationRepository publications;
+	@Autowired PublicationLedger ledger;
+	@Autowired org.springframework.transaction.support.TransactionTemplate tx;
 	@MockitoBean ProjectReindexGateway index;
 
 	private String name;
@@ -121,6 +128,22 @@ class ProjectDeletionTest {
 		else if (status == ReindexStatus.FAILED)
 			run.fail("실패");
 		return reindexes.save(run);
+	}
+
+	@Test
+	void 프로젝트를_삭제하면_티켓의_발행_기록도_함께_지운다() throws Exception {
+		AnalysisTask task = analysis(TaskStatus.COMPLETED);
+		TaskItem ticket = items.findByTaskIdOrderById(task.getId()).getFirst();
+		tx.executeWithoutResult(s -> {
+			ledger.reserve(ticket.getId(), PublishTarget.GITHUB, PublishOperation.CREATE, UUID.randomUUID());
+			ledger.reserve(ticket.getId(), PublishTarget.NOTION, PublishOperation.CREATE, UUID.randomUUID());
+		});
+		assertThat(publications.findByTaskItem_IdOrderById(ticket.getId())).hasSize(2);
+
+		deleteProject(admin, name).andExpect(status().isNoContent());
+
+		assertThat(items.findById(ticket.getId())).isEmpty();
+		assertThat(publications.findByTaskItem_IdOrderById(ticket.getId())).isEmpty();
 	}
 
 	@Test
