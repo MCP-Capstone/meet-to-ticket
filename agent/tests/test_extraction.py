@@ -262,3 +262,47 @@ async def test_prepare_passes_llm_excluded_to_review(settings):
     assert out["excluded"] == ["다운로드 이력 화면"]
     assert out["decisions"] == [{"content": "이력 화면 제외", "evidence_quotes": ["이번 구현에서는 제외하기로 했다."]}]
     assert out["tickets"][0]["source"] == "llm"
+
+
+OWNERLESS_NOTES = (
+    "# 회의 요약\n\n- 회의 ID: x\n- 회의 일시: 2026-10-22 14:30\n- 회의 참여자: 김민준, 박서연\n\n"
+    "## [구간 1] 지표 추가\n\n대시보드에 오류율 지표를 30일까지 추가하기로 합의했다.\n\n"
+    "## [구간 2] 담당\n\n누가 맡을지는 다음 회의에서 정하기로 했다.\n\n"
+    "## [구간 3] 외부 검토\n\n보안팀 김과장에게 로그 항목 검토를 요청하고 27일까지 결과를 받기로 했다.\n"
+)
+
+
+def test_ownerless_agreed_task_stays_a_row_with_empty_assignee():
+    """담당자만 미정인 확정 업무: 담당자를 추측해 채우지 않고 빈 채로 티켓이 된다 (#333)."""
+    from conftest import MEMBERS
+    from nodes import new_ticket
+
+    out = ActionRowsOut(
+        rows=[ActionRowOut(action="대시보드에 오류율 지표 추가", assignees="", due="30일까지",
+                           evidence_quotes=["대시보드에 오류율 지표를 30일까지 추가하기로 합의했다."])],
+        decisions=[DecisionOut(content="오류율 지표를 30일까지 추가한다",
+                               evidence_quotes=["대시보드에 오류율 지표를 30일까지 추가하기로 합의했다."])],
+        open_questions=["누가 맡을지는 다음 회의에서 정하기로 했다."],
+    )
+    ex = from_llm(parse_summary(OWNERLESS_NOTES), out, "MTG", OWNERLESS_NOTES)
+    (todo,) = ex.todos
+    assert todo.assignees == [] and todo.due == "30일까지" and todo.warnings == []
+    ticket = new_ticket(todo, MEMBERS, None, ex.source)
+    assert ticket["assignee_names"] == [] and ticket["assignees"] == []
+    assert ticket["unresolved_assignees"] == [] and ticket["ambiguous_assignees"] == []
+
+
+def test_external_assignee_keeps_source_expression_without_github_login():
+    """회의 참여자가 아닌 담당자는 원문 표현이 담당자 이름으로 남고 GitHub 계정은 비워 둔다 (#333)."""
+    from conftest import MEMBERS
+    from nodes import new_ticket
+
+    out = ActionRowsOut(rows=[ActionRowOut(
+        action="로그 항목 검토", assignees="보안팀 김과장", due="27일까지",
+        evidence_quotes=["보안팀 김과장에게 로그 항목 검토를 요청하고 27일까지 결과를 받기로 했다."])])
+    ex = from_llm(parse_summary(OWNERLESS_NOTES), out, "MTG", OWNERLESS_NOTES)
+    (todo,) = ex.todos
+    assert todo.assignees == ["보안팀 김과장"] and todo.warnings == []
+    ticket = new_ticket(todo, MEMBERS, None, ex.source)
+    assert ticket["assignee_names"] == ["보안팀 김과장"] and ticket["assignees"] == []
+    assert ticket["unmatched_assignees"] == ["보안팀 김과장"]
