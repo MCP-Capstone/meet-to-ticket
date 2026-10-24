@@ -149,7 +149,7 @@ export interface AnalysisProgress {
   step: ProgressStep
   // issues, notionDocs는 기존 이슈 색인이나 Notion이 꺼져 있거나 불러오지 못하면 null.
   // 맥락을 불러오기 전에 먼저 null로 한 번 오고, 불러온 뒤 값이 채워져 다시 온다
-  context?: { members: number; issues: number | null; notionDocs: number | null }
+  context?: { members: number; issues: number | null; notionDocs: number | null; warnings?: string[] }
   extraction?: { todos: number; decisions: number; openQuestions: number }
   // 중복 판단이 꺼져 있으면 오지 않는다
   dedupe?: { done: number; total: number; linked: number }

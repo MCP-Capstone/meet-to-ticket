@@ -54,8 +54,9 @@ def test_second_sync_without_changes_does_not_embed(store):
     out = sync(gh, emb, store, now=clock("2026-10-22T00:00:00Z"))
     assert out["indexed"] == 0 and out["total"] == 1
     assert len(emb.calls) == 1  # 첫 실행에서만 임베딩
-    # 두 번째 실행은 마지막 색인 시각 이후에 바뀐 이슈만 요청한다
-    assert gh.requests[-1].url.params["since"] == "2026-10-21T00:00:00Z"
+    # 이전 커서보다 5분 겹쳐 읽되, 변경이 없으면 임베딩을 반복하지 않는다.
+    assert gh.requests[-1].url.params["since"] == "2026-10-20T23:55:00Z"
+    assert store.get_collection('o', 'r').metadata['sync_cursor'] == '2026-10-21T00:00:00Z'
 
 
 def test_changed_issue_is_reindexed(store):
@@ -153,6 +154,120 @@ def test_build_text_limits_body():
     # 본문은 앞 2,000자만 쓴다
     text = indexer.build_text({"title": "t", "body": "x" * 5000})
     assert text.startswith("t\n\n") and len(text) == 3 + indexer.BODY_MAX
+
+
+def test_delayed_issue_before_previous_sync_is_not_permanently_skipped(store):
+    # 실제 사례: 이슈가 생성됐지만 첫 목록 응답에는 없었고 동기화 시각만 앞으로 갔다.
+    gh = FakeGitHub({'o/r': [gh_item(1, '기존', updated_at='2026-10-24T04:53:00Z')]})
+    emb = FakeEmbedder()
+    sync(gh, emb, store, now=clock('2026-10-24T04:54:57Z'))
+    sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
+    # 동기화 뒤에야 목록에 노출된다. updated_at은 이미 지나간 시각이다.
+    gh.repos['o/r'].append(gh_item(50, '감사 로그', updated_at='2026-10-24T04:55:41Z'))
+    out = sync(gh, emb, store, now=clock('2026-10-24T05:10:00Z'))
+    assert out['indexed'] == 1 and out['total'] == 2
+    assert store.get_collection('o', 'r').get(ids=['50'])['ids'] == ['50']
+
+
+def test_incremental_sync_rechecks_empty_result_in_same_call(store, monkeypatch):
+    gh = FakeGitHub({'o/r': [gh_item(1, '기존', updated_at='2026-10-24T04:53:00Z')]})
+    emb = FakeEmbedder()
+    sync(gh, emb, store, now=clock('2026-10-24T04:54:57Z'))
+    late = gh_item(50, '감사 로그', updated_at='2026-10-24T04:55:41Z')
+    original = gh.handler
+    attempts = []
+
+    def delayed(request):
+        attempts.append(request)
+        if len(attempts) == 1:
+            import httpx
+            return httpx.Response(200, json=[])
+        gh.repos['o/r'] = [late]
+        return original(request)
+
+    monkeypatch.setattr(gh, 'handler', delayed)
+    out = sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
+    assert len(attempts) == 2
+    assert out['indexed'] == 1 and store.get_collection('o', 'r').get(ids=['50'])['ids'] == ['50']
+
+
+def test_empty_incremental_sync_has_bounded_retries_and_separate_status_time(store, monkeypatch):
+    gh = FakeGitHub({'o/r': []})
+    emb = FakeEmbedder()
+    sync(gh, emb, store, now=clock('2026-10-24T04:54:57Z'))
+    gh.requests.clear()
+    waits = []
+    monkeypatch.setattr(indexer, 'sleep', waits.append)
+    out = sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
+    assert len(gh.requests) == 3 and waits == [1, 2]
+    assert out['updated_at'] == '2026-10-24T04:55:43Z' and out['indexed'] == 0
+    meta = store.get_collection('o', 'r').metadata
+    assert meta['last_synced_at'] == '2026-10-24T04:55:43Z'
+    assert meta['sync_cursor'] == '2026-10-24T04:54:57Z'
+    assert emb.calls == []
+
+
+def test_overlapping_read_recovers_issue_older_than_cursor_without_reembedding_unchanged(store):
+    items = [gh_item(1, '기존', updated_at='2026-10-24T04:54:00Z')]
+    gh, emb = FakeGitHub({'o/r': items}), FakeEmbedder()
+    sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
+    # 첫 전체 조회에서 누락된 이슈가 나중에 보인다. 기존 커서보다 2초 오래됐다.
+    items.append(gh_item(50, '감사 로그', updated_at='2026-10-24T04:55:41Z'))
+    out = sync(gh, emb, store, now=clock('2026-10-24T04:57:00Z'))
+    assert out['indexed'] == 1 and out['skipped'] == 1 and out['full'] is False
+    assert emb.calls[-1] == ['감사 로그']
+
+
+def test_legacy_collection_uses_last_sync_as_cursor(store):
+    gh = FakeGitHub({'o/r': [gh_item(1, '기존', updated_at='2026-10-24T04:53:00Z')]})
+    emb = FakeEmbedder()
+    sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
+    col = store.get_collection('o', 'r')
+    col.modify(metadata={k:v for k,v in col.metadata.items() if k != 'sync_cursor'})
+    gh.repos['o/r'].append(gh_item(50, '감사 로그', updated_at='2026-10-24T04:55:41Z'))
+    out = sync(gh, emb, store, now=clock('2026-10-24T04:57:00Z'))
+    assert out['indexed'] == 1 and col.get(ids=['50'])['ids'] == ['50']
+
+
+def test_overlapping_read_does_not_roll_back_newer_indexed_issue(store):
+    gh = FakeGitHub({'o/r': [gh_item(1, '최신', state='closed', updated_at='2026-10-24T04:55:40Z')]})
+    emb = FakeEmbedder()
+    sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
+    gh.repos['o/r'] = [gh_item(1, '오래된 응답', state='open', updated_at='2026-10-24T04:55:39Z')]
+    out = sync(gh, emb, store, now=clock('2026-10-24T04:57:00Z'))
+    assert out['indexed'] == 0 and len(emb.calls) == 1
+    meta = store.get_collection('o', 'r').get(ids=['1'], include=['metadatas'])['metadatas'][0]
+    assert meta['title'] == '최신' and meta['state'] == 'closed'
+
+
+def test_retry_read_error_keeps_previous_cursor_and_status_time(store, monkeypatch):
+    gh, emb = FakeGitHub({'o/r': []}), FakeEmbedder()
+    sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
+    before = dict(store.get_collection('o', 'r').metadata)
+    original = gh.handler
+    attempts = []
+    def fail_retry(request):
+        attempts.append(request)
+        if len(attempts) == 2:
+            raise RuntimeError('read failed')
+        return original(request)
+    monkeypatch.setattr(gh, 'handler', fail_retry)
+    with pytest.raises(RuntimeError, match='read failed'):
+        sync(gh, emb, store, now=clock('2026-10-24T04:57:00Z'))
+    assert store.get_collection('o', 'r').metadata == before
+
+
+def test_embedding_failure_does_not_advance_incremental_cursor(store):
+    gh, emb = FakeGitHub({'o/r': [gh_item(1, '기존')]}), FakeEmbedder()
+    sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
+    before = dict(store.get_collection('o', 'r').metadata)
+    gh.repos['o/r'].append(gh_item(50, '신규', updated_at='2026-10-24T04:56:00Z'))
+    class Broken(FakeEmbedder):
+        def embed(self, texts):
+            raise tool_error(EMBEDDING_ERROR, 'test failure')
+    with pytest.raises(ToolError, match='EMBEDDING_ERROR'):
+        sync(gh, Broken(), store, now=clock('2026-10-24T04:57:00Z'))
+    assert store.get_collection('o', 'r').metadata == before
 
 
 def test_build_text_removes_published_meeting_template_and_keeps_comments():

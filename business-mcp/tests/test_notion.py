@@ -40,6 +40,39 @@ def test_normalize_page_id_accepts_url_and_rejects_invalid():
         notion.normalize_page_id("https://www.notion.so/not-a-page")
 
 
+@pytest.mark.parametrize("value", [
+    "https://app.notion.com/p/YUNK-EVAL-20261024-1233-12345678123456789abcdef012345678",
+    "https://www.notion.so/20261024-1233-12345678-1234-5678-9abc-def012345678?source=copy_link",
+    "https://app.notion.com/p/12345678123456789abcdef012345678?v=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "https://team.notion.site/%EC%A0%95%EC%82%B0-12345678123456789ABCDEF012345678/",
+    "12345678-1234-5678-9ABC-DEF012345678",
+])
+def test_normalize_page_id_uses_complete_path_suffix_not_title_query_or_fragment(value):
+    assert notion.normalize_page_id(value) == "12345678-1234-5678-9abc-def012345678"
+
+
+@pytest.mark.parametrize("value", [
+    "https://www.notion.so/not-a-page?v=" + ROOT_ID.replace('-', ''),
+    "https://www.notion.so/not-a-page#" + ROOT_ID.replace('-', ''),
+    ROOT_ID.replace('-', '') + "a",
+    "11111111-11111111-11111111-11111111",
+    "text " + ROOT_ID + " text",
+])
+def test_normalize_page_id_rejects_partial_ids_and_non_page_query_ids(value):
+    with pytest.raises(ToolError, match=r"^\[INVALID_ARGUMENT\]"):
+        notion.normalize_page_id(value)
+
+
+def test_check_page_numeric_title_uses_actual_page_endpoint(client_with):
+    actual = "12345678-1234-5678-9abc-def012345678"
+    def handler(request):
+        assert request.url.path == f"/v1/pages/{actual}"
+        return httpx.Response(200, json=page(actual))
+    with client_with(handler) as client:
+        result = notion.check_notion_page(client, "https://app.notion.com/p/YUNK-EVAL-20261024-1233-" + actual.replace('-', ''))
+    assert result['page_id'] == actual
+
+
 def test_check_page_sends_token_and_extracts_title(client_with):
     seen = {}
 

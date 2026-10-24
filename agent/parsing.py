@@ -101,6 +101,34 @@ def _bullets(lines: list[str]) -> list[str]:
     return out
 
 
+def _decision_items(lines: list[str]) -> list[str]:
+    """결정 섹션의 목록과 일반 문단을 원문 그대로 보존한다. 다른 섹션의 해석은 바꾸지 않는다."""
+    out: list[str] = []
+    paragraph: list[str] = []
+
+    def append(item: str) -> None:
+        item = item.strip()
+        if item and item not in {"별도 명시 없음", "없음"}:
+            out.append(item)
+
+    def flush() -> None:
+        append('\n'.join(paragraph))
+        paragraph.clear()
+
+    for line in lines:
+        if not line.strip():
+            flush()
+            continue
+        bullet = re.match(r"^\s*(?:[-*+]|\d+[.)])\s+(.+)$", line)
+        if bullet:
+            flush()
+            append(bullet.group(1))
+        else:
+            paragraph.append(line)
+    flush()
+    return out
+
+
 def _parse_table(lines: list[str]) -> list[ActionRow]:
     table = [ln for ln in lines if ln.strip().startswith("|")]
     if len(table) < 2:
@@ -145,5 +173,5 @@ def parse_summary(text: str) -> ParsedSummary:
         lines = _find(sections, *keywords)
         if lines is not None:
             result.found.add(name)
-            setattr(result, name, _bullets(lines))
+            setattr(result, name, _decision_items(lines) if name == 'decisions' else _bullets(lines))
     return result

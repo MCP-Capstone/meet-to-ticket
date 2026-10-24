@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 import httpx
 
@@ -17,7 +18,9 @@ from integrations.notion import blocks
 API_BASE = "https://api.notion.com/v1"
 # 페이지/블록 API 호환성을 보장하는 안정 버전. 새 기능이 필요할 때만 명시적으로 올린다.
 NOTION_VERSION = "2022-06-28"
-PAGE_ID = re.compile(r"(?i)([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}|[0-9a-f]{32})")
+_PAGE_ID_PATTERN = r"(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+PAGE_ID = re.compile(_PAGE_ID_PATTERN, re.IGNORECASE)
+_PAGE_ID_SUFFIX = re.compile(r"(?:^|-)(" + _PAGE_ID_PATTERN + r")$", re.IGNORECASE)
 MAX_READ_CHARS = 12_000
 DEFAULT_READ_CHARS = 4_000
 TICKET_FOLDER_TITLE = "회의 후속 티켓"
@@ -33,10 +36,23 @@ NOTION_ERROR = "NOTION_ERROR"
 
 def normalize_page_id(page_url_or_id: str) -> str:
     """Notion URL 또는 UUID에서 API에 쓸 UUID를 뽑는다."""
-    matched = PAGE_ID.search((page_url_or_id or "").strip())
-    if not matched:
+    value = (page_url_or_id or "").strip()
+    matched = PAGE_ID.fullmatch(value)
+    if matched:
+        page_id = matched.group(0)
+    else:
+        # 제목의 날짜/숫자와 query의 view ID, fragment의 block ID는 페이지 ID가 아니다.
+        # 정규 UUID 또는 URL 마지막 경로의 완전한 ID만 허용한다.
+        try:
+            url = urlsplit(value)
+            segment = unquote(url.path).rstrip('/').rsplit('/', 1)[-1]
+            matched = _PAGE_ID_SUFFIX.search(segment) if url.scheme in {'http', 'https'} and url.netloc else None
+        except ValueError:
+            matched = None
+        page_id = matched.group(1) if matched else None
+    if not page_id:
         raise tool_error(INVALID_ARGUMENT, "Notion 페이지 URL 또는 페이지 ID 형식을 확인해 주세요")
-    compact = matched.group(1).replace("-", "").lower()
+    compact = page_id.replace("-", "").lower()
     return f"{compact[:8]}-{compact[8:12]}-{compact[12:16]}-{compact[16:20]}-{compact[20:]}"
 
 

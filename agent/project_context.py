@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
 from publisher import parse_tool_result
 
 log = logging.getLogger("agent.project_context")
+# 기존 조회 범위는 유지하되, 문서별 제한 안에서 읽은 결과만 분석에 사용한다.
 MAX_NOTION_PAGES = 10
+NOTION_LIST_TIMEOUT_SECONDS = 30
+NOTION_PAGE_TIMEOUT_SECONDS = 30
 
 
 class ProjectContextTools:
@@ -47,14 +51,31 @@ class ProjectContextTools:
 
         if notion_page_url:
             try:
-                result = await self._call(self._list_pages, {"root_page_url_or_id": notion_page_url}, "list_pages")
+                result = await asyncio.wait_for(
+                    self._call(self._list_pages, {"root_page_url_or_id": notion_page_url}, "list_pages"),
+                    timeout=NOTION_LIST_TIMEOUT_SECONDS,
+                )
                 pages = result.get("pages")
                 if not isinstance(pages, list):
                     raise ValueError("list_pages 응답에 pages 목록이 없습니다")
-                for page in pages[:MAX_NOTION_PAGES]:
+                async def read_document(page: Any) -> None:
                     if not isinstance(page, dict) or not page.get("page_id"):
-                        continue
-                    read = await self._call(self._read_page, {"page_url_or_id": page["page_id"], "max_chars": self._max_chars}, "read_page")
+                        return
+                    try:
+                        read = await asyncio.wait_for(
+                            self._call(self._read_page, {"page_url_or_id": page["page_id"], "max_chars": self._max_chars}, "read_page"),
+                            timeout=NOTION_PAGE_TIMEOUT_SECONDS,
+                        )
+                    except asyncio.TimeoutError:
+                        warning = f"Notion 문서 '{page.get('title') or page['page_id']}' 조회가 {NOTION_PAGE_TIMEOUT_SECONDS}초를 넘어 생략됨"
+                        log.warning(warning)
+                        warnings.append(warning)
+                        return
+                    except Exception as exc:  # noqa: BLE001
+                        warning = f"Notion 문서 '{page.get('title') or page['page_id']}' 조회 실패: {exc}"
+                        log.warning(warning)
+                        warnings.append(warning)
+                        return
                     notion_docs.append({
                         "page_id": read.get("page_id", page["page_id"]),
                         "title": read.get("title", page.get("title", "")),
@@ -62,8 +83,13 @@ class ProjectContextTools:
                         "markdown": read.get("markdown", ""),
                         "truncated": bool(read.get("truncated", False)),
                     })
+                await asyncio.gather(*(read_document(page) for page in pages[:MAX_NOTION_PAGES]))
                 if len(pages) > MAX_NOTION_PAGES:
                     warnings.append(f"Notion 문서 {len(pages) - MAX_NOTION_PAGES}건은 분석 맥락에서 생략됨")
+            except asyncio.TimeoutError:
+                warning = f"Notion 문서 목록 조회가 {NOTION_LIST_TIMEOUT_SECONDS}초를 넘어 생략됨"
+                log.warning(warning)
+                warnings.append(warning)
             except Exception as exc:  # noqa: BLE001
                 warning = f"Notion 문서 조회 실패: {exc}"
                 log.warning(warning)
