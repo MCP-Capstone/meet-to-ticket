@@ -40,7 +40,7 @@ def test_build_issue_body():
         "description": "설명",
         "acceptance_criteria": ["조건1"],
         "evidence_quotes": ["근거 문장"],
-        "due": {"text": "2026-10-20 오전", "date": "2026-10-20", "time": "12:00"},
+        "due": {"text": "2026-10-20 오전", "date": "2026-10-20", "time": None},
         "assignee_names": ["박서연"],
         "assignees": ["seoyeon-p"],
         "unresolved_assignees": [],
@@ -48,7 +48,7 @@ def test_build_issue_body():
         "open_questions": ["질문"],
     }
     body = build_issue_body(ticket, "10min_1", "배경 문단")
-    for part in ["## 작업 내용\n설명", "## 완료 조건\n- 조건1", "> 근거 문장", "2026-10-20 12:00 (원문: 2026-10-20 오전)",
+    for part in ["## 작업 내용\n설명", "## 완료 조건\n- 조건1", "> 근거 문장", "2026-10-20 (원문: 2026-10-20 오전)",
                  "@seoyeon-p", "## 관련 이슈", "관련 키: AUTH-112", "## 확인 필요",
                  "## 배경\n배경 문단", "## 작업 범위", "회의: 10min_1 · work_key: 10m1-a1"]:
         assert part in body

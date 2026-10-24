@@ -100,7 +100,8 @@ class McpPublisher:
 
     def __init__(self, create_issue_tool: Any, add_comment_tool: Any | None = None, update_issue_tool: Any | None = None,
                  post_message_tool: Any | None = None, search_issues_tool: Any | None = None,
-                 find_marker_tool: Any | None = None, create_page_tool: Any | None = None):
+                 find_marker_tool: Any | None = None, create_page_tool: Any | None = None,
+                 list_issues_tool: Any | None = None):
         self.create_tool = create_issue_tool
         self.comment_tool = add_comment_tool
         self.update_tool = update_issue_tool
@@ -108,6 +109,7 @@ class McpPublisher:
         self.search_tool = search_issues_tool
         self.marker_tool = find_marker_tool
         self.page_tool = create_page_tool
+        self.list_tool = list_issues_tool
 
     async def _call(self, tool: Any | None, args: dict[str, Any], name: str) -> dict[str, Any]:
         if tool is None:
@@ -145,6 +147,9 @@ class McpPublisher:
     async def find_marker(self, **args: Any) -> dict[str, Any]:
         return await self._call(self.marker_tool, args, "find_marker")
 
+    async def list_issues(self, **args: Any) -> dict[str, Any]:
+        return await self._call(self.list_tool, args, "list_issues")
+
     async def create_page(self, **args: Any) -> dict[str, Any]:
         return await self._call(self.page_tool, args, "create_page")
 
@@ -177,6 +182,9 @@ class DryRunPublisher:
         return {"status": "dry_run", "permalink": None}
 
     async def search_issues(self, **args: Any) -> dict[str, Any]:
+        return {"issues": []}
+
+    async def list_issues(self, **args: Any) -> dict[str, Any]:
         return {"issues": []}
 
     async def find_marker(self, **args: Any) -> dict[str, Any]:

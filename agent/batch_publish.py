@@ -122,29 +122,58 @@ def body_footer(source: PublishTicket, ticket: dict[str, Any]) -> str:
     return f"회의: {source.meeting_id} \u00b7 work_key: {ticket.get('work_key') or '-'} \u00b7 회의 후속조치 Agent가 작성"
 
 
-async def _existing_issue(publisher: Any, source: PublishTicket, ticket: dict[str, Any]) -> dict[str, Any] | None:
-    """같은 work_key로 이미 만들어진 열린 이슈를 찾는다.
+# 검색에서 못 찾았을 때 최근 열린 이슈 목록에서 더 볼 개수와, 그중 본문 끝줄까지 확인할 개수 (#336)
+_RECENT_ISSUES = 30
+_RECENT_FOOTER_CHECKS = 10
 
-    제목이 현재 제목과 같으면 같은 티켓으로 본다. 제목이 수정됐다면 이슈 본문 끝줄의 회의 ID와 work_key가 모두
-    같은 이슈만 같은 티켓으로 본다(#320). 같은 work_key라도 회의 ID가 다르면 연결하지 않는다.
+
+async def _matching_issue(publisher: Any, source: PublishTicket, footer: str,
+                          candidates: list[dict[str, Any]], footer_checks: int, *,
+                          trust_title: bool = True) -> dict[str, Any] | None:
+    """본문 끝줄(회의 ID, work_key)이 같은 이슈. trust_title이면 제목이 현재 제목과 같은 이슈도 바로 받는다.
+
+    trust_title은 끝줄이 없는 과거 이슈를 위한 것이라 work_key로 검색한 결과에만 쓴다. 최근 이슈 목록에는 다른 회의의
+    같은 제목 이슈가 섞일 수 있어 제목이 같은 이슈도 끝줄을 확인한다 (#340). 끝줄은 제목이 같은 이슈와 앞쪽 footer_checks개를 본다.
     """
-    work_key = ticket.get("work_key")
-    out = await publisher.search_issues(owner=source.project.github_owner, repo=source.project.github_repo,
-                                        query=f'"{work_key}"', state="open", limit=10)
-    candidates = [i for i in out.get("issues") or [] if i.get("state") == "open"]
-    for issue in candidates:
-        if (issue.get("title") or "").strip() == source.title.strip():
-            return issue
-    footer = body_footer(source, ticket)
-    for issue in candidates:
-        if not issue.get("number"):
-            continue
+    same_title = [i for i in candidates if (i.get("title") or "").strip() == source.title.strip()]
+    if trust_title and same_title:
+        return same_title[0]
+    numbered = [i for i in candidates if i.get("number")]
+    for issue in [i for i in same_title if i.get("number")] + [i for i in numbered[:footer_checks] if i not in same_title]:
         found = await publisher.find_marker(owner=source.project.github_owner, repo=source.project.github_repo,
                                             number=issue["number"], marker=footer)
         # 댓글에 같은 문구가 있어도 본문에 있어야 이 티켓이 만든 이슈다
         if found.get("found") and found.get("where") == "body":
             return issue
     return None
+
+
+async def _existing_issue(publisher: Any, source: PublishTicket, ticket: dict[str, Any]) -> dict[str, Any] | None:
+    """같은 work_key로 이미 만들어진 열린 이슈를 찾는다.
+
+    제목이 현재 제목과 같으면 같은 티켓으로 본다. 제목이 수정됐다면 이슈 본문 끝줄의 회의 ID와 work_key가 모두
+    같은 이슈만 같은 티켓으로 본다(#320). 같은 work_key라도 회의 ID가 다르면 연결하지 않는다.
+
+    GitHub 검색 색인은 새 이슈를 늦게 반영해(몇 초에서 1분 이상) 방금 만든 이슈가 검색에 없을 수 있다(#336).
+    검색에서 못 찾으면 최근 열린 이슈 목록도 확인한다. 목록에서는 제목만으로 판정하지 않고 본문 끝줄이 같아야 한다(#340).
+    목록 조회가 실패하면 검색 결과만 쓴다.
+    """
+    work_key = ticket.get("work_key")
+    owner, repo = source.project.github_owner, source.project.github_repo
+    footer = body_footer(source, ticket)
+    out = await publisher.search_issues(owner=owner, repo=repo, query=f'"{work_key}"', state="open", limit=10)
+    searched = [i for i in out.get("issues") or [] if i.get("state") == "open"]
+    found = await _matching_issue(publisher, source, footer, searched, len(searched))
+    if found or not hasattr(publisher, "list_issues"):
+        return found
+    try:
+        recent = await publisher.list_issues(owner=owner, repo=repo, state="open", limit=_RECENT_ISSUES)
+    except ToolCallError as exc:
+        log.warning("기존 이슈 목록 조회 실패, 검색 결과만 사용 ticket=%s: %s", source.ticket_id, exc.code)
+        return None
+    seen = {i.get("number") for i in searched}
+    rest = [i for i in recent.get("issues") or [] if i.get("state", "open") == "open" and i.get("number") not in seen]
+    return await _matching_issue(publisher, source, footer, rest, _RECENT_FOOTER_CHECKS, trust_title=False)
 
 
 def _block_unverified_retry(source: PublishTicket) -> None:
