@@ -207,6 +207,8 @@ public class AnalysisStore {
                 t.getProgressJson() == null ? null : json.read(t.getProgressJson()));
     }
 
+    // review_status, publish_status는 deprecated 컬럼(#264)이지만 분석 결과 조회 응답(reviewStatus, publishStatus)이 아직 읽는다.
+    @SuppressWarnings("deprecation")
     private AgentContracts.Item itemView(TaskItem i) {
         return new AgentContracts.Item(
                 i.getId(),

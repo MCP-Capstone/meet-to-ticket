@@ -1,6 +1,6 @@
 # 리비전과 상태 이력
 
-관련 이슈: #264 (PR1), #267에서 이관한 승인 이력. 지표 쿼리, 상태 파생, `review_status`/`publish_status` deprecated 표시는 PR2 범위다.
+관련 이슈: #264, #267에서 이관한 승인 이력. 지표 쿼리는 [수정률/승인율/발행 성공률 지표](metrics/README.md), 사용자 노출 상태 파생과 이전 상태 컬럼 deprecated 표시는 이 문서의 뒤쪽 절이다.
 
 ## 왜 필요한가
 
@@ -87,6 +87,39 @@ API의 `approval`은 "지금 상태를 만든 마지막 승인"이다.
 - 현재 상태가 확정을 거쳐 온 상태(CONFIRMED, PUBLISHING, PUBLISHED, LINKED, UPDATED, SKIPPED, FAILED)이면 마지막 `CONFIRM` 전이의 사용자와 시각을 준다. 다시 열어 다시 확정했다면 마지막 확정이 기준이다.
 - 검토 대기, 거절, 담당 지정 필요이면 null이다. 확정 -> 다시 열기 -> 거절한 티켓이나, 발행 실패 -> 수정하러 되돌리기(`REVISE`)한 티켓은 다시 확정할 때까지 null이다. 과거 승인은 `statusHistory`에서 볼 수 있다.
 
+## 상태의 원천과 사용자 노출 상태
+
+`task_items.ticket_status`가 티켓 상태의 유일한 원천이다. 바뀔 때마다 `ticket_status_history`에 남는다. 사용자에게 보이는 4상태(검토 대기, 발행 중, 발행됨, 실패/확인 필요)는 저장하지 않고 `ticket_status`(와 발행 오류 코드)에서 `TicketDisplayStatus.of`로 파생해, 티켓 응답에 가산 필드 `displayStatus`로 준다. 기존 `status`는 그대로이고 `displayStatus`는 화면 요약(배지, 필터, 건수)용이다.
+
+| ticket_status | displayStatus | 근거 |
+|---|---|---|
+| `ASSIGNEE_REQUIRED` | `REVIEW_PENDING` 검토 대기 | 외부 도구에 보낸 것이 없고 사람의 일(담당 지정)이 남았다 |
+| `PENDING_REVIEW` | `REVIEW_PENDING` | 검토 중 |
+| `CONFIRMED` | `REVIEW_PENDING` | 확인은 했지만 아직 발행 묶음에 담기 전이다. 진행 중이 아닌 티켓을 "발행 중"으로 보이게 하지 않고, 다시 열 수 있다. 정책 표(publish-targets.md 3.1)와 같다 |
+| `PUBLISHING` | `PUBLISHING` 발행 중 | 묶음 결과를 기다리는 중 |
+| `PUBLISHED`, `LINKED` | `PUBLISHED` 발행됨 | 신규 생성, 기존 이슈 연결 |
+| `UPDATED` | `PUBLISHED` 발행됨 | 이슈 갱신. 단 `publish_error_code`가 남은(알림 댓글 실패, `COMMENT_FAILED`) `UPDATED`는 `NEEDS_ATTENTION` |
+| `FAILED` | `NEEDS_ATTENTION` 실패/확인 필요 | 발행 실패. 결과 모름 포함 |
+| `SKIPPED` | `NEEDS_ATTENTION` | 발행 생략은 외부에 아무것도 만들지 않았다. 발행됨에 합치지 않고, 발행되지 않았다는 사실을 알리려고 확인이 필요한 쪽에 둔다 |
+| `REJECTED` | null | 담당자가 끝낸 결정이라 4상태에 속하지 않는다. 응답에는 키가 있고 값이 null이다 |
+
+발행 묶음 결과의 티켓 항목(`GET /api/publish-batches/{id}`)에는 아직 `displayStatus`가 없다.
+
+## 이전 상태 컬럼 deprecated (review_status, publish_status)
+
+`task_items.review_status`, `task_items.publish_status`는 Agent가 분석을 마칠 때 보고한 값(`APPROVED/REJECTED/PENDING`, `SUCCEEDED/FAILED/UNKNOWN/BLOCKED/SKIPPED/DRAFT`)을 티켓을 만들 때 한 번 저장한 것이다. 티켓 상태 전이와 일괄 발행 결과로는 바뀌지 않아 지금 상태를 나타내지 않는다. 상태는 `ticket_status`만 본다. 두 컬럼은 deprecated이고 2릴리스 뒤 DROP할 예정이다. 이번에는 컬럼 DROP도 값 변경도 하지 않고, 코드(`TaskItem`의 `@Deprecated`와 JavaDoc)와 이 문서에만 표시한다.
+
+읽는 곳 (DROP 전에 모두 옮겨야 한다):
+
+| 위치 | 용도 | DROP 전에 할 일 |
+|---|---|---|
+| `AnalysisStore.itemView` -> `GET /api/analysis-tasks/{taskId}/items`의 `items[].reviewStatus`, `items[].publishStatus` | 분석 결과 조회 응답 | 응답 필드를 유지할지 정한다. 유지하면 `task_item_revisions`의 AGENT 리비전이나 별도 저장으로 옮긴다 |
+| `AnalysisStore.summary` (같은 응답의 `summary`) | 위 응답의 집계(approved, rejected, succeeded 등) | 위와 함께 옮긴다 |
+| `TaskItem` 생성자 | Agent 결과(`AgentContracts.Item`)의 값을 저장 | 컬럼을 지울 때 함께 지운다 |
+| 테스트 (`BackendWorkflowTest`, `PublishBatchTest`, `MigrationSchemaTest` 등) | 응답 필드, 컬럼 INSERT | 위 결정에 맞춰 고친다 |
+
+Agent 계약(`AgentContracts.Item`)의 `reviewStatus`, `publishStatus`와 프론트의 분석 결과 타입은 Agent 응답 필드라 컬럼 DROP과 별개로 남는다. `action` 컬럼은 이번 deprecated 범위가 아니다.
+
 ## 상태 이력의 reason
 
 사용자 동작과 시스템 전이는 위 표의 코드를 쓴다. 발행 결과의 오류 코드를 reason으로 쓰는 것은 실패 전이(`FAILED`)뿐이다. 성공으로 끝난 전이(PUBLISHED, LINKED, UPDATED, SKIPPED)는 알림 댓글만 실패한 `UPDATED + COMMENT_FAILED`여도 항상 `PUBLISH_RESULT`다.
@@ -116,7 +149,7 @@ API의 `approval`은 "지금 상태를 만든 마지막 승인"이다.
 - V4 이전 티켓은 상태 이력이 없고, 이미 발행된 티켓도 PUBLISHED 리비전이 없다.
 - `prompt_version`, `model`은 Agent가 백엔드로 보내는 결과에 없어 비어 있다. 보내기 시작하면 AGENT 리비전 생성 시 채운다.
 - 확정 전의 수정 과정(몇 번 고쳤는지)은 남지 않는다. 확정 시점의 최종본만 남는다.
-- 재분석 supersede, publications/멱등키(#263), 지표 쿼리와 4상태 파생(PR2)은 이 범위가 아니다.
+- 재분석 supersede(`supersedes_item_id`, `is_current`)와 publications/멱등키(#263)는 이 범위가 아니다. 지표 쿼리와 4상태 파생은 위의 절과 [지표 문서](metrics/README.md)에 있다.
 - PUBLISHED 스냅샷은 발행 확정 시점의 값이다. 이후 알림 댓글을 재전송해 `COMMENT_FAILED` 등 오류 코드가 바뀌어도 갱신하지 않는다.
 - 스냅샷 비교(USER_EDIT 판정)는 JSON 트리 동치라, 지수 표기 같은 숫자(`1e2`)는 jsonb가 정규화한 값과 달라 고친 것이 없어도 USER_EDIT가 쌓일 수 있다. Agent 본문에는 이런 숫자가 없어 지금은 발생하지 않는다.
 - 이력 조회 API는 티켓이 없으면 404, 권한이 없으면 403이라 티켓 존재 여부가 드러난다.

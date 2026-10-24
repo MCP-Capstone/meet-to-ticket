@@ -40,9 +40,24 @@ public class TaskItem {
     @Column(columnDefinition = "text")
     private String reason;
 
+    /**
+     * Agent가 분석을 마칠 때 정한 검수 결과(APPROVED/REJECTED/PENDING)를 저장한 값이다. 티켓 상태 전이로는 바뀌지 않는다.
+     *
+     * @deprecated 상태의 유일한 원천은 {@link #ticketStatus}다. 2릴리스 뒤 컬럼을 DROP한다 (#264, docs/revisions-and-history.md).
+     *     새 코드는 읽지 않는다. 지금 읽는 곳은 분석 결과 조회 응답을 만드는 {@code AnalysisStore.itemView}뿐이다.
+     */
+    @Deprecated
     @Column(name = "review_status", nullable = false, length = 30)
     private String reviewStatus;
 
+    /**
+     * Agent가 분석을 마칠 때 보고한 발행 결과(SUCCEEDED/FAILED/UNKNOWN/BLOCKED/SKIPPED/DRAFT)를 저장한 값이다.
+     * 일괄 발행 결과(PublishService)로는 갱신되지 않아 지금 발행 상태가 아니다.
+     *
+     * @deprecated 상태의 유일한 원천은 {@link #ticketStatus}다. 2릴리스 뒤 컬럼을 DROP한다 (#264, docs/revisions-and-history.md).
+     *     새 코드는 읽지 않는다. 지금 읽는 곳은 분석 결과 조회 응답을 만드는 {@code AnalysisStore.itemView}뿐이다.
+     */
+    @Deprecated
     @Column(name = "publish_status", nullable = false, length = 30)
     private String publishStatus;
 
@@ -60,6 +75,7 @@ public class TaskItem {
     @JoinColumn(name = "assignee_member_id")
     private ProjectMember assignee;
 
+    // 티켓 상태의 유일한 원천. 사용자 노출 4상태는 여기서 파생한다 (TicketDisplayStatus). 바뀔 때마다 ticket_status_history에 남는다.
     // 기존 행은 컬럼이 추가될 때 담당 지정 필요로 채운다.
     @Enumerated(EnumType.STRING)
     @ColumnDefault("'ASSIGNEE_REQUIRED'")
@@ -110,8 +126,8 @@ public class TaskItem {
         this.contentJson = json;
         this.action = item.action();
         this.reason = item.reason();
-        this.reviewStatus = item.reviewStatus();
-        this.publishStatus = item.publishStatus();
+        this.reviewStatus = item.reviewStatus(); // deprecated 컬럼: 분석 결과 조회가 읽으므로 계속 채운다
+        this.publishStatus = item.publishStatus(); // deprecated 컬럼: 위와 같음
         this.githubIssueNumber = item.githubIssueNumber();
         this.githubIssueUrl = item.githubIssueUrl();
         this.errorMessage = item.errorMessage();
