@@ -26,6 +26,7 @@ from guard import SUSPICIOUS_WARNING, scan_draft
 from extraction import NO_EVIDENCE_WARNING, from_llm, from_table, keep_verbatim
 from parsing import parse_summary
 from publisher import ToolCallError, build_issue_body, build_notion_page, build_slack_notice, pick_labels
+from references import reflects_document
 from resolve import classify_expected, map_assignees, normalize_ws, parse_due
 from schemas import ExtractedTodo, ProjectMember, RunResult
 from state import (
@@ -405,11 +406,16 @@ class AgentNodes:
         t["open_questions"] = list(dict.fromkeys(picked))
         # 참고 문서는 LLM이 본문 작성에 직접 썼다고 선택한 제목만, 실제 URL이 있을 때 저장한다.
         # 조회에 성공했다는 사실만으로 출처를 붙이면 근거처럼 보일 수 있어 제외한다.
+        # 선택한 문서도 배경/설명에 그 내용이 하나도 없으면 제목만 적은 것이므로 뺀다 (#335)
         by_title = {normalize_ws(str(doc.get("title") or "")): doc for doc in context_docs or []}
+        drafted = f"{t['background']}\n{t['description']}"
         references = []
         for title in d.reference_titles:
             doc = by_title.get(normalize_ws(title))
             if doc and doc.get("url") and all(r["title"] != doc.get("title") for r in references):
+                if not reflects_document(str(doc.get("markdown") or ""), str(doc.get("title") or ""), drafted, source):
+                    log.info("배경/설명에 내용이 없는 참고 문서를 뺌: %s (%s)", doc.get("title"), t["work_key"] or t["task_item_id"])
+                    continue
                 references.append({"title": doc.get("title"), "url": doc.get("url")})
         t["references"] = references
 
