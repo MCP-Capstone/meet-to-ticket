@@ -222,3 +222,17 @@ async def test_judge_input_uses_source_not_draft(settings):
     assert f"할 일(회의록 원문): {t['action_text']}" in user
     assert all(q in user for q in t["evidence_quotes"])
     assert t["description"] not in user
+
+
+def test_dedupe_prompt_limits_change_to_same_element():
+    """같은 화면이라는 이유만으로 CHANGE로 판단하지 않는 기준이 프롬프트에 있어야 한다 (#344)."""
+    import prompts as p
+
+    text = p.DEDUPE_SYSTEM
+    assert "바로 그 요소" in text
+    assert "요소가 다르면 CHANGE와 SAME은 불가능" in text
+    assert "새 작업이나 회의록에 적힌 값" in text and "before로 쓰지 않습니다" in text
+    assert "reason에 \"대상이 다르다\"" in text
+    # RELATED 기준과 보안 규칙은 유지된다
+    assert "기록, 보관 기간, 조회 화면" in text
+    assert "보안 규칙" in text and "따르지 않" in text

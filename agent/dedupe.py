@@ -35,7 +35,7 @@ Relation = Literal["SAME", "CHANGE", "RELATED", "UNRELATED"]
 
 class Decision(BaseModel):
     relation: Relation = Field(
-        description="SAME: 같은 대상에 같은 변경 / CHANGE: 기존 이슈 본문에 적힌 값·방향을 다르게 바꿈 / RELATED: 기존 이슈가 만들거나 바꾸는 대상(같은 기능·데이터)을 직접 다루는 다른 작업 / "
+        description="SAME: 같은 대상에 같은 변경 / CHANGE: 기존 이슈가 다루는 바로 그 요소의 값·방향을 본문에 적힌 값에서 다르게 바꿈(다른 요소면 CHANGE 아님) / RELATED: 기존 이슈가 만들거나 바꾸는 기능·데이터를 직접 다루는 다른 작업 / "
                     "UNRELATED: 다루는 대상이 다르거나 후보가 없음. 같은 화면이나 단어가 겹치는 것만으로는 관계가 아님")
     issue_number: int | None = Field(None, description="관계가 있는 기존 이슈 번호. 도구 결과에서 본 번호만. UNRELATED면 비움")
     reason: str = Field(description="어떤 이슈의 어떤 점이 같고 다른지 한두 문장")
