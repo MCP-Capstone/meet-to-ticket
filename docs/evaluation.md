@@ -114,6 +114,8 @@ python -m eval.run_eval --label after --runs 3
 python -m eval.run_eval --label after --baseline eval/baselines/v2.1/phase1-end.json
 ```
 
+v2.1 baseline은 추출 문항을 RAG 끔, 중복 판단 문항을 RAG 켬으로 나눠 쟀다. 그러므로 baseline과 비교할 측정도 같은 조건이어야 한다. 위 2)처럼 한 번에 돌리지 말고 6절의 `--group extract` / `--group dedupe` 분리 실행(같은 `--label`)을 같은 RAG 설정으로 쓴 뒤 `--score-only --baseline`으로 비교한다.
+
 | 옵션 | 설명 |
 |---|---|
 | `--label` | 결과 폴더 이름. 결과는 `agent/eval/results/<버전>/<label>/{문항ID}_r{N}.json`과 `scores.json`에 저장된다(커밋하지 않음) |
@@ -284,5 +286,5 @@ LLM 호출은 비용이 들고 결과가 실행마다 달라서 PR마다 전체 
 ## 8. 지표와 설계서의 관계
 
 - 설계서 STEP 02 성공 지표와 검증 결과서에는 2절의 숫자를 그대로 옮긴다. 주 지표는 추출 정밀도(80% 이상)와 중복 판단 정확도(90% 이상)이고, 나머지는 보조/운영/지키는 선이다.
-- 업무 재현율은 baseline에서 이미 100%라 주 지표로 쓰지 않고 지키는 선(90% 이상 유지)으로 둔다.
+- 업무 재현율은 v2.1 baseline에서 이미 96.2% (101/105)로 목표선(90%)을 넘어서 주 지표로 쓰지 않고 지키는 선(90% 이상 유지)으로 둔다.
 - 기한 정확도는 코드 규칙(`agent/resolve.py`) 개선으로 크게 오르는 지표라, AI 개선을 보여 주는 주 지표 대신 보조 지표로 둔다.
