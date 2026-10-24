@@ -28,7 +28,7 @@ from .score_extract import _norm, ticket_items
 CONTEXT_VERSION = "context-v1"
 VARIANTS = ("ctx", "noctx")
 SCOPE_FIELDS = ("tasks", "acceptance_criteria")
-BODY_FIELDS = ("description", "tasks", "acceptance_criteria", "open_questions")
+BODY_FIELDS = ("description", "background", "tasks", "acceptance_criteria", "open_questions")
 BACKGROUND_RE = re.compile(r"^## 배경\n(.*?)(?=^## |\Z)", re.M | re.S)
 # nodes.DRAFT_QUOTE_WARNING과 같은 문구 (테스트가 대조한다). 평가 모듈이 에이전트 코드를 import하지 않게 둔다
 DRAFT_QUOTE_WARNING = "초안의 근거 인용 중 원문과 다른"
