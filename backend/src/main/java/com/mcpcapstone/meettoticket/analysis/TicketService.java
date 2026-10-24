@@ -120,7 +120,7 @@ public class TicketService {
         // 확정(저장) 시점에 최종 편집본을 USER_EDIT 리비전으로 남긴다. 카드 수정(PATCH)마다 쌓지 않는다.
         if (action == Action.CONFIRM) recorder.userEdited(item, userId);
         item.moveTo(action.to);
-        recorder.statusChanged(item, action.from, userId, action.name());
+        recorder.statusChanged(item, action.from, userId, action.name()); // CONFIRM은 TicketHistoryRecorder.REASON_CONFIRM과 같은 이름
         return view.view(item);
     }
 

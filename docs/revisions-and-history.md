@@ -81,7 +81,15 @@ PUBLISHED, LINKED, UPDATED로 확정되면 발행 결과(`result`)를 담은 최
 
 ## 승인 이력
 
-누가 언제 CONFIRMED로 승인했는지는 `ticket_status_history`에서 `to_status = 'CONFIRMED'`인 줄의 `actor_user_id`, `created_at`이다. 승인 시점의 수정 내용은 같은 시각의 USER_EDIT 리비전(없으면 원본 그대로)이다. API는 마지막 승인을 `approval`로 따로 준다.
+누가 언제 승인했는지는 `ticket_status_history`에서 `reason = 'CONFIRM'`(사용자의 검토 대기 -> 확인 확정)인 줄의 `actor_user_id`, `created_at`이다. `to_status = 'CONFIRMED'`만으로 고르면 안 된다. 발행 접수가 취소되어 돌아온 `PUBLISHING -> CONFIRMED`(`PUBLISH_NOT_ACCEPTED`, actor 없음)도 같은 to_status라 승인으로 잘못 잡힌다. 승인 시점의 수정 내용은 같은 시각의 USER_EDIT 리비전(없으면 원본 그대로)이다.
+
+API의 `approval`은 "지금 상태를 만든 마지막 승인"이다.
+- 현재 상태가 확정을 거쳐 온 상태(CONFIRMED, PUBLISHING, PUBLISHED, LINKED, UPDATED, SKIPPED, FAILED)이면 마지막 `CONFIRM` 전이의 사용자와 시각을 준다. 다시 열어 다시 확정했다면 마지막 확정이 기준이다.
+- 검토 대기, 거절, 담당 지정 필요이면 null이다. 확정 -> 다시 열기 -> 거절한 티켓이나, 발행 실패 -> 수정하러 되돌리기(`REVISE`)한 티켓은 다시 확정할 때까지 null이다. 과거 승인은 `statusHistory`에서 볼 수 있다.
+
+## 상태 이력의 reason
+
+사용자 동작과 시스템 전이는 위 표의 코드를 쓴다. 발행 결과의 오류 코드를 reason으로 쓰는 것은 실패 전이(`FAILED`)뿐이다. 성공으로 끝난 전이(PUBLISHED, LINKED, UPDATED, SKIPPED)는 알림 댓글만 실패한 `UPDATED + COMMENT_FAILED`여도 항상 `PUBLISH_RESULT`다.
 
 ## 조회 API
 
@@ -109,4 +117,9 @@ PUBLISHED, LINKED, UPDATED로 확정되면 발행 결과(`result`)를 담은 최
 - `prompt_version`, `model`은 Agent가 백엔드로 보내는 결과에 없어 비어 있다. 보내기 시작하면 AGENT 리비전 생성 시 채운다.
 - 확정 전의 수정 과정(몇 번 고쳤는지)은 남지 않는다. 확정 시점의 최종본만 남는다.
 - 재분석 supersede, publications/멱등키(#263), 지표 쿼리와 4상태 파생(PR2)은 이 범위가 아니다.
+- PUBLISHED 스냅샷은 발행 확정 시점의 값이다. 이후 알림 댓글을 재전송해 `COMMENT_FAILED` 등 오류 코드가 바뀌어도 갱신하지 않는다.
+- 스냅샷 비교(USER_EDIT 판정)는 JSON 트리 동치라, 지수 표기 같은 숫자(`1e2`)는 jsonb가 정규화한 값과 달라 고친 것이 없어도 USER_EDIT가 쌓일 수 있다. Agent 본문에는 이런 숫자가 없어 지금은 발생하지 않는다.
+- 이력 조회 API는 티켓이 없으면 404, 권한이 없으면 403이라 티켓 존재 여부가 드러난다.
+- 기록 호출(`TicketHistoryRecorder`)을 서비스 7곳이 수동으로 부른다. 새 전이 경로를 추가할 때 빠뜨리지 않아야 한다.
+- `published()`는 중복 확인과 다음 번호 계산에 쿼리를 두 번 쓴다.
 - 보존 기간(이력 1년 초안)에 따른 삭제는 아직 없다. 지금은 티켓을 지울 때만 함께 지워진다.

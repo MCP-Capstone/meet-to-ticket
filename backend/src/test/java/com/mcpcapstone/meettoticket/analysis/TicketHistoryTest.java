@@ -250,6 +250,61 @@ class TicketHistoryTest {
 	}
 
 	@Test
+	void 확정한_뒤_다시_열어_거절하면_승인은_없다() throws Exception {
+		act("confirm");
+		assertThat(history().path("approval").path("actor").path("name").asText()).isEqualTo("함주헌");
+		act("reopen");
+		assertThat(history().path("approval").isNull()).isTrue();
+		act("reject");
+		JsonNode h = history();
+		assertThat(h.path("approval").isNull()).isTrue();
+		// 지난 확정은 상태 이력에 그대로 남는다
+		assertThat(transitions(h)).contains("PENDING_REVIEW>CONFIRMED:CONFIRM");
+	}
+
+	@Test
+	void 발행_실패를_수정하러_되돌리면_다시_확정할_때까지_승인은_없다() throws Exception {
+		act("confirm");
+		report(publish(), "{\"ticketId\":\"%s\",\"processingType\":\"CREATE\",\"status\":\"FAILED\",\"errorCode\":\"GITHUB_FORBIDDEN\",\"retryable\":false}".formatted(ticket));
+		// 실패 상태는 확정을 거쳐 온 상태라 승인이 남아 있다
+		assertThat(history().path("approval").path("actor").path("name").asText()).isEqualTo("함주헌");
+		act("revise");
+		assertThat(history().path("approval").isNull()).isTrue();
+		act("confirm");
+		assertThat(history().path("approval").path("actor").path("name").asText()).isEqualTo("함주헌");
+	}
+
+	@Test
+	void 성공으로_끝난_전이의_reason은_알림_댓글_실패여도_PUBLISH_RESULT다() throws Exception {
+		var item = items.findById(ticket).orElseThrow();
+		item.changePublication(PublishTarget.GITHUB, ProcessingType.UPDATE);
+		items.save(item);
+		act("confirm");
+		report(publish(), "{\"ticketId\":\"%s\",\"processingType\":\"UPDATE\",\"status\":\"UPDATED\",\"githubIssueNumber\":9,\"githubIssueUrl\":\"u9\",\"errorCode\":\"COMMENT_FAILED\",\"errorMessage\":\"댓글 실패\",\"retryable\":true}".formatted(ticket));
+
+		assertThat(items.findById(ticket).orElseThrow().getPublishErrorCode()).isEqualTo("COMMENT_FAILED");
+		JsonNode h = history();
+		assertThat(transitions(h)).contains("PUBLISHING>UPDATED:PUBLISH_RESULT");
+		assertThat(kinds(h)).contains("PUBLISHED");
+	}
+
+	@Test
+	void 대표_담당을_지정하면_ASSIGN_전이가_업로더_행위로_남는다() throws Exception {
+		Long memberId = members.findByProjectIdOrderById(projectId).stream()
+				.filter(m -> "함주헌".equals(m.getName())).findFirst().orElseThrow().getId();
+		var item = items.findById(ticket).orElseThrow();
+		item.assignTo(null); // 담당자를 정하지 못한 티켓
+		items.save(item);
+
+		mvc.perform(put("/api/tickets/{id}/assignee", ticket).session(me).contentType("application/json")
+				.content("{\"memberId\":" + memberId + "}")).andExpect(status().isOk());
+
+		JsonNode h = history();
+		assertThat(transitions(h)).last().isEqualTo("ASSIGNEE_REQUIRED>PENDING_REVIEW:ASSIGN");
+		assertThat(h.path("statusHistory").get(h.path("statusHistory").size() - 1).path("actor").path("name").asText()).isEqualTo("함주헌");
+	}
+
+	@Test
 	void 허용되지_않아_409가_난_전이는_이력을_남기지_않는다() throws Exception {
 		mvc.perform(post("/api/tickets/{id}/reopen", ticket).session(me)).andExpect(status().isConflict());
 		assertThat(transitions(history())).containsExactly("null>PENDING_REVIEW:AGENT_RESULT");
@@ -373,6 +428,10 @@ class TicketHistoryTest {
 				"PENDING_REVIEW>CONFIRMED:CONFIRM",
 				"CONFIRMED>PUBLISHING:PUBLISH_REQUESTED",
 				"PUBLISHING>CONFIRMED:PUBLISH_NOT_ACCEPTED");
+		// 접수 취소로 확인 상태에 돌아와도 승인은 원래 확정한 사람/시각이다 (actor 없는 취소 전이가 승인으로 잡히면 안 된다)
+		JsonNode h = history();
+		assertThat(h.path("approval").path("actor").path("name").asText()).isEqualTo("함주헌");
+		assertThat(h.path("approval").path("approvedAt").asText()).isEqualTo(h.path("statusHistory").get(1).path("createdAt").asText());
 	}
 
 	@Test

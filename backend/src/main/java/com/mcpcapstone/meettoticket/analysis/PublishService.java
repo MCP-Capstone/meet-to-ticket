@@ -283,9 +283,11 @@ public class PublishService {
 	// 발행 결과를 티켓에 반영한 직후 상태 이력을 남기고, 발행이 확정(PUBLISHED, LINKED, UPDATED)됐으면 PUBLISHED 리비전을 남긴다.
 	// SKIPPED(발행 생략)와 실패는 리비전을 남기지 않는다. 알림 댓글 재전송은 이미 확정된 발행의 후속이라 리비전을 다시 남기지 않는다.
 	private void recordHistory(TaskItem ticket, TicketStatus from, Long publisherUserId, boolean commentRetry) {
-		String code = ticket.getPublishErrorCode();
-		recorder.statusChanged(ticket, from, null, code != null ? code : TicketHistoryRecorder.REASON_PUBLISH_RESULT);
 		TicketStatus now = ticket.getTicketStatus();
+		// 오류 코드는 실패 전이의 원인으로만 쓴다. 성공으로 끝난 전이(UPDATED + COMMENT_FAILED 포함)는 항상 PUBLISH_RESULT다.
+		String code = ticket.getPublishErrorCode();
+		recorder.statusChanged(ticket, from, null,
+				now == TicketStatus.FAILED && code != null ? code : TicketHistoryRecorder.REASON_PUBLISH_RESULT);
 		if (!commentRetry && (now == TicketStatus.PUBLISHED || now == TicketStatus.LINKED || now == TicketStatus.UPDATED))
 			recorder.published(ticket, publisherUserId);
 	}

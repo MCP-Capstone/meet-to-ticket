@@ -34,6 +34,11 @@ public class TicketHistoryService {
     private final UserRepository users;
     private final JsonCodec json;
 
+    // 확정을 거쳐 온 상태
+    private static final java.util.Set<TicketStatus> AFTER_CONFIRM = java.util.EnumSet.of(
+            TicketStatus.CONFIRMED, TicketStatus.PUBLISHING, TicketStatus.PUBLISHED, TicketStatus.LINKED,
+            TicketStatus.UPDATED, TicketStatus.SKIPPED, TicketStatus.FAILED);
+
     // 티켓이 없으면 404, 담당자나 회의록을 올린 사람이 아니면 403.
     public TicketHistory get(UUID ticketId, Long userId) {
         TaskItem item = items.findById(ticketId).orElseThrow(() -> new BusinessException(ErrorCode.TICKET_NOT_FOUND));
@@ -43,9 +48,12 @@ public class TicketHistoryService {
         List<TicketStatusHistory> changes = history.findByTaskItem_IdOrderByCreatedAtAscIdAsc(ticketId);
         Map<Long, Actor> actors = actors(revs, changes);
 
-        // 지금 상태로 이어진 마지막 확정(CONFIRMED로 승인)을 승인 이력으로 준다. 다시 열었다 확정하면 마지막 확정이 기준이다.
-        Approval approval = changes.stream()
-                .filter(c -> c.getToStatus() == TicketStatus.CONFIRMED)
+        // 승인은 사용자의 확정(PENDING_REVIEW -> CONFIRMED, reason=CONFIRM)만 인정한다. 발행 접수 취소로 돌아온
+        // PUBLISHING -> CONFIRMED(reason=PUBLISH_NOT_ACCEPTED)는 승인이 아니다.
+        // 지금 상태가 확정을 거쳐 온 상태일 때만 마지막 확정을 준다. 검토 대기, 거절, 담당 지정 필요는 승인되지 않은 상태라 null이다.
+        // (확정 -> 다시 열기 -> 거절, 발행 실패 -> 수정하러 되돌리기는 다시 확정할 때까지 null)
+        Approval approval = !AFTER_CONFIRM.contains(item.getTicketStatus()) ? null : changes.stream()
+                .filter(c -> c.getToStatus() == TicketStatus.CONFIRMED && TicketHistoryRecorder.REASON_CONFIRM.equals(c.getReason()))
                 .reduce((first, second) -> second)
                 .map(c -> new Approval(actors.get(c.getActorUserId()), c.getCreatedAt()))
                 .orElse(null);
@@ -82,7 +90,7 @@ public class TicketHistoryService {
             @Schema(description = "티켓 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "3c510e28-c776-43ce-85cc-6c90693d31f5") UUID ticketId,
             @Schema(description = "리비전. rev 오름차순. AGENT(에이전트 원본), USER_EDIT(확정한 수정본, 바뀐 것이 있을 때만), PUBLISHED(발행 성공 최종본)", requiredMode = Schema.RequiredMode.REQUIRED) List<Revision> revisions,
             @Schema(description = "상태 이력. 시간 오름차순. 이 기능이 들어오기 전에 만들어진 티켓은 비어 있거나 이후 전이만 있다", requiredMode = Schema.RequiredMode.REQUIRED) List<StatusChange> statusHistory,
-            @Schema(description = "마지막으로 CONFIRMED로 승인한 사람과 시각. 승인한 적이 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) Approval approval) {}
+            @Schema(description = "지금 상태를 만든 마지막 승인(검토 대기에서 확인으로 확정)의 사용자와 시각. 확정을 거치지 않은 상태(검토 대기, 거절, 담당 지정 필요)이거나 확정한 적이 없으면 null. 다시 열어 거절하거나 실패를 수정하러 되돌리면 다시 확정할 때까지 null이다. 발행 접수 취소로 확인 상태로 돌아온 전이는 승인이 아니다", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) Approval approval) {}
 
     public record Revision(
             @Schema(description = "티켓 안의 번호. 1부터", requiredMode = Schema.RequiredMode.REQUIRED, example = "1") int rev,

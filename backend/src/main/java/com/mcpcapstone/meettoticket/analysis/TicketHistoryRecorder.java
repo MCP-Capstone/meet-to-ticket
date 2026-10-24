@@ -21,6 +21,7 @@ import java.util.Map;
 public class TicketHistoryRecorder {
     // 전이 원인 코드. 사용자 동작은 TicketService.Action 이름(CONFIRM, REJECT, REOPEN, RESTORE, REVISE)을 그대로 쓴다.
     public static final String REASON_AGENT_RESULT = "AGENT_RESULT";
+    public static final String REASON_CONFIRM = "CONFIRM"; // TicketService.Action.CONFIRM의 이름과 같아야 한다
     public static final String REASON_ASSIGN = "ASSIGN";
     public static final String REASON_PUBLISH_REQUESTED = "PUBLISH_REQUESTED";
     public static final String REASON_PUBLISH_NOT_ACCEPTED = "PUBLISH_NOT_ACCEPTED";
