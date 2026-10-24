@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 const source = await readFile(new URL('../src/batchPublish.ts', import.meta.url), 'utf8')
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { meetingGroups, publishSelection, safeIssueUrl, safePublishUrl } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { meetingGroups, publishSelection, safeIssueUrl, safePublishUrl, formatElapsed, slowPublishNotice, SLOW_PUBLISH_SECONDS } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 const ticket = (status, overrides = {}) => ({ status, projectId: 1, meetingId: 1, publishTarget: 'GITHUB', ...overrides })
 test('프로젝트와 회의 ID로 구분하고 같은 제목이어도 합치지 않는다', () => {
   assert.deepEqual(meetingGroups([ticket('CONFIRMED'), ticket('REJECTED'), ticket('CONFIRMED', { meetingId: 2 }), ticket('CONFIRMED', { projectId: 2 })]).map((g) => g.tickets.length), [2, 1, 1])
@@ -84,4 +84,11 @@ test('결과 패널을 닫아도 목록 조회로 mock 발행이 완료된다', 
   assert.equal(result.summary.linked, confirmed.filter((item) => item.processingType === 'LINK').length)
   assert.equal(result.summary.updated, confirmed.filter((item) => item.processingType === 'UPDATE').length)
   assert.deepEqual(mockTickets.getMockPublishResult(user, started.batchId), result)
+})
+
+test('발행 결과 대기 시간을 분:초로 보여 주고 오래 걸리면 화면을 닫아도 된다고 안내한다 (#302)', () => {
+  assert.equal(formatElapsed(0), '0:00')
+  assert.equal(formatElapsed(83.9), '1:23')
+  assert.equal(slowPublishNotice(SLOW_PUBLISH_SECONDS - 1), null)
+  assert.match(slowPublishNotice(SLOW_PUBLISH_SECONDS), /화면을 닫아도 발행은 계속/)
 })

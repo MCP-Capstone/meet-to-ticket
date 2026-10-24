@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiRequestError } from '../api'
 import type { PublishBatchResult as BatchResult } from '../api'
-import { safePublishUrl, toolName } from '../batchPublish'
+import { formatElapsed, safePublishUrl, slowPublishNotice, toolName } from '../batchPublish'
 import { failureGuide } from '../publishFailure'
 import { Spinner } from './Spinner'
 
@@ -32,11 +32,22 @@ export function PublishBatchResult({ batchId, onDone, onClose }: Props) {
     return () => { cancelled = true; window.clearTimeout(timer) }
   }, [batchId, attempt, onDone])
   const running = !result || result.status === 'RUNNING'
+  // 결과를 기다린 시간. 오래 걸리면 화면을 닫아도 된다고 안내한다 (#302)
+  const [startedAt] = useState(() => Date.now())
+  const [now, setNow] = useState(startedAt)
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [running])
+  const elapsed = (now - startedAt) / 1000
+  const slowNotice = running ? slowPublishNotice(elapsed) : null
   return <section className="card publish-result" aria-label="발행 결과">
     <div className="card-header"><h2>발행 결과</h2><button type="button" className="secondary" onClick={onClose}>결과 닫기</button></div>
     <p className="muted">발행 접수 완료 · 묶음 ID: {batchId}</p>
     {error ? <div role="alert"><p className="error">{error}</p><p>발행을 다시 요청하지 않고 결과만 조회합니다.</p><button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}>결과 조회 다시 시도</button></div>
-      : <p role="status">{running ? <><Spinner size="sm" label="발행 결과 확인 중" /> 발행 결과를 확인하고 있습니다.</> : result.status === 'SUCCEEDED' ? '모든 티켓 처리가 완료됐습니다.' : result.status === 'PARTIAL_FAILED' ? '일부 티켓 처리에 실패했습니다.' : '티켓 처리에 실패했습니다.'}</p>}
+      : <p role="status">{running ? <><Spinner size="sm" label="발행 결과 확인 중" /> 발행 결과를 확인하고 있습니다. (경과 {formatElapsed(elapsed)})</> : result.status === 'SUCCEEDED' ? '모든 티켓 처리가 완료됐습니다.' : result.status === 'PARTIAL_FAILED' ? '일부 티켓 처리에 실패했습니다.' : '티켓 처리에 실패했습니다.'}</p>}
+    {!error && slowNotice && <p className="notice">{slowNotice}</p>}
     {result && <>
       {result.executionMode === 'MOCK' && <p className="notice">모의 실행 결과입니다. 실제 GitHub, Notion, Slack에는 발행하지 않습니다.</p>}
       <dl className="ticket-counts"><div><dt>전체</dt><dd>{result.summary.total}</dd></div><div><dt>발행</dt><dd>{result.summary.published}</dd></div><div><dt>연결</dt><dd>{result.summary.linked}</dd></div><div><dt>갱신</dt><dd>{result.summary.updated}</dd></div><div><dt>생략</dt><dd>{result.summary.skipped}</dd></div><div><dt>실패</dt><dd>{result.summary.failed}</dd></div><div><dt>처리 중</dt><dd>{result.summary.publishing}</dd></div></dl>
