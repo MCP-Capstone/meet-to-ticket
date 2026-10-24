@@ -44,7 +44,7 @@ public class PublicationLedger {
 
     private final PublicationRepository publications;
 
-    // GitHub 신규 이슈의 결과 모름 재시도는 마지막 시도 뒤 이 시간이 지나야 보낸다 (#336).
+    // GitHub 신규 이슈의 결과 모름 재시도는 결과 모름이 된 뒤 이 시간이 지나야 보낸다 (#336, #340).
     // Agent 재대조가 기존 이슈를 GitHub 검색으로 찾는데, 검색 색인은 새 이슈를 몇 초에서 1분 넘게 늦게 반영한다.
     @Value("${app.publish.github-recheck-delay:3m}")
     private Duration githubRecheckDelay;
@@ -78,11 +78,12 @@ public class PublicationLedger {
         return Reservation.IN_PROGRESS;
     }
 
-    // 결과 모름인 기록의 마지막 시도(접수 표시가 없으면 예약 시각)에서 기다리는 시간이 지나지 않았는지
+    // 결과 모름이 된 시각에서 기다리는 시간이 지나지 않았는지. UNCERTAIN 행의 updated_at은 결과 모름이 된 시각이다.
+    // 접수 시각(sent_at)으로 세면 재대조나 앞 티켓 때문에 늦게 나간 쓰기가 바로 결과 모름이 됐을 때 대기가 이미 지나 있다 (#340).
     private boolean tooSoon(PublishTarget target, String key) {
         return publications.findByTargetAndIdempotencyKey(target, key)
                 .filter(p -> p.getStatus() == PublicationStatus.UNCERTAIN)
-                .map(p -> (p.getSentAt() != null ? p.getSentAt() : p.getReservedAt()).plus(githubRecheckDelay).isAfter(OffsetDateTime.now()))
+                .map(p -> p.getUpdatedAt().plus(githubRecheckDelay).isAfter(OffsetDateTime.now()))
                 .orElse(false);
     }
 
