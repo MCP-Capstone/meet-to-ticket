@@ -516,6 +516,13 @@ Slack 공지는 코드가 만든다 (LLM 없음). 결정 사항, 새 작업 수(
 python cli.py samples/10min_1_summary.md --dry-run
 ```
 
+프로젝트 맥락(기존 이슈, Notion 기획 문서)을 MCP 없이 고정 JSON으로 넣어 볼 때는 `--context`를 쓴다. 형식과 예시는 `eval/dataset/context-v1/contexts/`에 있다 (`docs/evaluation.md` 10절).
+
+```bash
+python cli.py eval/dataset/context-v1/inputs/cx01_background_summary.md \
+  --context eval/dataset/context-v1/contexts/cx01_background_context.json --dry-run
+```
+
 ### 2) 실제 GitHub 발행까지
 
 1. `samples/members.json`의 `github_name`에 팀원 GitHub 아이디를 채운다 (비우면 담당자 없이 발행)
