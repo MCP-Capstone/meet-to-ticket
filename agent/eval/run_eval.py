@@ -161,11 +161,14 @@ def atomic_copy(src: Path, dst: Path) -> None:
     os.replace(tmp, dst)
 
 
-def build_command(input_path: Path, members_path: Path, out_path: Path, repo: str | None) -> list[str]:
-    """항상 --dry-run 을 붙인다. 이 함수 밖에서 명령을 만들지 않는다."""
+def build_command(input_path: Path, members_path: Path, out_path: Path, repo: str | None,
+                  context: Path | None = None) -> list[str]:
+    """항상 --dry-run 을 붙인다. 이 함수 밖에서 명령을 만들지 않는다. context는 맥락 평가(run_context)용."""
     cmd = [sys.executable, "cli.py", str(input_path), "--members", str(members_path), "--dry-run", "--out", str(out_path)]
     if repo:
         cmd += ["--repo", repo]
+    if context:
+        cmd += ["--context", str(context)]
     return cmd
 
 
@@ -252,7 +255,7 @@ def run_jobs(jobs: list[dict[str, Any]], executor: Executor = default_executor, 
             cached.unlink(missing_ok=True)  # 잘렸거나 쓸 수 없는 캐시는 버리고 다시 실행
             log(f"[캐시 폐기] {name}")
         log(f"[실행] {name}")
-        code = executor(build_command(j["input"], j["members"], out, j["repo"]), agent_dir, env)
+        code = executor(build_command(j["input"], j["members"], out, j["repo"], j.get("context")), agent_dir, env)
         result = read_result(out) if out.exists() else None
         if code != 0 or result is None or result.get("status") != "SUCCEEDED":
             if code != 0 or result is None:
