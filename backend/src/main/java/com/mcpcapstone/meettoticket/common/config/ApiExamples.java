@@ -141,6 +141,13 @@ public final class ApiExamples {
             }
             """;
 
+    public static final String ERROR_PROJECT_REINDEX_IN_PROGRESS = """
+            {
+              "code": "PROJECT_REINDEX_IN_PROGRESS",
+              "message": "재색인이 진행 중인 프로젝트는 삭제할 수 없습니다. 재색인이 끝난 뒤 다시 시도해 주세요."
+            }
+            """;
+
     public static final String ERROR_DUPLICATE_PROJECT_REPOSITORY = """
             {
               "code": "DUPLICATE_PROJECT_REPOSITORY",
