@@ -96,10 +96,11 @@ export function UploadForm({ projects, projectId, projectsLoading, onProjectChan
         </div>
         <textarea id="meeting-content" rows={14} value={content} disabled={reading}
           placeholder="회의록을 붙여넣거나 MD/TXT 파일을 끌어놓으세요. (최대 10MB)"
-          onChange={(e) => { setContent(e.target.value); setError(null) }} />
-        {(reading || loaded) && <p className="muted meeting-input-hint">
+          onChange={(e) => { setContent(e.target.value); if (!e.target.value.trim()) setLoaded(null); setError(null) }} />
+        {/* 불러온 내용을 고치면 텍스트로 보내므로 파일 안내는 내용이 그대로일 때만 보인다. */}
+        {(reading || (loaded && content === loaded.text)) && <p className="muted meeting-input-hint">
           {reading ? <span className="inline-status" role="status"><Spinner size="sm" label="파일 확인 중" /> 파일을 불러오고 있습니다.</span>
-            : loaded && <>{loaded.file.name}에서 불러왔어요</>}
+            : <>{loaded?.file.name}에서 불러왔어요</>}
         </p>}
       </div>
     </fieldset>
