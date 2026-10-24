@@ -1,6 +1,6 @@
 import pytest
 
-from batch_publish import publish_batch
+from batch_publish import _ticket, publish_batch
 from runner import run_publish_batch
 from schemas import Project, PublishBatchRequest, PublishTicket
 
@@ -215,6 +215,43 @@ async def test_non_github_failure_reports_create_even_if_stored_type_differs(tar
     out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[source]), BatchPublisher())
 
     assert out.items[0].status == "FAILED" and out.items[0].processing_type == "CREATE"
+    # 발행 코드가 쓰는 처리 유형에도 LINK·대상 이슈가 남지 않는다
+    handling = _ticket(source)["handling"]
+    assert handling["type"] == "CREATE" and handling["issue_number"] is None
+
+
+@pytest.mark.anyio
+async def test_slack_notion_only_batch_skips_index_sync(settings, monkeypatch):
+    """GitHub 티켓이 없는 묶음은 재대조 도구를 준비하지 않아 색인 동기화(sync_issues)도 하지 않는다 (#297)."""
+    settings.rag_enabled = True
+    calls = []
+
+    async def fake_make_issue_tools(*args):
+        calls.append(("make_issue_tools", args))
+        return None, "ready"
+
+    async def fake_recheck(tickets, **_):
+        calls.append(("recheck", tickets))
+        return {"tickets": tickets, "sync": None, "skipped": None}
+
+    monkeypatch.setattr("runner.make_issue_tools", fake_make_issue_tools)
+    monkeypatch.setattr("recheck.recheck", fake_recheck)
+    notice = ticket("notice", "CREATE")
+    notice.project = Project(github_owner="o", github_repo="r", slack_channel_id="C123")
+    notice.publish_target = "SLACK"
+    notice.content_json = {"slack": {"text": "회의 공지", "reviewers": []}}
+    page = ticket("page", "CREATE")
+    page.publish_target = "NOTION"
+
+    out = await run_publish_batch(
+        PublishBatchRequest(batch_id="batch-1", tickets=[notice, page]),
+        settings, publisher=BatchPublisher(), llm=object(),
+    )
+
+    assert calls == []
+    by_id = {item.ticket_id: item for item in out.items}
+    assert by_id["notice"].status == "POSTED" and by_id["notice"].processing_type == "CREATE"
+    assert by_id["page"].error_code == "NOTION_ROOT_MISSING" and by_id["page"].processing_type == "CREATE"
 
 
 @pytest.mark.anyio
