@@ -1018,7 +1018,22 @@ button.secondary {
 .publish-dialog::backdrop { background: rgb(15 23 42 / 45%); }
 .publish-dialog li, .publish-entries li { overflow-wrap: anywhere; }
 .publish-result { margin-top: 1rem; }
-.publish-entries > li { border-top: 1px solid #d7dee7; padding: 1rem 0; }
+.publish-entries > li { border-top: 1px solid #d7dee7; }
+.publish-entry summary { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto 16px; align-items: center; gap: 12px; padding: 14px 4px; cursor: pointer; list-style: none; }
+.publish-entry summary::-webkit-details-marker { display: none; }
+.publish-entry summary::after { grid-column: 4; content: '⌄'; color: var(--muted); transition: transform .15s ease; }
+.publish-entry[open] summary::after { transform: rotate(180deg); }
+.publish-entry-target { color: var(--muted); font-size: 13px; }
+.publish-entry-status { color: var(--ok); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.publish-entry-status.failed { color: var(--danger); }
+.publish-entry-body { display: flex; flex-direction: column; gap: 10px; margin: 0 4px 16px 116px; padding: 14px 16px; border-radius: 8px; background: var(--bg); }
+.publish-entry-body p { margin: 0; }
+.publish-entry-body p > span { display: inline-block; width: 72px; margin-right: 8px; color: var(--muted); font-size: 13px; }
+@media (max-width: 600px) {
+  .publish-entry summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .publish-entry-target { grid-column: 1 / -1; }
+  .publish-entry-body { margin-left: 4px; }
+}
 @media (max-width: 600px) { .publish-groups > li { align-items: stretch; flex-direction: column; } }
 
 /* 프로젝트 목록과 삭제 확인 (TASK-008) */

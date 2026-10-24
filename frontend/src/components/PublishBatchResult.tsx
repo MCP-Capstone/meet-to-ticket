@@ -51,13 +51,27 @@ export function PublishBatchResult({ batchId, onDone, onClose }: Props) {
     {result && <>
       {result.executionMode === 'MOCK' && <p className="notice">모의 실행 결과입니다. 실제 GitHub, Notion, Slack에는 발행하지 않습니다.</p>}
       <dl className="ticket-counts"><div><dt>전체</dt><dd>{result.summary.total}</dd></div><div><dt>발행</dt><dd>{result.summary.published}</dd></div><div><dt>연결</dt><dd>{result.summary.linked}</dd></div><div><dt>갱신</dt><dd>{result.summary.updated}</dd></div><div><dt>생략</dt><dd>{result.summary.skipped}</dd></div><div><dt>실패</dt><dd>{result.summary.failed}</dd></div><div><dt>처리 중</dt><dd>{result.summary.publishing}</dd></div></dl>
-      <ul className="publish-entries">{result.tickets.map((ticket) => {
+      <ul className="publish-entries">{result.tickets.map((ticket, index) => {
         const target = ticket.publishTarget ?? 'GITHUB'
         const url = safePublishUrl(ticket.githubIssueUrl, target)
-        return <li key={ticket.ticketId}><strong>{ticket.title}</strong><p>{labels[ticket.status as keyof typeof labels] ?? ticket.status}</p>
-          {url && <a href={url} target="_blank" rel="noreferrer">{linkLabel[target]}{target === 'GITHUB' && ticket.githubIssueNumber ? ` #${ticket.githubIssueNumber}` : ' 열기'}</a>}
-          {(ticket.status === 'FAILED' || ticket.errorCode || ticket.errorMessage) && <p className="error">{failureGuide(ticket)}</p>}
-          {ticket.outcomeUnknown && <p className="notice">{toolName[target]}에 반영됐을 수 있습니다. {target === 'GITHUB' ? '다시 시도하면 이미 만든 이슈가 있는지 먼저 확인합니다.' : '내 티켓에서 확인한 결과(이미 반영됨/반영되지 않음)를 남겨 주세요.'}</p>}
+        const status = labels[ticket.status as keyof typeof labels] ?? ticket.status
+        return <li key={ticket.ticketId}>
+          {/* 첫 항목만 기본으로 열어 두고, 나머지는 필요할 때 결과를 확인한다. */}
+          <details className="publish-entry" open={index === 0}>
+            <summary>
+              <span className="publish-entry-target">{linkLabel[target]}</span>
+              <strong>{ticket.title}</strong>
+              <span className={`publish-entry-status ${ticket.status.toLowerCase()}`}>{status}</span>
+            </summary>
+            <div className="publish-entry-body">
+              <p><span>처리 방식</span>{ticket.processingType === 'CREATE' ? '신규 생성' : ticket.processingType === 'LINK' ? '기존 이슈 연결' : '기존 이슈 수정'}</p>
+              {url
+                ? <a href={url} target="_blank" rel="noreferrer">{linkLabel[target]}{target === 'GITHUB' && ticket.githubIssueNumber ? ` #${ticket.githubIssueNumber}` : ' 열기'} ↗</a>
+                : <p className="muted">외부 결과 링크가 아직 없습니다.</p>}
+              {(ticket.status === 'FAILED' || ticket.errorCode || ticket.errorMessage) && <p className="error">{failureGuide(ticket)}</p>}
+              {ticket.outcomeUnknown && <p className="notice">{toolName[target]}에 반영됐을 수 있습니다. {target === 'GITHUB' ? '다시 시도하면 이미 만든 이슈가 있는지 먼저 확인합니다.' : '내 티켓에서 확인한 결과(이미 반영됨/반영되지 않음)를 남겨 주세요.'}</p>}
+            </div>
+          </details>
         </li>
       })}</ul>
     </>}
