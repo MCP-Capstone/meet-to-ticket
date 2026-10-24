@@ -132,7 +132,7 @@ function queueMockRetry(user: User, tickets: StoredTicket[], ticket: StoredTicke
   const batches = readBatches()
   batches.push({ userId: user.userId, result: {
     batchId, status: 'RUNNING', executionMode: 'MOCK', createdAt: new Date().toISOString(), finishedAt: null,
-    summary: { total: 1, published: 0, linked: 0, updated: 0, failed: 0, publishing: 1 },
+    summary: { total: 1, published: 0, linked: 0, updated: 0, skipped: 0, failed: 0, publishing: 1 },
     tickets: [{ ticketId: ticket.ticketId, title: ticket.title, status: 'PUBLISHING', processingType: ticket.processingType,
       projectId: ticket.projectId, projectName: ticket.projectName, githubIssueNumber: null,
       githubIssueUrl: null, errorCode: null, errorMessage: null, failureCategory: null,
