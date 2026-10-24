@@ -384,6 +384,75 @@ async def test_unknown_create_still_creates_when_no_matching_issue():
     assert writes(publisher) == ["create"]
 
 
+class BodyPublisher(RetryPublisher):
+    """이슈 번호별 본문을 들고 있다가 표식 조회에 답한다."""
+
+    def __init__(self, bodies, **kw):
+        super().__init__(**kw)
+        self.bodies = bodies
+
+    async def find_marker(self, **args):
+        self.calls.append(("marker", args))
+        hit = args["marker"] in self.bodies.get(args["number"], "")
+        return {"found": hit, "where": "body" if hit else None, "url": None, "truncated": False}
+
+
+def footer_of(t, work_key="WK-1", meeting_id=None):
+    return f"---\n회의: {meeting_id or t.meeting_id} \u00b7 work_key: {work_key} \u00b7 회의 후속조치 Agent가 작성\n"
+
+
+@pytest.mark.anyio
+async def test_unknown_create_links_issue_whose_title_was_edited_by_body_footer():
+    t = unknown_ticket("a", "CREATE")
+    publisher = BodyPublisher({55: "본문\n" + footer_of(t)},
+                              issues=[{"number": 55, "title": "수정 전 제목", "state": "open", "url": "https://github.com/o/r/issues/55"}])
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert out.items[0].status == "PUBLISHED" and out.items[0].github_issue_number == 55
+    assert writes(publisher) == []
+
+
+@pytest.mark.anyio
+async def test_unknown_create_does_not_link_same_work_key_from_other_meeting():
+    t = unknown_ticket("a", "CREATE")
+    publisher = BodyPublisher({55: footer_of(t, meeting_id="other-meeting")},
+                              issues=[{"number": 55, "title": "다른 제목", "state": "open", "url": "u"}])
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert out.items[0].github_issue_number == 101
+    assert writes(publisher) == ["create"]
+
+
+@pytest.mark.anyio
+async def test_unknown_create_does_not_link_work_key_with_same_prefix():
+    t = unknown_ticket("a", "CREATE")
+    publisher = BodyPublisher({55: footer_of(t, work_key="WK-10")},
+                              issues=[{"number": 55, "title": "다른 제목", "state": "open", "url": "u"}])
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert writes(publisher) == ["create"]
+
+
+@pytest.mark.anyio
+async def test_unknown_create_ignores_footer_text_found_only_in_comment():
+    t = unknown_ticket("a", "CREATE")
+    publisher = RetryPublisher(issues=[{"number": 55, "title": "다른 제목", "state": "open", "url": "u"}], marker_found=True)
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert writes(publisher) == ["create"]
+
+
+@pytest.mark.anyio
+async def test_unknown_create_legacy_issue_without_footer_still_matches_by_title_only():
+    t = unknown_ticket("a", "CREATE")
+    publisher = BodyPublisher({55: "표식 없는 과거 본문"},
+                              issues=[{"number": 55, "title": "CSV 개선", "state": "open", "url": "u"}])
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert out.items[0].github_issue_number == 55 and writes(publisher) == []
+    assert not [c for c in publisher.calls if c[0] == "marker"]
+
+
 @pytest.mark.anyio
 async def test_normal_create_does_not_search():
     publisher = RetryPublisher(issues=[{"number": 55, "title": "CSV 개선", "state": "open", "url": "u"}])
