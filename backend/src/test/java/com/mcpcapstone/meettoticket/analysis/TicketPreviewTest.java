@@ -67,7 +67,8 @@ class TicketPreviewTest {
 			{"description":"저장된 수정 본문","tasks":["API 작성"],"acceptance_criteria":["오류 안내"],
 			 "evidence_quotes":["회의 원문"],"open_questions":["응답 형식 확인"],
 			 "assignees":{"names":["나윤"],"github":["jadoolim"],"unresolved":[]},
-			 "due":{"date":"2026-10-30","time":"14:00"}}
+			 "due":{"date":"2026-10-30","time":"14:00"},
+			 "slack":{"text":"수정 전 Slack 공지"}}
 			""";
 		var result = new AgentContracts.Item(UUID.randomUUID(), null, "저장된 제목", json.read(content), "CREATE", null, "APPROVED", "SKIPPED", null, null, null);
 		item = new TaskItem(task, result, content);
@@ -123,6 +124,20 @@ class TicketPreviewTest {
 		mvc.perform(get("/api/tickets/{id}/preview", item.getId()).session(session))
 			.andExpect(status().isOk()).andExpect(jsonPath("$.publishTarget").value("NOTION"))
 			.andExpect(jsonPath("$.publication").isEmpty()).andExpect(jsonPath("$.backlog.tasks[0]").value("API 작성"));
+		verifyNoInteractions(preview);
+		unchanged();
+	}
+
+	@Test
+	void Slack은_저장한_본문을_실제_전송_기준으로_미리보기한다() throws Exception {
+		ReflectionTestUtils.setField(item, "publishTarget", PublishTarget.SLACK);
+		items.save(item);
+
+		mvc.perform(get("/api/tickets/{id}/preview", item.getId()).session(session))
+			.andExpect(status().isOk()).andExpect(jsonPath("$.publishTarget").value("SLACK"))
+			.andExpect(jsonPath("$.publication.kind").value("CREATE"))
+			.andExpect(jsonPath("$.publication.body").value("저장된 수정 본문"));
+
 		verifyNoInteractions(preview);
 		unchanged();
 	}

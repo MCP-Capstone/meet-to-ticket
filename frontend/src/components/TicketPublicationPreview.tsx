@@ -44,13 +44,13 @@ export function TicketPublicationPreview({ ticket, dirty }: { ticket: MyTicket; 
           <h5>{current.title}</h5>
           {current.executionMode === 'MOCK' && <p className="notice">모의 미리보기입니다. 실제 발행 본문 생성은 Agent 연동 모드에서 확인할 수 있습니다.</p>}
           {current.publication ? <>
-            <h5>{kinds[current.publication.kind]}</h5>
+            <h5>{current.publishTarget === 'SLACK' ? 'Slack 메시지 미리보기' : kinds[current.publication.kind]}</h5>
             {current.publication.targetIssueNumber !== null && <p>대상 이슈 #{current.publication.targetIssueNumber}</p>}
             {!!current.publication.labels.length && <p>라벨: {current.publication.labels.join(', ')}</p>}
             {!!current.publication.githubAssignees.length && <p>GitHub 담당: {current.publication.githubAssignees.map((n) => `@${n}`).join(', ')}</p>}
             {current.publication.body.trim() ? <IssueMarkdown body={visibleBody(current.publication.body)} /> : <p className="muted">미리보기 본문이 없습니다.</p>}
             {current.publication.secondaryBody && <div><h5>갱신 알림 댓글</h5><IssueMarkdown body={visibleBody(current.publication.secondaryBody)} /></div>}
-          </> : <p className="notice">{current.publishTarget} 발행 연동은 준비 중입니다. 아래에서 저장된 상세 백로그를 확인할 수 있습니다.</p>}
+          </> : <p className="notice">{current.publishTarget} 발행 본문 미리보기는 제공하지 않습니다. 아래에서 저장된 상세 내용을 확인할 수 있습니다.</p>}
           <details className="publication-backlog"><summary>상세 백로그와 근거</summary>
             {current.backlog.description && <div><h5>저장된 설명</h5><p>{current.backlog.description}</p></div>}
             <BacklogSection title="상세 작업" items={current.backlog.tasks} />
