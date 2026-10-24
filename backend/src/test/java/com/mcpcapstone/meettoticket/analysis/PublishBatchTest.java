@@ -129,6 +129,28 @@ class PublishBatchTest {
 		verify(gateway, times(1)).submit(any());
 	}
 
+	// #299 재현: Agent가 재시작돼 묶음을 잊으면 GET /publish/{id}가 404이고, 게이트웨이는 이를 "아직 결과 없음"으로 돌려준다.
+	// 지금은 조회로 끝낼 수 없어 결과 대기 기한(app.publish.result-timeout, 기본 30분)이 지나야 결과 모름으로 끝난다. #302에서 바꿀 현재 동작이다.
+	@Test
+	void Agent가_묶음을_모르면_결과_대기_기한까지_발행_중으로_남는다() throws Exception {
+		TaskItem ticket = confirmed(project, "Agent 재시작");
+		UUID id = publish(null);
+		when(gateway.status(id.toString())).thenReturn(Optional.empty());
+
+		publishService.reconcileRunning();
+		publishService.expireStale(Duration.ofMinutes(30));
+		assertThat(batches.findById(id).orElseThrow().getStatus()).isEqualTo(PublishBatchStatus.RUNNING);
+		assertThat(items.findById(ticket.getId()).orElseThrow().getTicketStatus()).isEqualTo(TicketStatus.PUBLISHING);
+
+		publishService.expireStale(Duration.ZERO);
+		assertThat(batches.findById(id).orElseThrow().getStatus()).isEqualTo(PublishBatchStatus.FAILED);
+		TaskItem expired = items.findById(ticket.getId()).orElseThrow();
+		assertThat(expired.getTicketStatus()).isEqualTo(TicketStatus.FAILED);
+		assertThat(expired.getPublishErrorCode()).isEqualTo("RESULT_TIMEOUT");
+		assertThat(expired.isPublishOutcomeUnknown()).isTrue();
+		verify(gateway, times(1)).submit(any());
+	}
+
 	// 실행 중인 묶음을 n개 만든다. 발행 한 번이 확인된 티켓 전부를 가져가므로 티켓 하나씩 발행한다.
 	private void startBatches(int n) throws Exception {
 		for (int i = 0; i < n; i++) {
