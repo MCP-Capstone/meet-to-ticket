@@ -55,7 +55,7 @@
 
 프로젝트를 등록한 사용자는 관리자(ADMIN)이자 멤버가 되고, 편집(PUT)은 관리자만 한다(아니면 403 `PROJECT_ADMIN_REQUIRED`).
 `memberUserIds`는 변경 후 전체 멤버 목록이며, 관리자는 목록에 없어도 남는다. 관리자 지정/해제는 role API(`{"role": "ADMIN" | "MEMBER"}`)로 하고, 마지막 관리자를 해제하면 409 `LAST_PROJECT_ADMIN`이다. 같은 GitHub 저장소는 대소문자가 달라도 409 `DUPLICATE_PROJECT_REPOSITORY`이다.
-프로젝트 삭제는 본문 `{"confirmName": "프로젝트 이름"}`이 저장된 이름과 같아야 한다(아니면 400 `PROJECT_NAME_MISMATCH`). 멤버, 회의 기록, 분석 작업과 티켓을 지우고 이미 발행한 GitHub 이슈, Slack 메시지, Notion 페이지는 그대로 둔다. 처리 중인 회의록이 있으면 409 `PROJECT_ANALYSIS_IN_PROGRESS`이다.
+프로젝트 삭제는 본문 `{"confirmName": "프로젝트 이름"}`이 저장된 이름과 같아야 한다(아니면 400 `PROJECT_NAME_MISMATCH`). 멤버, 회의 기록, 분석 작업과 티켓을 지우고 이미 발행한 GitHub 이슈, Slack 메시지, Notion 페이지는 그대로 둔다. 처리 중인 회의록이 있으면 409 `PROJECT_ANALYSIS_IN_PROGRESS`, 재색인이 진행 중이면 409 `PROJECT_REINDEX_IN_PROGRESS`이다. 재색인 상태 조회와 같은 규칙으로 멈춘 재색인(제한 시간 초과, Agent에서 작업을 찾지 못함 등)은 먼저 실패로 정리하므로 삭제를 계속 막지 않는다. 재색인 기록도 함께 지운다.
 저장(POST/PUT)할 때마다 GitHub 계정이 있는 멤버의 저장소 권한을 Agent `POST /projects/check-members`로 확인한다(이전 결과는 먼저 초기화). 멤버별 `repositoryPermission`은 GRANTED/DENIED, 계정이 없으면 NO_ACCOUNT(호출 제외)이다. 멤버 ERROR나 Agent/MCP 전체 실패는 저장을 막지 않고 해당 멤버 `repositoryPermission=null`, `connections.github=ERROR`로 응답한다(전부 성공이면 CONNECTED, 확인할 멤버가 없으면 null). `GET /api/projects/{projectId}`는 외부 호출 없이 저장된 값을 반환한다.
 멤버 저장소 권한과 도구 연결은 TASK-006 전까지 확인하지 않는다. GitHub 계정이 없는 멤버만 `NO_ACCOUNT`이고, 확인 전 값은 `null`이다.
 
@@ -99,7 +99,7 @@ Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤
 - `connections`: 상세 API와 같은 저장값. `CONNECTED`는 연결됨, `NOT_CONNECTED`는 미연결, `ERROR`는 확인 실패, `null`은 확인 전이다. 목록 화면은 실패·확인 전을 ‘권한 확인 필요’로 안내한다. 조회 중 외부 Agent·도구 호출은 없다.
 - `memberCount`: 미가입 팀원을 포함한 전체 프로젝트 멤버 수. `lastMeetingDate`: 저장된 회의 날짜 중 최댓값(회의가 없으면 `null`). 프로젝트 수와 무관하게 소속·멤버 수·최근 회의를 세 번의 조회로 가져온다.
 - `canEdit`: 현재 사용자가 프로젝트 관리자이면 `true`. 목록의 편집·삭제 버튼 표시 기준이며, 실제 권한은 기존 PUT·DELETE API가 다시 검사한다.
-- 삭제는 기존 `DELETE /api/projects/{projectId}`에 `{"confirmName":"프로젝트 이름"}`을 보내고 성공 시 204를 받는다. 처리 중인 회의가 있으면 409 `PROJECT_ANALYSIS_IN_PROGRESS` 메시지를 표시하고 입력은 유지한다. 삭제 후 현재 업로드 프로젝트도 남아 있는 프로젝트로 변경하며, 모두 삭제하면 선택을 비운다.
+- 삭제는 기존 `DELETE /api/projects/{projectId}`에 `{"confirmName":"프로젝트 이름"}`을 보내고 성공 시 204를 받는다. 처리 중인 회의가 있으면 409 `PROJECT_ANALYSIS_IN_PROGRESS`, 재색인 중이면 409 `PROJECT_REINDEX_IN_PROGRESS` 메시지를 표시하고 입력은 유지한다. 삭제 후 현재 업로드 프로젝트도 남아 있는 프로젝트로 변경하며, 모두 삭제하면 선택을 비운다.
 - 기존 삭제 API는 회의·작업·티켓·멤버를 삭제하고 이미 발행한 외부 결과물은 유지한다. **기존 이슈 색인 삭제는 TASK-037 후속 작업**이며 현재 삭제 창에도 색인이 남는다고 안내한다.
 
 ### 일괄 발행과 발행 결과 (#194)
@@ -146,6 +146,7 @@ Notion 페이지와 Slack 공지는 결과 모름 뒤 재발행을 Agent가 보�
   - `canAssign`과 `members`: 회의록을 올린 사람이면 대표 담당 후보를 함께 준다
   - 미리보기 본문에는 회의록 원문이 섞여 있다. HTML로 그릴 때는 sanitize한다 (프론트 `IssueMarkdown`은 HTML을 넣지 않고 React 요소로만 그린다)
 - `PUT /api/tickets/{ticketId}/assignee` `{"memberId": 11}`: 담당 지정 필요(`ASSIGNEE_REQUIRED`) 티켓에 같은 프로젝트 팀원을 대표 담당으로 지정하면 검토 대기가 되어 그 팀원의 내 티켓으로 간다 (REQ-011). 회의록을 올린 사람만 할 수 있다 (아니면 403 `TICKET_UPLOADER_REQUIRED`). 담당 지정 필요가 아니면 409 `TICKET_STATUS_CONFLICT`, 같은 프로젝트 팀원이 아니면 404 `PROJECT_MEMBER_NOT_FOUND`
+- `GET /api/tickets/{ticketId}/history`: 티켓의 에이전트 원본(`AGENT`), 확정한 수정본(`USER_EDIT`, 바뀐 것이 있을 때만), 발행 성공 최종본(`PUBLISHED`) 스냅샷과 상태 전이 이력(`statusHistory`), 마지막 승인(`approval`: 누가 언제 CONFIRMED로 승인했는지)을 준다. 티켓 담당자나 회의록을 올린 사람만 볼 수 있다 (아니면 403 `TICKET_HISTORY_FORBIDDEN`, 없는 티켓은 404 `TICKET_NOT_FOUND`). 기록 시점과 한계는 [리비전과 상태 이력](../revisions-and-history.md)
 
 ### 회의록 처리 요청 (#153)
 

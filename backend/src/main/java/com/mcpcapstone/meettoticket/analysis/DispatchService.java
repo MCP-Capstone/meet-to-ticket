@@ -39,6 +39,7 @@ public class DispatchService {
     private final ProjectService access;
     private final MyTicketService view;
     private final JsonCodec json;
+    private final TicketHistoryRecorder recorder;
 
     // 같은 프로젝트 멤버는 누구나 볼 수 있다. 대표 담당 지정은 업로더만 한다 (canAssign).
     public DispatchResult result(UUID taskId, Long userId) {
@@ -75,6 +76,7 @@ public class DispatchService {
                 "unresolved", github.isEmpty() ? List.of(member.getName()) : List.of())));
         item.edit(member, json.write(content));
         item.assignTo(member);
+        recorder.statusChanged(item, TicketStatus.ASSIGNEE_REQUIRED, userId, TicketHistoryRecorder.REASON_ASSIGN);
         return ticket(item, userId);
     }
 
