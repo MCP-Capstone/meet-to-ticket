@@ -57,7 +57,7 @@ export function PublishBatchResult({ batchId, onDone, onClose }: Props) {
         return <li key={ticket.ticketId}><strong>{ticket.title}</strong><p>{labels[ticket.status as keyof typeof labels] ?? ticket.status}</p>
           {url && <a href={url} target="_blank" rel="noreferrer">{linkLabel[target]}{target === 'GITHUB' && ticket.githubIssueNumber ? ` #${ticket.githubIssueNumber}` : ' 열기'}</a>}
           {(ticket.status === 'FAILED' || ticket.errorCode || ticket.errorMessage) && <p className="error">{failureGuide(ticket)}</p>}
-          {ticket.outcomeUnknown && <p className="notice">{toolName[target]}에 반영됐을 수 있습니다. {target === 'GITHUB' ? '다시 시도하면 이미 만든 이슈가 있는지 먼저 확인합니다.' : '내 티켓에서 확인한 결과(이미 반영됨/반영되지 않음)를 남겨 주세요.'}</p>}
+          {ticket.outcomeUnknown && <p className="notice">{toolName[target]}에 반영됐을 수 있습니다. {target === 'GITHUB' ? '다시 시도하면 이미 만든 이슈가 있는지 먼저 확인합니다. 새 이슈는 확인할 수 있도록 몇 분 뒤에 다시 시도할 수 있습니다.' : '내 티켓에서 확인한 결과(이미 반영됨/반영되지 않음)를 남겨 주세요.'}</p>}
         </li>
       })}</ul>
     </>}
