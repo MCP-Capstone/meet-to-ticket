@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
+import config
 from publisher import parse_tool_result
 
 log = logging.getLogger("agent.project_context")
@@ -14,7 +15,9 @@ MAX_NOTION_PAGES = 10
 NOTION_LIST_TIMEOUT_SECONDS = 30
 NOTION_PAGE_TIMEOUT_SECONDS = 30
 # 문서마다 MCP 세션을 열고 블록을 재귀 조회하므로, Notion 요청 한도(약 3회/초)를 넘지 않게 동시에 읽는 수를 묶는다.
-NOTION_READ_CONCURRENCY = 2
+NOTION_READ_CONCURRENCY = 3
+# 호출자(nodes.prepare)의 전체 한도보다 조금 먼저 스스로 멈춰, 바깥에서 끊기기 전에 생략한 문서를 안내한다.
+DEADLINE_MARGIN_SECONDS = 2.0
 
 
 class ProjectContextTools:
@@ -33,8 +36,15 @@ class ProjectContextTools:
         return parse_tool_result(await tool.ainvoke(args))
 
     async def collect(self, owner: str, repo: str, notion_page_url: str | None,
-                      into: dict[str, Any] | None = None) -> dict[str, Any]:
-        """`into`를 주면 그 dict를 채워 간다. 호출자가 시간 초과로 중단해도 읽은 만큼은 남는다."""
+                      into: dict[str, Any] | None = None, budget_seconds: float | None = None) -> dict[str, Any]:
+        """`into`를 주면 그 dict를 채워 간다. 호출자가 시간 초과로 중단해도 읽은 만큼은 남는다.
+
+        `budget_seconds`(기본은 CONTEXT_TIMEOUT_SECONDS) 안에 끝나도록 공통 마감을 두고,
+        문서마다 min(문서별 한도, 남은 시간)만 기다린다. 마감이 지나면 새 문서를 읽지 않는다.
+        """
+        loop = asyncio.get_running_loop()
+        budget = float(config.context_timeout_seconds() if budget_seconds is None else budget_seconds)
+        deadline = loop.time() + budget - min(DEADLINE_MARGIN_SECONDS, budget / 10)
         result_ctx = into if into is not None else {}
         issues: list[dict[str, Any]] = result_ctx.setdefault("issues", [])
         notion_docs: list[dict[str, Any]] = result_ctx.setdefault("notionDocs", [])
@@ -52,10 +62,11 @@ class ProjectContextTools:
             warnings.append(warning)
 
         if notion_page_url:
+            list_timeout = max(0.0, min(NOTION_LIST_TIMEOUT_SECONDS, deadline - loop.time()))
             try:
                 result = await asyncio.wait_for(
                     self._call(self._list_pages, {"root_page_url_or_id": notion_page_url}, "list_pages"),
-                    timeout=NOTION_LIST_TIMEOUT_SECONDS,
+                    timeout=list_timeout,
                 )
                 pages = result.get("pages")
                 if not isinstance(pages, list):
@@ -65,23 +76,35 @@ class ProjectContextTools:
                 # 끝날 때마다 다시 정렬해 두므로 호출자가 중간에 끊어도 읽은 문서는 남는다.
                 base = len(notion_docs)
                 done: dict[int, dict[str, Any]] = {}
+                # 전체 한도에 걸려 못 읽은 문서. 끝난 뒤 목록 순서대로 한 번에 안내한다.
+                out_of_time: dict[int, str] = {}
 
                 async def read_document(index: int, page: Any) -> None:
                     if not isinstance(page, dict) or not page.get("page_id"):
                         return
+                    name = page.get("title") or page["page_id"]
+                    timeout = 0.0
                     try:
                         async with limit:
+                            remaining = deadline - loop.time()
+                            if remaining <= 0:
+                                out_of_time[index] = name
+                                return
+                            timeout = min(NOTION_PAGE_TIMEOUT_SECONDS, remaining)
                             read = await asyncio.wait_for(
                                 self._call(self._read_page, {"page_url_or_id": page["page_id"], "max_chars": self._max_chars}, "read_page"),
-                                timeout=NOTION_PAGE_TIMEOUT_SECONDS,
+                                timeout=timeout,
                             )
                     except asyncio.TimeoutError:
-                        warning = f"Notion 문서 '{page.get('title') or page['page_id']}' 조회가 {NOTION_PAGE_TIMEOUT_SECONDS}초를 넘어 생략됨"
+                        if timeout < NOTION_PAGE_TIMEOUT_SECONDS:
+                            out_of_time[index] = name
+                            return
+                        warning = f"Notion 문서 '{name}' 조회가 {NOTION_PAGE_TIMEOUT_SECONDS}초를 넘어 생략됨"
                         log.warning(warning)
                         warnings.append(warning)
                         return
                     except Exception as exc:  # noqa: BLE001
-                        warning = f"Notion 문서 '{page.get('title') or page['page_id']}' 조회 실패: {exc}"
+                        warning = f"Notion 문서 '{name}' 조회 실패: {exc}"
                         log.warning(warning)
                         warnings.append(warning)
                         return
@@ -94,10 +117,15 @@ class ProjectContextTools:
                     }
                     notion_docs[base:] = [done[i] for i in sorted(done)]
                 await asyncio.gather(*(read_document(index, page) for index, page in enumerate(pages[:MAX_NOTION_PAGES])))
+                if out_of_time:
+                    names = ", ".join(f"'{out_of_time[i]}'" for i in sorted(out_of_time))
+                    warning = f"Notion 문서 {len(out_of_time)}건({names})은 맥락 조회 한도 {budget:g}초 안에 읽지 못해 생략됨"
+                    log.warning(warning)
+                    warnings.append(warning)
                 if len(pages) > MAX_NOTION_PAGES:
                     warnings.append(f"Notion 문서 {len(pages) - MAX_NOTION_PAGES}건은 분석 맥락에서 생략됨")
             except asyncio.TimeoutError:
-                warning = f"Notion 문서 목록 조회가 {NOTION_LIST_TIMEOUT_SECONDS}초를 넘어 생략됨"
+                warning = f"Notion 문서 목록 조회가 {list_timeout:g}초를 넘어 생략됨"
                 log.warning(warning)
                 warnings.append(warning)
             except Exception as exc:  # noqa: BLE001

@@ -178,9 +178,13 @@ async def report_context_started(req: RunRequest, reporter: Any) -> None:
 
 
 async def sync_index(tools: IssueTools, settings: Settings) -> dict[str, Any] | None:
-    """실행마다 1회 색인을 최신 상태로 맞춘다 (바뀐 이슈만). 시간 안에 끝나지 않으면 건너뛴다."""
+    """실행마다 1회 색인을 최신 상태로 맞춘다 (바뀐 이슈만). 시간 안에 끝나지 않으면 건너뛴다.
+
+    분석 직전에 만든 이슈가 GitHub 목록에 늦게 보여 중복 판단을 놓치지 않도록, 변경 없음이면 한 번 더 확인한다.
+    발행 전 재대조(recheck)는 대기 비용을 피하려고 이 확인을 쓰지 않는다.
+    """
     try:
-        return await asyncio.wait_for(tools.sync(), timeout=settings.rag_sync_timeout_seconds)
+        return await asyncio.wait_for(tools.sync(recheck_empty=True), timeout=settings.rag_sync_timeout_seconds)
     except asyncio.TimeoutError:
         log.warning("색인 갱신이 %s초 안에 끝나지 않아 건너뜀", settings.rag_sync_timeout_seconds)
         return None

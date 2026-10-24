@@ -92,7 +92,9 @@ python index.py --full                # 기존 색인을 지우고 전체 다시
 오류는 `[코드] 메시지` 형식으로 나옵니다: `CONFIG_MISSING`(키 없음), `REPOSITORY_NOT_ALLOWED`, `GITHUB_AUTH`, `GITHUB_NOT_FOUND`, `GITHUB_RATE_LIMIT`, `GITHUB_ERROR`, `EMBEDDING_ERROR`.
 
 GitHub 목록에 새 이슈가 늦게 보일 수 있어, 증분 조회에서 변경이 없으면 표시용 동기화 시각만 갱신하고 내부 커서는 유지합니다.
-같은 호출 안에서 대기 후 다시 묻지 않으며, 지연된 이슈는 커서 5분 앞부터 겹쳐 읽는 다음 조회에서 받습니다.
+기본값에서는 같은 호출 안에서 대기 후 다시 묻지 않으며, 지연된 이슈는 커서 5분 앞부터 겹쳐 읽는 다음 조회에서 받습니다.
+`sync_issues(recheck_empty=true)`면 증분 조회가 변경 없음일 때만 2초 뒤 한 번 더 조회합니다(첫 색인/`full`/변경 있음이면 대기 없음).
+Agent는 분석 시작 동기화에서만 이 옵션을 켜서 분석 직전에 만든 이슈를 중복 판단에 반영하고, 발행 전 재대조 동기화는 대기 비용을 피하려고 기본값을 씁니다.
 기존 색인의 커서는 `last_synced_at`에서 이어받으며, 색인 삭제나 검색 점수/순위 변경은 하지 않습니다.
 이 처리는 목록 반영 지연을 완화하지만 임의 길이의 지연이나 동시 발행까지 완전히 보장하지 않습니다.
 동기화 실패 시 기존 처리 방식으로 발행하는 Agent 정책과 30초 동기화 한도는 유지합니다.
@@ -104,7 +106,7 @@ Agent는 `http://127.0.0.1:8002/mcp`로 연결해 아래 도구를 부릅니다.
 | 이름 | 종류 | 입력 | 출력 |
 |---|---|---|---|
 | `search_similar_issues` | 조회 (읽기 전용) | `query`, `k`(기본 5, 1~10), `state`(`open`/`closed`/`all`, 기본 `all`) | `repository`, `index{model, count, updated_at}`, `results[{number, title, state, url, score, matched_keywords, snippet, closed_at}]` |
-| `sync_issues` | 변경 (색인만 바꿈) | `full`(기본 `false`) | `repository`, `indexed`, `skipped`, `total`, `full`, `updated_at` |
+| `sync_issues` | 변경 (색인만 바꿈) | `full`(기본 `false`), `recheck_empty`(기본 `false`) | `repository`, `indexed`, `skipped`, `total`, `full`, `updated_at` |
 | `index_issue` | 변경 (색인만 바꿈) | `number` | `repository`, `number`, `indexed` |
 | `index_status` | 조회 (읽기 전용) | 없음 | `repository`, `count`, `last_synced_at`, `embedding_model` |
 | `drop_index` | 변경 (색인만 바꿈) | 없음 | `repository`, `count: 0`, `deleted` |

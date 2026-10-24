@@ -4,6 +4,7 @@ import { api, ApiRequestError } from '../api'
 import type { ConnectionStatus, DirectoryUser, ProjectDetail, ProjectEditorMember, ProjectRole, ProjectSaveRequest } from '../api'
 import { ProjectReindex } from './ProjectReindex'
 import { Spinner } from './Spinner'
+import { normalizeNotionPageUrl } from '../notionUrl'
 
 interface Props {
   projectId: number | null
@@ -87,7 +88,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
   const markChanged = () => { onChange(); setSaveError(null) }
   const repositoryChanged = original === null || repository.trim() !== `${original.githubOwner}/${original.githubRepo}`
   const visibleConnection = (tool: 'github' | 'notion' | 'slack') => {
-    const value = tool === 'github' ? repository.trim() : tool === 'notion' ? notionPageUrl.trim() : slackChannelId.trim()
+    const value = tool === 'github' ? repository.trim() : tool === 'notion' ? normalizeNotionPageUrl(notionPageUrl) : slackChannelId.trim()
     if (!value) return '미입력'
     const previous = tool === 'github' ? `${original?.githubOwner}/${original?.githubRepo}`
       : tool === 'notion' ? original?.notionPageUrl : original?.slackChannelId
@@ -147,7 +148,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
     const body: ProjectSaveRequest = {
       name: name.trim(), description: description.trim() || null,
       githubOwner: parts[0], githubRepo: parts[1],
-      notionPageUrl: notionPageUrl.trim() || null, slackChannelId: slackChannelId.trim() || null,
+      notionPageUrl: normalizeNotionPageUrl(notionPageUrl) || null, slackChannelId: slackChannelId.trim() || null,
       memberUserIds: members.map((member) => member.userId),
       memberSlackEmails: Object.fromEntries(members.map((member) => [member.userId, member.slackEmail?.trim() || null])),
     }
@@ -219,7 +220,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
           <div className="project-tool">
             <div className="card-header"><strong>Notion</strong><span className="badge mock">{visibleConnection('notion')}</span></div>
             <label>Notion 기획 페이지 URL (선택)
-              <input type="url" value={notionPageUrl} placeholder="https://www.notion.so/..." onChange={(e) => { setNotionPageUrl(e.target.value); markChanged() }} />
+              <input type="text" inputMode="url" value={notionPageUrl} placeholder="https://www.notion.so/..." onChange={(e) => { setNotionPageUrl(e.target.value); markChanged() }} />
             </label>
           </div>
           <div className="project-tool">

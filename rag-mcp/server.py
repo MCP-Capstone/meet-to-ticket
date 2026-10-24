@@ -100,14 +100,16 @@ def search_similar_issues(
     description=(
         "저장소의 GitHub 이슈를 색인(Vector DB)에 반영한다. "
         "기본은 마지막 색인 이후 바뀐 이슈만 다시 임베딩하고, full=true면 색인을 지우고 전체를 다시 만든다. "
-        "Agent는 실행을 시작할 때 한 번 부른다."
+        "Agent는 실행을 시작할 때 한 번 부른다. "
+        "recheck_empty=true면 증분 조회가 변경 없음일 때 2초 뒤 한 번 더 확인한다 (분석 시작용, 기본 false)."
     ),
     annotations=INDEX_WRITE.model_copy(update={"title": "이슈 색인 갱신"}),
 )
-def sync_issues(owner: str, repo: str, full: bool = False) -> dict[str, Any]:
+def sync_issues(owner: str, repo: str, full: bool = False, recheck_empty: bool = False) -> dict[str, Any]:
     """색인 결과 {repository, indexed, skipped, total, full, updated_at}."""
     with github.make_client() as client:
-        return indexer.sync_issues(owner, repo, client=client, embedder=get_embedder(), store=get_store(), full=full)
+        return indexer.sync_issues(owner, repo, client=client, embedder=get_embedder(), store=get_store(),
+                                   full=full, recheck_empty=recheck_empty)
 
 
 @mcp.tool(

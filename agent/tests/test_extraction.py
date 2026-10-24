@@ -74,15 +74,26 @@ def test_indented_continuation_line_belongs_to_previous_decision():
     assert all(q in text for d in ex.decisions for q in d.evidence_quotes)
 
 
-@pytest.mark.parametrize('line', ['2026. 11월에 출시한다.', '11. 3. 출시로 확정한다.'])
+@pytest.mark.parametrize('line', [
+    '2026. 11월에 출시한다.', '11. 3. 출시로 확정한다.', '10. 31.에 출시', '10. 31일에 출시',
+    '11. 3.에 출시', '10. 31. 출시로 확정',
+    '1. 3일 안에 완료',  # 번호인지 날짜인지 애매하면 정보를 잃지 않도록 원문을 보존한다
+])
 def test_sentence_starting_with_date_is_not_numbered_list(line):
     parsed = parse_summary(f'## 결정\n{line}\n')
     assert parsed.decisions == [line]
 
 
-def test_real_numbered_list_keeps_number_stripped():
-    parsed = parse_summary('## 결정\n1. 2단계로 나눠 출시한다.\n10) 열 번째 결정\n')
-    assert parsed.decisions == ['2단계로 나눠 출시한다.', '열 번째 결정']
+@pytest.mark.parametrize('line,item', [
+    ('1. API 먼저 개발', 'API 먼저 개발'),
+    ('1. 2단계로 나눈다', '2단계로 나눈다'),
+    ('2) 배포', '배포'),
+    ('2) 3일 안에 완료', '3일 안에 완료'),
+    ('10) 열 번째 결정', '열 번째 결정'),
+])
+def test_real_numbered_list_keeps_number_stripped(line, item):
+    parsed = parse_summary(f'## 결정\n{line}\n')
+    assert parsed.decisions == [item]
 
 
 @pytest.mark.parametrize('body', ['', '없음', '- 없음', '별도 명시 없음'])

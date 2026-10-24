@@ -186,12 +186,64 @@ def test_empty_incremental_result_is_caught_by_next_sync(store, monkeypatch):
         return original(request)
 
     monkeypatch.setattr(gh, 'handler', delayed)
-    # 변경 없음 응답은 같은 호출 안에서 재조회하지 않는다.
+    waits = []
+    monkeypatch.setattr(indexer, 'sleep', waits.append)
+    # 기본값(발행 전 재대조 경로)은 변경 없음 응답을 같은 호출 안에서 재조회하지 않는다.
     out = sync(gh, emb, store, now=clock('2026-10-24T04:55:43Z'))
-    assert len(attempts) == 1 and out['indexed'] == 0
+    assert len(attempts) == 1 and out['indexed'] == 0 and waits == []
     # 커서를 유지했으므로 다음 동기화가 늦게 보인 이슈를 받는다.
     out = sync(gh, emb, store, now=clock('2026-10-24T04:57:00Z'))
     assert out['indexed'] == 1 and store.get_collection('o', 'r').get(ids=['50'])['ids'] == ['50']
+
+
+def test_recheck_empty_catches_late_issue_in_same_call(store, monkeypatch):
+    # 분석 경로(recheck_empty=True)는 변경 없음이면 잠시 뒤 한 번 더 조회해 방금 만든 이슈를 받는다.
+    gh = FakeGitHub({'o/r': [gh_item(1, '기존', updated_at='2026-10-24T04:53:00Z')]})
+    emb = FakeEmbedder()
+    sync(gh, emb, store, now=clock('2026-10-24T04:54:57Z'))
+    late = gh_item(50, '감사 로그', updated_at='2026-10-24T04:55:41Z')
+    original = gh.handler
+    attempts = []
+
+    def delayed(request):
+        attempts.append(request)
+        if len(attempts) == 1:
+            import httpx
+            return httpx.Response(200, json=[])
+        gh.repos['o/r'] = [late]
+        return original(request)
+
+    monkeypatch.setattr(gh, 'handler', delayed)
+    waits = []
+    monkeypatch.setattr(indexer, 'sleep', waits.append)
+    out = sync(gh, emb, store, recheck_empty=True, now=clock('2026-10-24T04:55:43Z'))
+    assert len(attempts) == 2 and waits == [indexer.SYNC_RECHECK_DELAY]
+    assert out['indexed'] == 1 and store.get_collection('o', 'r').get(ids=['50'])['ids'] == ['50']
+    assert store.get_collection('o', 'r').metadata['sync_cursor'] == '2026-10-24T04:55:43Z'
+
+
+def test_recheck_empty_is_bounded_and_skipped_when_not_needed(store, monkeypatch):
+    gh = FakeGitHub({'o/r': [gh_item(1, '기존', updated_at='2026-10-24T04:53:00Z')]})
+    emb = FakeEmbedder()
+    waits = []
+    monkeypatch.setattr(indexer, 'sleep', waits.append)
+    # 첫 색인은 커서가 없으므로 재확인하지 않는다.
+    sync(gh, emb, store, recheck_empty=True, now=clock('2026-10-24T04:54:57Z'))
+    assert len(gh.requests) == 1 and waits == []
+    # 변경 없음이 이어져도 재확인은 한 번뿐이고 커서는 유지한다.
+    gh.requests.clear()
+    out = sync(gh, emb, store, recheck_empty=True, now=clock('2026-10-24T04:55:43Z'))
+    assert len(gh.requests) == 2 and waits == [indexer.SYNC_RECHECK_DELAY] and out['indexed'] == 0
+    assert store.get_collection('o', 'r').metadata['sync_cursor'] == '2026-10-24T04:54:57Z'
+    # 변경이 있으면 기다리지 않는다.
+    gh.repos['o/r'].append(gh_item(2, '새 이슈', updated_at='2026-10-24T04:56:00Z'))
+    gh.requests.clear()
+    out = sync(gh, emb, store, recheck_empty=True, now=clock('2026-10-24T04:56:30Z'))
+    assert len(gh.requests) == 1 and len(waits) == 1 and out['indexed'] == 1
+    # 전체 재색인도 기다리지 않는다.
+    gh.requests.clear()
+    sync(gh, emb, store, full=True, recheck_empty=True, now=clock('2026-10-24T04:57:00Z'))
+    assert len(gh.requests) == 1 and len(waits) == 1
 
 
 def test_empty_incremental_sync_reads_once_and_separates_status_time(store):

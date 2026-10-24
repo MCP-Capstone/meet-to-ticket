@@ -70,6 +70,11 @@ class Settings:
     allow_auto_publish: bool = False
 
 
+def context_timeout_seconds() -> int:
+    """프로젝트 맥락 조회 전체 한도(초). Settings와 맥락 수집기가 같은 값을 쓰게 한 곳에서 읽는다."""
+    return _int("CONTEXT_TIMEOUT_SECONDS", 120)
+
+
 def _str(name: str, default: str) -> str:
     """비어 있는 값(예: OPENAI_REVIEW_MODEL=)은 설정하지 않은 것으로 본다."""
     raw = os.environ.get(name, "").strip()
@@ -100,7 +105,7 @@ def load_settings(validate: bool = True) -> Settings:
         rag_enabled=_bool("RAG_ENABLED", False),
         rag_mcp_url=_str("RAG_MCP_URL", "http://127.0.0.1:8002/mcp"),
         rag_sync_timeout_seconds=_int("RAG_SYNC_TIMEOUT_SECONDS", 30),
-        context_timeout_seconds=_int("CONTEXT_TIMEOUT_SECONDS", 120),
+        context_timeout_seconds=context_timeout_seconds(),
         tool_result_max_chars=_int("TOOL_RESULT_MAX_CHARS", 2000),
         dedupe_model=_str("OPENAI_DEDUPE_MODEL", "gpt-5.4-mini"),
         dedupe_max_tool_calls=_int("DEDUPE_MAX_TOOL_CALLS", 4),
