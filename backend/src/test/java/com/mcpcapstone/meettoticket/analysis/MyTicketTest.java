@@ -91,8 +91,28 @@ class MyTicketTest {
 				.andExpect(jsonPath("$.counts.confirmed").value(0))
 				.andExpect(jsonPath("$.counts.rejected").value(0))
 				.andExpect(jsonPath("$.tickets[?(@.ticketId=='" + mine + "')].status").value("PENDING_REVIEW"))
+				.andExpect(jsonPath("$.tickets[?(@.ticketId=='" + mine + "')].displayStatus").value("REVIEW_PENDING"))
 				.andExpect(jsonPath("$.tickets[?(@.ticketId=='" + mine + "')].projectId").value(projectId.intValue()))
 				.andExpect(jsonPath("$.tickets[?(@.ticketId=='" + others + "')]").isEmpty());
+	}
+
+	@Test
+	void 표시_상태는_status를_바꾸지_않고_더해지며_거절은_null이다() throws Exception {
+		UUID confirmed = analyze("함주헌");
+		UUID rejected = analyze("함주헌");
+
+		// 확인은 아직 외부에 보내기 전이라 검토 대기로 보인다. status는 그대로 CONFIRMED다.
+		mvc.perform(post("/api/tickets/{id}/confirm", confirmed).session(me))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("CONFIRMED"))
+				.andExpect(jsonPath("$.displayStatus").value("REVIEW_PENDING"));
+		// 거절은 4상태에 속하지 않아 키는 있고 값이 null이다.
+		String body = mvc.perform(post("/api/tickets/{id}/reject", rejected).session(me))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("REJECTED"))
+				.andReturn().getResponse().getContentAsString();
+		assertThat(json.read(body).has("displayStatus")).isTrue();
+		assertThat(json.read(body).path("displayStatus").isNull()).isTrue();
 	}
 
 	@Test

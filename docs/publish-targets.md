@@ -75,17 +75,17 @@
 
 ## 3. 사용자 노출 상태와 내부 상태 대응
 
-### 3.1 정책 목표 상태 4종 (현재 UI는 9종 라벨)
+### 3.1 사용자 노출 상태 4종
 
-아래 표는 정책 목표의 4종 상태와 내부 `TicketStatus`의 대응이다. 현재 화면은 4종으로 합치지 않고 내부 상태 라벨 9종을 그대로 보여 준다.
+아래 표는 사용자 노출 4종 상태와 내부 `TicketStatus`의 대응이다. 백엔드는 이 대응을 `TicketDisplayStatus.of`로 파생해 티켓 응답의 `displayStatus` 필드로 준다 (#264, 기존 `status`는 그대로). 현재 화면은 아직 `displayStatus`를 쓰지 않고 내부 상태 라벨을 그대로 보여 준다.
 
 | 사용자 노출 상태 | 내부 `TicketStatus` | 비고 |
 |---|---|---|
 | 검토 대기 | `ASSIGNEE_REQUIRED`, `PENDING_REVIEW`, `CONFIRMED` | 담당 지정 필요, 담당자 검토 중, 확인 후 발행 전. 확인(`CONFIRMED`)은 발행 대기이므로 이 묶음에 둔다 |
 | 발행 중 | `PUBLISHING` | 묶음 결과를 기다리는 중. 같은 티켓을 다시 담을 수 없다 |
-| 발행됨 | `PUBLISHED`, `LINKED`, `UPDATED` | 신규 생성/기존 항목 연결/기존 항목 갱신. Slack 게시는 에이전트 상태 `POSTED`를 `PUBLISHED`로 저장한다 |
-| 실패/확인 필요 | `FAILED` | 3.2의 구분표를 따른다. `outcomeUnknown`만으로 안전한 재시도 여부를 판단하면 안 된다 |
-| (4종 밖) | `REJECTED` | 담당자가 거절한 티켓. 발행 대상이 아니므로 4종 상태에 넣지 않고 별도 표시한다 |
+| 발행됨 | `PUBLISHED`, `LINKED`, `UPDATED` | 신규 생성/기존 항목 연결/기존 항목 갱신. Slack 게시는 에이전트 상태 `POSTED`를 `PUBLISHED`로 저장한다. 단, 알림 댓글이 실패해 오류 코드(`COMMENT_FAILED`)가 남은 `UPDATED`는 아래 실패/확인 필요다 |
+| 실패/확인 필요 | `FAILED`, `SKIPPED`, `UPDATED` + 오류 코드(`COMMENT_FAILED`) | `FAILED`는 3.2의 구분표를 따른다. `outcomeUnknown`만으로 안전한 재시도 여부를 판단하면 안 된다. `SKIPPED`(발행 생략, 외부에 아무것도 만들지 않음)와 알림 댓글 실패는 발행됨에 합치지 않고 확인이 필요한 쪽에 둔다 |
+| (4종 밖) | `REJECTED` | 담당자가 거절한 티켓. 발행 대상이 아니므로 4종 상태에 넣지 않고 별도 표시한다 (`displayStatus`는 null) |
 
 ### 3.2 FAILED 세부 구분
 
@@ -97,7 +97,8 @@
 
 ### 3.3 현재 구현과 차이
 
-- 화면은 4종으로 합치지 않고 내부 상태 라벨을 그대로 쓴다 (`TicketCard.tsx`: 담당 지정 필요, 검토 대기, 확인, 거절, 발행 중, 발행됨, 연결됨, 갱신됨, 실패). 4종 표시는 정책 목표이며, 이 문서가 대응 기준이다.
+- 화면은 4종으로 합치지 않고 내부 상태 라벨을 그대로 쓴다 (`TicketCard.tsx`: 담당 지정 필요, 검토 대기, 확인, 거절, 발행 중, 발행됨, 연결됨, 갱신됨, 발행 생략, 실패). 백엔드는 `displayStatus`를 이미 주므로 화면은 필요할 때 이 값으로 바꿀 수 있고, 이 문서가 대응 기준이다.
+- `displayStatus`는 티켓 응답(`MyTicketService.Ticket`: 내 티켓, 전송 결과, 티켓 동작 응답)에만 있다. 발행 묶음 결과의 티켓 항목(`PublishService.Entry`)에는 아직 없다.
 - 결과 화면은 묶음 요약(`Summary`)에서 발행됨/연결됨/갱신됨/실패/발행 중을 따로 센다.
 - 묶음(`PublishBatchStatus`)은 `RUNNING`, `SUCCEEDED`, `PARTIAL_FAILED`, `FAILED`이며 티켓 상태와 별개다.
 
