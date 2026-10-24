@@ -4,6 +4,7 @@ import { api, ApiRequestError } from '../api'
 import type { ConnectionStatus, DirectoryUser, ProjectDetail, ProjectEditorMember, ProjectRole, ProjectSaveRequest } from '../api'
 import { ProjectReindex } from './ProjectReindex'
 import { Spinner } from './Spinner'
+import { Toast } from './Toast'
 import { normalizeNotionPageUrl } from '../notionUrl'
 
 interface Props {
@@ -188,7 +189,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
 
   const candidates = users.filter((user) => !members.some((member) => member.userId === user.userId))
   return (
-    <form className="project-editor" onSubmit={handleSubmit}>
+    <form className="project-editor" onSubmit={handleSubmit} noValidate>
       <div className="card-header">
         <div>
           <h2>{projectId === null ? '새 프로젝트' : '프로젝트 편집'}</h2>
@@ -207,7 +208,6 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
             <textarea value={description} rows={3} onChange={(e) => { setDescription(e.target.value); markChanged() }} />
           </label>
         </section>
-        {projectId !== null && <ProjectReindex projectId={projectId} canEdit={canEdit} />}
         <section className="card">
           <h2>도구 연결 정보</h2>
           <p className="muted">‘확인되지 않음’은 아직 확인하지 않았거나 확인에 실패한 상태입니다.</p>
@@ -216,6 +216,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
             <label>GitHub 저장소 (필수)
               <input value={repository} placeholder="MCP-Capstone/mcp-capstone" onChange={(e) => { setRepository(e.target.value); markChanged() }} required />
             </label>
+            {projectId !== null && <ProjectReindex projectId={projectId} canEdit={canEdit} />}
           </div>
           <div className="project-tool">
             <div className="card-header"><strong>Notion</strong><span className="badge mock">{visibleConnection('notion')}</span></div>
@@ -236,7 +237,7 @@ export function ProjectEditor({ projectId, onSaved, onCancel, onChange, onSaving
           {projectId === null ? <p className="muted">프로젝트를 등록한 사용자가 자동으로 관리자가 됩니다.</p>
             : canEdit && <p className="muted">관리자 지정·해제는 즉시 반영됩니다. 내 관리자 권한을 해제하면 편집 중인 내용을 저장할 수 없으니 먼저 저장해 주세요.</p>}
           {roleError && <p className="error" role="alert">{roleError}</p>}
-          {roleMessage && <p className="project-success" role="status">{roleMessage}</p>}
+          <Toast message={roleMessage} onDone={() => setRoleMessage(null)} />
           {members.length === 0 ? <p className="muted">선택한 멤버가 없습니다. 아래에서 가입한 사용자를 추가하세요.</p> : (
             <div className="project-table-wrap">
               <table className="project-member-table">
