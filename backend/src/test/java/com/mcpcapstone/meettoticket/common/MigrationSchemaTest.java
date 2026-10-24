@@ -281,8 +281,8 @@ class MigrationSchemaTest {
 		flyway(LEGACY).migrate();
 
 		// 기존 티켓은 그대로다.
-		assertThat(query(LEGACY, "select title || ':' || ticket_status || ':' || content_json from task_items order by title"))
-			.containsExactly(
+		assertThat(query(LEGACY, "select title || ':' || ticket_status || ':' || content_json from task_items"))
+			.containsExactlyInAnyOrder(
 				"담당 없는 티켓:ASSIGNEE_REQUIRED:{}",
 				"이미 발행된 티켓:PUBLISHED:{\"description\":\"본문\",\"due\":{\"date\":\"2026-10-23\"},\"count\":3}");
 		// 티켓마다 AGENT 리비전 1건. 현재 값 전체 스냅샷이고, 만든 시각은 분석을 마친 시각이다.
