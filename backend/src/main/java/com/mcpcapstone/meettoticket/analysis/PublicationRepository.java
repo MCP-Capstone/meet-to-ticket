@@ -14,8 +14,8 @@ public interface PublicationRepository extends JpaRepository<Publication, Long> 
     @Modifying
     @Query(nativeQuery = true, value = """
             insert into publications (task_item_id, target, operation, idempotency_key, status, attempt_count,
-                                      publish_batch_id, created_at, reserved_at, updated_at)
-            values (:taskItemId, :target, :operation, :key, 'RESERVED', 1, :batchId, :now, :now, :now)
+                                      publish_batch_id, outcome_unknown, created_at, reserved_at, updated_at)
+            values (:taskItemId, :target, :operation, :key, 'RESERVED', 1, :batchId, false, :now, :now, :now)
             on conflict do nothing""")
     int insertReserved(UUID taskItemId, String target, String operation, String key, UUID batchId, OffsetDateTime now);
 
@@ -44,10 +44,21 @@ public interface PublicationRepository extends JpaRepository<Publication, Long> 
     @Query("""
             update Publication p
                set p.status = :to, p.errorCode = :errorCode, p.externalId = :externalId,
-                   p.externalUrl = :externalUrl, p.updatedAt = :now
+                   p.externalUrl = :externalUrl, p.updatedAt = :now,
+                   p.outcomeUnknown = case
+                       when :to = com.mcpcapstone.meettoticket.analysis.PublicationStatus.UNCERTAIN then true
+                       when :to = com.mcpcapstone.meettoticket.analysis.PublicationStatus.CONFIRMED then false
+                       else p.outcomeUnknown end
              where p.id = :id and p.status in :from""")
     int finish(Long id, PublicationStatus to, Collection<PublicationStatus> from,
                String errorCode, String externalId, String externalUrl, OffsetDateTime now);
+
+    // 담당자가 반영되지 않은 것을 확인했다. 결과 모름 표시를 풀어 FAILED가 다시 안전한 실패가 되게 한다.
+    @Modifying
+    @Query("""
+            update Publication p set p.outcomeUnknown = false
+             where p.id = :id and p.status = com.mcpcapstone.meettoticket.analysis.PublicationStatus.FAILED""")
+    int clearOutcomeUnknown(Long id);
 
     // 외부 쓰기가 없었던 예약(발행 생략)을 지운다. from에 든 상태일 때만 지운다.
     @Modifying
@@ -59,8 +70,44 @@ public interface PublicationRepository extends JpaRepository<Publication, Long> 
     @Query("""
             update Publication p
                set p.status = com.mcpcapstone.meettoticket.analysis.PublicationStatus.FAILED, p.errorCode = :errorCode, p.updatedAt = :now
-             where p.publishBatchId = :batchId and p.status in :from""")
+             where p.publishBatchId = :batchId and p.status in :from and p.outcomeUnknown = false""")
     int failBatch(UUID batchId, Collection<PublicationStatus> from, String errorCode, OffsetDateTime now);
+
+    // 결과 모름이던 기록의 재예약이 접수되지 않았다. 이전 시도의 결과 모름은 그대로이므로 FAILED가 아니라 UNCERTAIN으로 되돌린다.
+    @Modifying
+    @Query("""
+            update Publication p
+               set p.status = com.mcpcapstone.meettoticket.analysis.PublicationStatus.UNCERTAIN, p.errorCode = :errorCode, p.updatedAt = :now
+             where p.publishBatchId = :batchId and p.status in :from and p.outcomeUnknown = true""")
+    int uncertainBatch(UUID batchId, Collection<PublicationStatus> from, String errorCode, OffsetDateTime now);
+
+    // 복구 워커의 전이. 읽은 뒤 다른 요청이 행을 끝내거나 다시 예약했으면(시도 횟수가 다르다) 바뀌지 않는다.
+    @Modifying
+    @Query("""
+            update Publication p
+               set p.status = :to, p.errorCode = :errorCode, p.updatedAt = :now,
+                   p.outcomeUnknown = case
+                       when :to = com.mcpcapstone.meettoticket.analysis.PublicationStatus.UNCERTAIN then true
+                       else p.outcomeUnknown end
+             where p.id = :id and p.attemptCount = :attempt and p.status in :from""")
+    int recover(Long id, int attempt, PublicationStatus to, Collection<PublicationStatus> from, String errorCode, OffsetDateTime now);
+
+    @Query("select p.status from Publication p where p.id = :id")
+    Optional<PublicationStatus> statusOfId(Long id);
+
+    @Query("select p.outcomeUnknown from Publication p where p.id = :id")
+    Optional<Boolean> outcomeUnknownOf(Long id);
+
+    // 복구 후보: 오래 진행 중으로 남았고, 티켓이 그 묶음을 기다리는 중(PUBLISHING)이 아닌 행. 기다리는 중인 묶음은 결과 조회와 기한 정리가 맡는다.
+    @Query("""
+            select p.id from Publication p
+             where p.status in :statuses and p.updatedAt < :before
+               and not exists (select 1 from TaskItem i
+                                where i.id = p.taskItem.id
+                                  and i.ticketStatus = com.mcpcapstone.meettoticket.analysis.TicketStatus.PUBLISHING
+                                  and i.publishBatch.id = p.publishBatchId)
+             order by p.updatedAt, p.id""")
+    List<Long> findStaleInFlight(Collection<PublicationStatus> statuses, OffsetDateTime before, org.springframework.data.domain.Pageable limit);
 
     @Query("select p.status from Publication p where p.target = :target and p.idempotencyKey = :key")
     Optional<PublicationStatus> statusOf(PublishTarget target, String key);

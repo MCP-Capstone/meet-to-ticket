@@ -172,7 +172,7 @@ class MigrationSchemaTest {
 		boot(FRESH, true, "validate").close();
 
 		assertThat(query(FRESH, "select version || ':' || type || ':' || success from flyway_schema_history order by installed_rank"))
-			.containsExactly("1:SQL:true", "2:SQL:true", "3:SQL:true", "4:SQL:true", "5:SQL:true");
+			.containsExactly("1:SQL:true", "2:SQL:true", "3:SQL:true", "4:SQL:true", "5:SQL:true", "6:SQL:true");
 
 		var fresh = describe(FRESH);
 		assertThat(fresh).contains(DISPATCH_FK);
@@ -187,7 +187,7 @@ class MigrationSchemaTest {
 		boot(LEGACY, true, "validate").close();
 
 		assertThat(query(LEGACY, "select version || ':' || type from flyway_schema_history order by installed_rank"))
-			.containsExactly("1:BASELINE", "2:SQL", "3:SQL", "4:SQL", "5:SQL");
+			.containsExactly("1:BASELINE", "2:SQL", "3:SQL", "4:SQL", "5:SQL", "6:SQL");
 		assertThat(query(LEGACY, "select task_id::text from analysis_dispatches")).containsExactly(TASK);
 		// 지운 고아 행은 보관 테이블에 그대로 남는다.
 		assertThat(query(LEGACY, "select task_id::text || ':' || state || ':' || attempts from analysis_dispatches_orphans"))
@@ -247,7 +247,7 @@ class MigrationSchemaTest {
 		exec(LEGACY, "update task_items set ticket_status = 'FAILED' where ticket_status = 'RETIRED_VALUE'");
 		flyway(LEGACY).migrate();
 		assertThat(query(LEGACY, "select version from flyway_schema_history where success order by installed_rank"))
-			.containsExactly("1", "2", "3", "4", "5");
+			.containsExactly("1", "2", "3", "4", "5", "6");
 	}
 
 	static Flyway flywayTo(String schema, String target) {
@@ -379,7 +379,29 @@ class MigrationSchemaTest {
 		assertThat(query(LEGACY, "select count(*)::text from task_item_revisions")).containsExactly(revisions);
 		assertThat(query(LEGACY, "select count(*)::text from publications")).containsExactly("0");
 		assertThat(query(LEGACY, "select version from flyway_schema_history where success order by installed_rank"))
-			.containsExactly("1", "2", "3", "4", "5");
+			.containsExactly("1", "2", "3", "4", "5", "6");
+	}
+
+	@Test
+	void v6AddsOutcomeUnknownAndBackfillsOnlyUncertainRows() throws Exception {
+		legacyDatabase(LEGACY);
+		flywayTo(LEGACY, "5").migrate();
+		exec(LEGACY, """
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status)
+			values ('%s', '%s', 't', '{}', 'CREATE', 'PENDING', 'DRAFT', 'CONFIRMED')""".formatted(ITEM_A, TASK));
+		for (String status : List.of("RESERVED", "SENT", "CONFIRMED", "UNCERTAIN", "FAILED"))
+			exec(LEGACY, publication(ITEM_A, "SLACK", "CREATE", "s-" + status, status));
+
+		flyway(LEGACY).migrate();
+
+		assertThat(query(LEGACY, "select string_agg(status || ':' || outcome_unknown, ',' order by status) from publications"))
+			.containsExactly("CONFIRMED:false,FAILED:false,RESERVED:false,SENT:false,UNCERTAIN:true");
+		// 새 행의 기본값은 false다.
+		exec(LEGACY, publication(ITEM_A, "GITHUB", "CREATE", KEY_A, "RESERVED"));
+		assertThat(query(LEGACY, "select outcome_unknown::text from publications where idempotency_key = '%s'".formatted(KEY_A)))
+			.containsExactly("false");
+		assertThat(query(LEGACY, "select indexname from pg_indexes where indexname = 'idx_publications_status_updated_at'"))
+			.containsExactly("idx_publications_status_updated_at");
 	}
 
 	@Test

@@ -224,6 +224,30 @@ public class TaskItem {
         return publishRetryable || publishOutcomeUnknown;
     }
 
+    // 복구 워커가 이 티켓의 발행 기록을 결과 모름으로 판단했을 때 티켓에도 반영한다. 반영하지 않으면 다시 발행할 때 Agent가 재대조하지 않고
+    // (Notion, Slack은 수동 확인 없이) 중복 발행할 수 있다. 상태가 바뀌었으면 true다.
+    // 확인/실패 티켓은 결과 모름 실패로 두어 기존 재대조(GitHub) 또는 resolve-outcome(Notion, Slack) 경로를 타게 한다.
+    // 아직 발행 전인 검토 대기, 담당 필요 티켓은 상태를 바꾸지 않고 지난 결과 모름만 남겨 다음 발행에서 재대조하게 한다.
+    // 이미 끝났거나 다른 묶음이 기다리는 티켓은 건드리지 않는다.
+    public boolean markOutcomeUnknownByRecovery(String errorCode, String message) {
+        switch (ticketStatus) {
+            case CONFIRMED, FAILED -> {
+                if (ticketStatus == TicketStatus.FAILED && mustRecheckOnPublish()) return false;
+                recordPublishResult(TicketStatus.FAILED, null, null, null, errorCode, message, true, true);
+                this.publishBatch = null;
+                return true;
+            }
+            case PENDING_REVIEW, ASSIGNEE_REQUIRED -> {
+                if (previousOutcomeUnknown) return false;
+                this.previousOutcomeUnknown = true;
+                return false;
+            }
+            default -> {
+                return false;
+            }
+        }
+    }
+
     public void moveTo(TicketStatus status) {
         this.ticketStatus = status;
     }
