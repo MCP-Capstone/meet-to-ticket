@@ -23,9 +23,10 @@ def by_key(result):
     return {i["work_key"]: i for i in result["items"]}
 
 
-async def test_unresolved_assignee_is_blocked_with_reason(settings):
-    # MEMBERS의 정하늘은 GitHub 계정이 없다 -> 10m1-a7은 담당자 미확정
-    result, pub = await run_case(settings, make_state(members=MEMBERS))
+async def test_unmatched_assignee_is_blocked_with_reason(settings):
+    # 멤버 목록에 정하늘이 없다 -> 회의록 담당자 이름이 어떤 멤버와도 맞지 않아 10m1-a7은 담당자 미확정
+    members = [m for m in MEMBERS if m.name != "정하늘"]
+    result, pub = await run_case(settings, make_state(members=members))
     a7 = by_key(result)["10m1-a7"]
     assert a7["publish_status"] == "BLOCKED"
     assert a7["review_status"] == "NEEDS_CHECK" and a7["action"] == "NEEDS_CHECK"
@@ -34,11 +35,22 @@ async def test_unresolved_assignee_is_blocked_with_reason(settings):
     assert a7["github_issue_number"] is None
 
 
+async def test_member_without_github_account_is_published(settings):
+    # MEMBERS의 정하늘은 멤버이지만 GitHub 계정이 없다 -> 담당자는 정해졌으므로 발행하고 본문에 계정 미매핑을 남긴다 (#292)
+    result, pub = await run_case(settings, make_state(members=MEMBERS))
+    a7 = by_key(result)["10m1-a7"]
+    assert a7["publish_status"] == "SUCCEEDED"
+    assert a7["content_json"]["assignees"]["unresolved"] == ["정하늘"]
+    body = next(c["body"] for c in pub.calls if "work_key: 10m1-a7 " in c["body"])
+    assert "GitHub 계정 미매핑: 정하늘" in body
+
+
 async def test_confirmed_tickets_still_publish(settings):
     result, pub = await run_case(settings, make_state(members=MEMBERS))
     published = [i for i in result["items"] if i["publish_status"] == "SUCCEEDED"]
     assert published and len(pub.calls) == len(published)
-    assert all(not i["content_json"]["assignees"]["unresolved"] for i in published)
+    # 발행된 항목의 미매핑 담당자는 멤버이지만 계정이 없는 정하늘뿐이다 (#292)
+    assert all(set(i["content_json"]["assignees"]["unresolved"]) <= {"정하늘"} for i in published)
 
 
 async def test_needs_check_stays_blocked(settings):
@@ -48,10 +60,22 @@ async def test_needs_check_stays_blocked(settings):
 
 
 def test_unconfirmed_reason_rules():
-    ok = {"unresolved_assignees": [], "assignees": ["a"]}
+    ok = {"unmatched_assignees": [], "unresolved_assignees": [], "assignee_names": ["a"], "assignees": ["a"]}
     assert AgentNodes.unconfirmed_reason(ok) is None
-    assert "담당자 미확정" in AgentNodes.unconfirmed_reason({**ok, "unresolved_assignees": ["홍길동"]})
-    assert "담당자 미확정" in AgentNodes.unconfirmed_reason({**ok, "assignees": []})  # 담당자 없음
+    assert "담당자 미확정" in AgentNodes.unconfirmed_reason({**ok, "unmatched_assignees": ["홍길동"]})  # 멤버 불일치
+    assert "담당자 미확정" in AgentNodes.unconfirmed_reason({**ok, "assignee_names": [], "assignees": []})  # 담당자 없음
+
+
+def test_unconfirmed_reason_allows_member_without_account():
+    # 이름이 멤버와 맞고 GitHub 계정만 없다 (#292)
+    t = {"unmatched_assignees": [], "unresolved_assignees": ["정하늘"], "assignee_names": ["정하늘"], "assignees": []}
+    assert AgentNodes.unconfirmed_reason(t) is None
+
+
+def test_unconfirmed_reason_is_conservative_without_unmatched_field():
+    # unmatched_assignees가 없는 이전 티켓은 계정 없음과 구분할 수 없어 unresolved로 막는다
+    t = {"unresolved_assignees": ["홍길동"], "assignee_names": ["홍길동"], "assignees": []}
+    assert "담당자 미확정" in AgentNodes.unconfirmed_reason(t)
 
 
 def _ticket(**kw):

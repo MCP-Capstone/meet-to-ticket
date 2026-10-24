@@ -148,6 +148,7 @@ def new_ticket(todo: ExtractedTodo, members: list[ProjectMember], meeting_date: 
         "assignee_names": assignees.names,
         "assignees": assignees.logins,
         "unresolved_assignees": assignees.unresolved,
+        "unmatched_assignees": assignees.unmatched,
         "due": {"text": due.text, "date": due.date, "time": due.time},
         "expected": {"raw": expected.raw, "kind": expected.kind, "keys": expected.keys},
         "title": "",
@@ -652,12 +653,17 @@ class AgentNodes:
     def unconfirmed_reason(t: dict[str, Any]) -> str | None:
         """GitHub에 쓰기 전 담당자 확정 여부. 사람이 확정하지 않은 항목은 PUBLISH_ON_RUN이어도 쓰지 않는다.
 
-        담당자 없음도 미확정이다: 제품 흐름에서 담당자 없는 티켓은 ASSIGNEE_REQUIRED(담당 지정 필요)이고,
-        담당자가 지정해야 확인(CONFIRMED)과 발행으로 넘어간다.
+        담당자가 없거나 이름이 어떤 프로젝트 멤버와도 맞지 않으면 미확정이다: 제품 흐름에서 이런 티켓은
+        ASSIGNEE_REQUIRED(담당 지정 필요)이고, 담당자가 지정해야 확인(CONFIRMED)과 발행으로 넘어간다.
+        이름이 멤버와 맞고 GitHub 계정만 없는 경우는 담당자가 정해진 것이라 막지 않는다 (본문에 계정 미매핑으로 남는다).
         """
-        if t.get("unresolved_assignees"):
-            return "담당자 미확정: " + ", ".join(t["unresolved_assignees"]) + " (자동 발행하지 않음)"
-        if not t.get("assignees"):
+        # unmatched_assignees가 없는 티켓(이전 체크포인트)은 계정 없음과 구분할 수 없어 보수적으로 unresolved를 쓴다
+        unmatched = t.get("unmatched_assignees")
+        if unmatched is None:
+            unmatched = t.get("unresolved_assignees") or []
+        if unmatched:
+            return "담당자 미확정: " + ", ".join(unmatched) + " (자동 발행하지 않음)"
+        if not t.get("assignee_names") and not t.get("assignees"):
             return "담당자 미확정: 지정된 담당자가 없어 자동 발행하지 않음"
         return None
 

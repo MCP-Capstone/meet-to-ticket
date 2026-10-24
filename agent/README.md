@@ -446,7 +446,7 @@ Notion 기획 문서는 회의록과 관련 있는 문서만 읽는다 (AI-MCP �
 - 담당자의 직군은 기준으로 쓰지 않는다. 분류는 제안이고 담당자가 카드에서 바꿀 수 있다 (TASK-031)
 - 중복 판단은 `GITHUB` 티켓만 한다 (기획 1.7.2)
 - `PUBLISH_ON_RUN=true`(Phase 1 baseline)는 분류와 상관없이 GitHub로만 발행하고 공지를 만들지 않는다
-- `PUBLISH_ON_RUN=true`여도 담당자 미확정(`unresolved_assignees`)/없음이거나 확인 필요(검수 미통과, `NEEDS_CHECK`)인 티켓은 발행하지 않고 `BLOCKED`와 사유(`reason`)로 남긴다. `PUBLISH_ON_RUN=true`는 환경과 무관하게 `ALLOW_AUTO_PUBLISH=true` 승인 없이는 기동하지 않는다(`DRY_RUN=true`면 외부에 쓰지 않으므로 예외)
+- `PUBLISH_ON_RUN=true`여도 담당자가 없거나 회의록 담당자 이름이 어떤 프로젝트 멤버와도 맞지 않거나(`unmatched_assignees`) 확인 필요(검수 미통과, `NEEDS_CHECK`)인 티켓은 발행하지 않고 `BLOCKED`와 사유(`reason`)로 남긴다. 이름이 멤버와 맞고 GitHub 계정만 없는 담당자(`unresolved_assignees`)는 막지 않고 본문에 계정 미매핑으로 남긴다. `PUBLISH_ON_RUN=true`는 환경과 무관하게 `ALLOW_AUTO_PUBLISH=true` 승인 없이는 기동하지 않는다(`DRY_RUN=true`면 외부에 쓰지 않으므로 예외)
 
 결과 `contentJson`에는 `publish_target`(`GITHUB`/`NOTION`/`SLACK`)과 `target_reason`이 들어가고, 대상별 출력문이 붙는다.
 

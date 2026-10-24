@@ -29,22 +29,26 @@ def split_names(raw: str) -> list[str]:
 class Assignees:
     names: list[str]
     logins: list[str]
-    unresolved: list[str]
+    unresolved: list[str]  # GitHub 로그인을 못 정한 이름 (멤버 불일치 + 계정 없음). 본문의 "계정 미매핑" 표기
+    unmatched: list[str] = field(default_factory=list)  # 어떤 멤버와도 이름이 맞지 않은 이름. 담당자를 정할 수 없다
 
 
 def map_assignees(names: list[str], members: list[ProjectMember]) -> Assignees:
     by_name = {m.name.strip(): m for m in members}
     logins: list[str] = []
     unresolved: list[str] = []
+    unmatched: list[str] = []
     for name in names:
         member = by_name.get(name)
+        if member is None:
+            unmatched.append(name)
         login = (member.github_name or "").strip() if member else ""
         if login:
             if login not in logins:
                 logins.append(login)
         else:
             unresolved.append(name)
-    return Assignees(names=names, logins=logins, unresolved=unresolved)
+    return Assignees(names=names, logins=logins, unresolved=unresolved, unmatched=unmatched)
 
 
 # ---------------------------------------------------------------- 기한
