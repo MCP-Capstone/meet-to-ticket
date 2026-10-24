@@ -58,8 +58,8 @@
 
 공통:
 
-- 재시도 API(`PublishService.retry`)는 담당자와 `FAILED` 상태를 검사하고, 재대조할 수 없는 대상(Notion, Slack)의 결과 불명(`MANUAL_CHECK`)이면 409로 막는다. 그 밖에는 `retryable` 값을 보지 않는다. `retryable=false`인 실패(예: `NOTION_ROOT_MISSING`)도 API로 반복 호출할 수 있고, 화면의 "다시 시도" 버튼도 `retryable`로 막지 않는다. 원인을 고치지 않으면 같은 실패가 반복된다 (이슈 #282).
-- 기존 Issue 갱신(`UPDATE`)에서 본문 섹션은 추가됐지만 알림 댓글만 실패하면 티켓은 `UPDATED` + `COMMENT_FAILED` + `retryable=true`로 남는다. 재시도 API는 `FAILED`만 받으므로 이 티켓은 재시도로 댓글을 다시 보낼 수 없다 (이슈 #283).
+- 재시도 API(`PublishService.retry`)는 담당자와 `FAILED` 상태를 검사하고, `MANUAL_CHECK`이면 409로 막는다. `retryable=false`도 `409 PUBLISH_RETRY_NOT_ALLOWED`로 거절하고 화면 버튼을 비활성화한다. 원인·설정을 해결한 뒤 수정→재승인 경로를 이용한다 (#291).
+- 기존 Issue 갱신(`UPDATE`)에서 알림 댓글만 실패하면 `UPDATED + COMMENT_FAILED`를 유지한다. 담당자는 전용 `POST /api/tickets/{ticketId}/retry-comment`로 댓글만 다시 보낼 수 있다. 실제 갱신한 이슈 번호를 사용하며 LLM·재대조·본문 PATCH를 실행하지 않는다. `meettoticket:update-comment` 표식을 먼저 확인하고, 댓글 조회가 불완전하면 전송하지 않는다. 응답 유실에도 본문 성공은 유지한다 (#291).
 - 실패 티켓은 재시도 대신 "수정하려고 검토 대기로 되돌리기"(`TicketService.revise`)도 할 수 있다. 되돌리면 지난 발행 결과는 비우고, 결과 불명이었다는 사실만 `previousOutcomeUnknown`으로 남겨 다음 발행에서 재대조를 강제한다. `MANUAL_CHECK` 실패는 확인 결과를 먼저 남겨야 하므로 되돌리기도 409다.
 - 결과 불명이 남아 있으면(`mustRecheckOnPublish`) 검토 대기에서도 발행 대상을 바꿀 수 없다 (`PUBLISH_TARGET_LOCKED`, 409). 같은 업무가 두 대상에 생기는 것을 막으려는 잠금이며, 본문 수정은 할 수 있다. 그 대상에서 결론(GitHub 재시도 재대조, Notion/Slack 확인 결과)을 내면 풀린다.
 - 확실한 성공이 오면 지난 결과 불명 표시는 풀린다. 실패가 오면 이어진다.
@@ -110,7 +110,7 @@
 - 원인: 쓰기 요청을 보낸 뒤 예외가 난 경우(Agent 내부 `UNKNOWN` 상태), Agent 보고에 빠진 티켓, 기한 안에 보고가 오지 않은 묶음.
 - 저장: 티켓은 `FAILED` + `outcomeUnknown=true`로 저장된다 (`RESULT_UNKNOWN`, `RESULT_MISSING`, `RESULT_TIMEOUT` 등의 오류 코드).
 - 기한 정리: 접수 확인에 실패했거나 Agent가 보고하지 못한 묶음은 기한(`app.publish.result-timeout`, 기본 30분)이 지나면 `PublishBatchExpiry`가 1분(`app.publish.expire-interval-ms`, 기본 60000) 주기로 `RESULT_TIMEOUT` 실패로 끝낸다. 그 전까지 티켓은 발행 중에 머문다.
-- 화면(GitHub 등 `RETRY`): 실패 카드에 "{도구명}에 이미 반영됐을 수 있습니다. 확인 후 다시 시도하세요"를 보여 주고, "{도구명}에서 반영 여부를 확인했습니다" 체크 후에만 "다시 시도"가 활성화된다.
+- 화면(GitHub 등 `RETRY`): 결과 불명 안내와 확인 체크박스를 표시한다. `retryable=true`이고 확인한 경우만 "다시 시도"가 활성화된다. `RESULT_TIMEOUT`/`RESULT_MISSING`처럼 재시도 불가인 결과는 원인 확인 후 수정→재승인 경로를 사용하며, 지난 결과 불명 표시는 유지해 Agent 재대조를 강제한다.
 - 화면(Notion/Slack, `MANUAL_CHECK`): 다시 시도 대신 "이미 반영됨"/"반영되지 않음" 버튼과 선택 링크 입력을 보여 준다. 각각 확인 창을 거쳐 `resolve-outcome`을 호출한다. 결과 화면(`PublishBatchResult.tsx`)에는 "{도구명}에 반영됐을 수 있습니다. 다시 시도하기 전에 확인하세요."라는 다른 문구가 있다.
 - 자동 회수(자동으로 반영 여부를 확인해 상태를 바로잡는 것)와 "발행 확인 중" 표시, 5분 뒤 수동 확인 전환은 코드에 없다. 코드가 하는 재대조는 사용자가 다시 시도할 때 대상별로 돌아간다 (2.3 참고).
 
@@ -127,9 +127,9 @@
 ## 5. 알려진 한계와 확인 필요 항목
 
 - Slack 공지 일괄 발행은 backend(`PublishService.publishable`)와 Agent(`batch_publish.py` SLACK 분기)에 구현되어 있다.
-- 알려진 한계 (`MCP_UNAVAILABLE` 오분류, 이슈 #284): `agent/publisher.py`의 `error_from_exception`은 예외 문구에 `connect` 등이 있으면, 쓰기 요청을 보낸 뒤 발생한 예외도 `ambiguous`가 아닌 `MCP_UNAVAILABLE`로 만든다. 이 경우 `FAILED`, `outcomeUnknown=false`, `retryable=true`로 저장되어 결과 불명 처리(확인 체크박스, `MANUAL_CHECK`) 없이 재시도되고, 재대조가 없는 Notion/Slack은 중복 페이지/공지가 생길 수 있다.
-- 알려진 한계 (`retryable=false` 재시도, 이슈 #282): 2.3 참고.
-- 알려진 한계 (`COMMENT_FAILED` 재시도 경로 없음, 이슈 #283): 2.3 참고.
+- #291: HTTP 연결·풀 확보 실패처럼 미전송이 확인되는 경우만 `MCP_UNAVAILABLE`로 분류한다. 쓰기 요청의 읽기·쓰기·연결 종료 오류는 MCP에서 `[RESULT_UNKNOWN]`으로 전달하고 Agent가 `UNKNOWN`으로 보존한다. 단계가 불명인 Agent 쓰기 예외도 보수적으로 `UNKNOWN`이다. Slack 게시 후 링크 조회 실패, Notion 페이지 생성 후 나머지 본문 추가 실패도 단순 재발행하지 않도록 확인 대상으로 남긴다.
+- 재시도 제한과 알림 댓글 복구 경로는 2.3을 참고한다 (#291).
+- 댓글 표식은 이번 수정 이후의 UPDATE 알림에 포함된다. 과거 표식 없는 댓글이나 Agent 재시작·장시간 실행과 겹치는 경쟁 조건의 정확히 한 번 처리는 보장하지 않는다. DB 예약·멱등성 복구 작업(#263)은 별도 범위다.
 - 해소됨: Slack 메시지 링크는 Agent가 MCP 응답의 `permalink`를 읽어 `message_url`로 저장한다 (`batch_publish.py`). Notion/Slack 결과 불명 뒤 재발행 차단과 수동 확인 해소 흐름(`resolve-outcome`)은 2.3에 있다.
 - 결과 화면 링크 허용 도메인은 `frontend/src/batchPublish.ts`의 `safePublishUrl`이 대상별로 검사한다.
 

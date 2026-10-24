@@ -93,6 +93,21 @@ public class PublishService {
             if (ticket.getTicketStatus() != TicketStatus.FAILED) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
             // 재대조할 수 없는 대상의 결과 모름은 Agent가 어차피 막으므로, 확인 결과(resolve-outcome)를 먼저 남겨야 한다 (#280).
             if (PublishResolution.of(ticket) == PublishResolution.MANUAL_CHECK) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+			if (!ticket.isPublishRetryable()) throw new BusinessException(ErrorCode.PUBLISH_RETRY_NOT_ALLOWED);
+			return prepare(userId, List.of(ticket));
+		}));
+	}
+
+	// UPDATED를 일반 재발행하지 않고 알림 댓글만 보낸다. 같은 행 잠금으로 중복 클릭도 차단한다.
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	public Started retryComment(UUID ticketId, Long userId) {
+		return dispatch(tx.execute(status -> {
+			TaskItem ticket = items.findForUpdate(ticketId).orElseThrow(() -> new BusinessException(ErrorCode.TICKET_NOT_FOUND));
+			var assignee = ticket.getAssignee();
+			if (assignee == null || assignee.getUser() == null || !assignee.getUser().getId().equals(userId))
+				throw new BusinessException(ErrorCode.TICKET_ASSIGNEE_REQUIRED);
+			if (ticket.getTicketStatus() != TicketStatus.UPDATED || !ticket.isCommentRetry())
+				throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
             return prepare(userId, List.of(ticket));
         }));
     }
@@ -172,12 +187,17 @@ public class PublishService {
             record(ticket, r);
         }
         // 보고에 없는 티켓은 발행됐는지 알 수 없다. 실패로 두되 결과 모름으로 구분한다.
-        for (TaskItem ticket : waiting.values())
+		for (TaskItem ticket : waiting.values()) {
+			if (ticket.isCommentRetry()) {
+				recordCommentFailure(ticket, "알림 댓글 결과를 받지 못했습니다. 다시 보내면 기존 댓글 표식을 먼저 확인합니다.");
+				continue;
+			}
             ticket.recordPublishResult(
                     TicketStatus.FAILED, null, null, null,
                     result.errorCode() != null ? result.errorCode() : "RESULT_MISSING",
                     result.errorMessage() != null ? result.errorMessage() : "발행 결과를 받지 못했습니다.",
                     false, true);
+		}
 
         List<TaskItem> all = items.findByBatch(batchId);
         long failed = all.stream().filter(i -> i.getTicketStatus() == TicketStatus.FAILED).count();
@@ -192,6 +212,16 @@ public class PublishService {
     }
 
     private void record(TaskItem ticket, PublishGateway.Item r) {
+		if (ticket.isCommentRetry()) {
+			// 댓글 실패/응답 유실 때문에 이미 완료한 본문 갱신을 FAILED로 되돌리지 않는다.
+			if (!"UPDATED".equals(r.status()) || r.errorCode() != null) {
+				recordCommentFailure(ticket, r.errorMessage() != null ? r.errorMessage() : "알림 댓글 결과를 확인하지 못했습니다.");
+			} else {
+				ticket.recordPublishResult(TicketStatus.UPDATED, ProcessingType.UPDATE,
+						ticket.getGithubIssueNumber(), ticket.getGithubIssueUrl(), null, null, false, false);
+			}
+			return;
+		}
         ProcessingType executed = parse(r.processingType());
         // 저장 칸 이름은 githubIssueUrl이지만 Notion 대상은 만든 페이지 URL을, Slack 대상은 게시한 메시지 URL을 담는다(스키마는 그대로).
         String url = r.notionPageUrl() != null ? r.notionPageUrl() : r.messageUrl() != null ? r.messageUrl() : r.githubIssueUrl();
@@ -207,6 +237,11 @@ public class PublishService {
                     r.errorCode() != null ? r.errorCode() : "PUBLISH_FAILED", r.errorMessage(), retryable(r), false);
         }
     }
+
+	private void recordCommentFailure(TaskItem ticket, String message) {
+		ticket.recordPublishResult(TicketStatus.UPDATED, ProcessingType.UPDATE,
+				ticket.getGithubIssueNumber(), ticket.getGithubIssueUrl(), "COMMENT_FAILED", message, true, false);
+	}
 
     private static boolean retryable(PublishGateway.Item r) {
         return Boolean.TRUE.equals(r.retryable());

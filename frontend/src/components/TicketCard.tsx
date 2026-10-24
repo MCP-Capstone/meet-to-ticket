@@ -3,7 +3,7 @@ import { api, ApiRequestError } from '../api'
 import type { MyTicket, ProjectMember, TicketAction, TicketEditRequest, TicketStatus } from '../api'
 import { canUseExistingIssue, publicationRequest } from '../ticketPublication'
 import { validMeetingDate } from '../meetingInput'
-import { failureGuide, needsOutcomeCheck, needsPermissionFix } from '../publishFailure'
+import { canRetryComment, canRetryFailure, failureGuide, needsOutcomeCheck, needsPermissionFix } from '../publishFailure'
 import { safePublishUrl, toolName } from '../batchPublish'
 import { TicketDedupeDetails } from './TicketDedupeDetails'
 import { TicketPublicationPreview } from './TicketPublicationPreview'
@@ -227,9 +227,10 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
         {publicationDirty && <p className="notice">아직 저장하지 않은 발행 설정입니다. 카드와 미리보기는 저장된 설정을 표시합니다.</p>}
       </fieldset>}
       <TicketPublicationPreview ticket={ticket} dirty={dirty} />
-      {ticket.status === 'FAILED' && ticket.publishFailure && (
+      {(ticket.status === 'FAILED' || canRetryComment(ticket)) && ticket.publishFailure && (
         <div className="publish-failure" role="alert">
           <p className="error">{failureGuide(ticket.publishFailure)}</p>
+          {ticket.status === 'FAILED' && !ticket.publishFailure.retryable && !needsOutcomeCheck(ticket.publishFailure) && <p className="notice">이 오류는 바로 재시도할 수 없습니다. 오류 원인이나 프로젝트 설정을 해결한 뒤 ‘수정’으로 돌아가 내용을 확인하고 다시 승인해 주세요.</p>}
           {needsOutcomeCheck(ticket.publishFailure) ? <>
             <p className="notice">{toolName[ticket.publishTarget]}에 이미 반영됐을 수 있는데, 반영 여부를 자동으로 확인할 수 없어 다시 시도하면 중복될 수 있습니다. {toolName[ticket.publishTarget]}에서 확인한 결과를 알려 주세요. 반영되지 않았다면 다시 시도할 수 있게 됩니다.</p>
             {checkUrl && <a href={checkUrl} target="_blank" rel="noreferrer">{toolName[ticket.publishTarget]}에서 확인하기</a>}
@@ -280,9 +281,11 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
             <button type="button" className="secondary" disabled={busy || blocked} onClick={startPublicationEditing}>발행 설정 수정</button>
           </>}
           {ticket.status === 'FAILED' && !(ticket.publishFailure && needsOutcomeCheck(ticket.publishFailure)) && <>
-            <button type="button" className="primary" disabled={busy || pending || blocked || Boolean(ticket.publishFailure?.outcomeUnknown && !checked)}
+            <button type="button" className="primary" disabled={busy || pending || blocked || !canRetryFailure(ticket.publishFailure) || Boolean(ticket.publishFailure?.outcomeUnknown && !checked)}
               onClick={() => void perform(async () => { await api.retryTicket(ticket.ticketId); clearOutcomeInput(); return { ...ticket, status: 'PUBLISHING', publishFailure: null } })}>{pending ? '처리 중...' : '다시 시도'}</button>
           </>}
+          {canRetryComment(ticket) && <button type="button" className="primary" disabled={busy || pending || blocked}
+            onClick={() => void perform(async () => { await api.retryTicketComment(ticket.ticketId); return { ...ticket, status: 'PUBLISHING', publishFailure: null } })}>{pending ? '처리 중...' : '알림 댓글 다시 보내기'}</button>}
           {(actions[ticket.status] ?? []).filter(({ action }) => !(action === 'revise' && ticket.publishFailure && needsOutcomeCheck(ticket.publishFailure))).map(({ action, label }) => <button type="button" key={action} className={action === 'confirm' ? 'primary' : 'secondary'} disabled={busy || pending || blocked} onClick={() => void perform(() => api.changeTicketStatus(ticket.ticketId, action))}>{pending ? '처리 중...' : label}</button>)}
         </>}
       </div>

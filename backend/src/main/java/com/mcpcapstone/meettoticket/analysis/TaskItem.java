@@ -209,7 +209,14 @@ public class TaskItem {
     // Agent가 접수하지 않은 것이 확실하면 담기 전 상태(확인 또는 실패)로 돌려놓는다.
     public void cancelPublishing() {
         this.publishBatch = null;
-        this.ticketStatus = this.publishErrorCode != null ? TicketStatus.FAILED : TicketStatus.CONFIRMED;
+		this.ticketStatus = isCommentRetry() ? TicketStatus.UPDATED
+				: this.publishErrorCode != null ? TicketStatus.FAILED : TicketStatus.CONFIRMED;
+	}
+
+	public boolean isCommentRetry() {
+		return publishTarget == PublishTarget.GITHUB && processingType == ProcessingType.UPDATE
+				&& "COMMENT_FAILED".equals(publishErrorCode) && githubIssueNumber != null
+				&& (ticketStatus == TicketStatus.UPDATED || ticketStatus == TicketStatus.PUBLISHING);
     }
 
     public void recordPublishResult(

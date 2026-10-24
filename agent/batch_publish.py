@@ -69,6 +69,7 @@ def publication_preview(source: PublishTicket) -> dict[str, Any]:
         else:
             body = change_section(ticket, meeting_date=date, meeting_title=source.meeting_title)
             secondary = change_note(meeting_date=date, meeting_title=source.meeting_title)
+            secondary += "\n\n" + marker("update-comment", source, ticket)
         # 원문은 보존하면서 담당자가 저장한 설명도 실제 댓글/추가 섹션에 반영한다.
         description = (ticket.get("description") or "").strip()
         if description and description != (ticket.get("action_text") or "").strip():
@@ -123,6 +124,20 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
     number = handling.get("issue_number")
     sent = False  # GitHub 쓰기 요청을 보낸 뒤의 예외는 결과를 모르므로 UNKNOWN으로 남긴다
     try:
+        if source.retry_comment_only:
+            if source.publish_target != "GITHUB" or kind != "UPDATE" or not number:
+                raise ToolCallError("INVALID_ARGUMENT", "댓글 재전송은 갱신 완료한 GitHub 이슈만 가능합니다")
+            found = await _already_applied(publisher, source, number, marker("update-comment", source, ticket))
+            out = found or await publisher.add_comment(
+                owner=source.project.github_owner, repo=source.project.github_repo, number=number,
+                body=publication_preview(source)["secondaryBody"],
+            )
+            if out.get("status") == "dry_run":
+                raise ToolCallError("COMMENT_FAILED", "댓글을 실제 전송하지 않았습니다")
+            return PublishItemResult(ticket_id=source.ticket_id, processing_type="UPDATE", status="UPDATED",
+                                     github_issue_number=number,
+                                     github_issue_url=f"https://github.com/{source.project.github_owner}/{source.project.github_repo}/issues/{number}",
+                                     comment_url=out.get("url"))
         if source.publish_target == "SLACK":
             channel_id = source.project.slack_channel_id
             if not channel_id:
@@ -215,12 +230,24 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
                                  github_issue_number=out.get("number"), github_issue_url=out.get("url"),
                                  dropped_labels=out.get("dropped_labels") or [])
     except ToolCallError as exc:
+        if source.retry_comment_only:
+            return _comment_failure(source, exc.message)
         return _failure(source.ticket_id, kind, exc)
     except Exception as exc:  # noqa: BLE001
         # 한 티켓의 예외가 묶음 전체를 멈추면 앞서 발행된 결과까지 사라져 재요청 때 중복 발행된다.
         log.exception("티켓 발행 중 예상하지 못한 오류 ticket=%s", source.ticket_id)
+        if source.retry_comment_only:
+            return _comment_failure(source, f"{type(exc).__name__}: {exc}")
         return _failure(source.ticket_id, kind,
                         ToolCallError(PUBLISH_FAILED, f"{type(exc).__name__}: {exc}", ambiguous=sent))
+
+
+def _comment_failure(source: PublishTicket, message: str) -> PublishItemResult:
+    # 본문 갱신 성공은 유지한다. 다음 재전송도 반드시 댓글 표식을 먼저 확인한다.
+    return PublishItemResult(ticket_id=source.ticket_id, processing_type="UPDATE", status="UPDATED",
+                             github_issue_number=source.target_issue_number,
+                             github_issue_url=f"https://github.com/{source.project.github_owner}/{source.project.github_repo}/issues/{source.target_issue_number}",
+                             error_code="COMMENT_FAILED", error_message=message[:1000], retryable=True)
 
 
 async def publish_batch(request: PublishBatchRequest, publisher: Any) -> PublishBatchResult:

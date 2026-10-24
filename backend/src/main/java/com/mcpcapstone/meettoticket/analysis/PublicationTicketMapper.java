@@ -30,6 +30,11 @@ public class PublicationTicketMapper {
 			if (target == null) type = ProcessingType.CREATE;
 		}
 		PublishTarget publishTarget = i.getPublishTarget();
+		boolean commentOnly = i.isCommentRetry();
+		if (commentOnly) {
+			type = ProcessingType.UPDATE;
+			target = i.getGithubIssueNumber(); // 재대조 후 실제 갱신한 이슈. 초기 dedupe 대상과 다를 수 있다.
+		}
 		return new PublishGateway.Ticket(
 				i.getId().toString(),
 				new PublishGateway.Project(project.getId(), project.getName(), project.getGithubOwner(), project.getGithubRepo(),
@@ -37,7 +42,7 @@ public class PublicationTicketMapper {
 				meeting.getId(), meeting.getTitle(), meeting.getMeetingDate(),
 				i.getTitle(), content, type.name(), target, edited, i.mustRecheckOnPublish(),
 				publishTarget.name(), publishTarget == PublishTarget.SLACK ? slackMembers(project.getId()) : List.of(),
-				"CONFIRMED");
+				"CONFIRMED", commentOnly);
 	}
 
 	// Slack 연결이 확인된 멤버만 멘션할 수 있다. 이름은 공지 문구의 검토자 이름과 맞춘다.

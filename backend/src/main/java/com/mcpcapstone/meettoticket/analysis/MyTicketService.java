@@ -40,6 +40,8 @@ public class MyTicketService {
         JsonNode content = json.read(i.getContentJson());
         JsonNode due = content.path("due");
         var assignee = i.getAssignee();
+		boolean showFailure = i.getTicketStatus() == TicketStatus.FAILED
+				|| (i.getTicketStatus() == TicketStatus.UPDATED && i.getPublishErrorCode() != null);
         return new Ticket(
                 i.getId(),
                 i.getTitle(),
@@ -56,7 +58,7 @@ public class MyTicketService {
                 content.path("description").asText(null),
                 new Due(blankToNull(due.path("text").asText(null)), date(due.path("date").asText(null)), blankToNull(due.path("time").asText(null))),
                 assignee == null ? null : new Assignee(assignee.getId(), assignee.getName()),
-                i.getTicketStatus() == TicketStatus.FAILED ? failure(i, meeting.getProject()) : null,
+				showFailure ? failure(i, meeting.getProject()) : null,
                 i.mustRecheckOnPublish());
     }
 
@@ -136,7 +138,7 @@ public class MyTicketService {
             @Schema(description = "티켓 본문(작업 내용). 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "CSV 내보내기에서 결과가 비면 오류가 난다.") String description,
             @Schema(description = "기한", requiredMode = Schema.RequiredMode.REQUIRED) Due due,
             @Schema(description = "담당 멤버. 담당 지정 필요 상태면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) Assignee assignee,
-            @Schema(description = "발행 실패 사유. 실패 상태가 아니면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) PublishFailure publishFailure,
+			@Schema(description = "발행 실패 또는 갱신 알림 댓글 실패 사유. 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) PublishFailure publishFailure,
             @Schema(description = "발행 대상을 바꿀 수 없는지. 결과를 모르는 발행이 남아 있으면 true이고, 그 대상에서 결론을 낼 때까지 발행 대상 변경은 409 PUBLISH_TARGET_LOCKED다. 본문 수정은 할 수 있다", requiredMode = Schema.RequiredMode.REQUIRED, example = "false") boolean publishTargetLocked) {}
 
     public record PublishFailure(

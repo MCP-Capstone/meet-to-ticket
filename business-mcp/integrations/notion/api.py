@@ -11,7 +11,8 @@ from typing import Any
 
 import httpx
 
-from common import INVALID_ARGUMENT, env, make_http_client, tool_error
+from common import INVALID_ARGUMENT, env, make_http_client, request_with_outcome, tool_error
+from mcp.server.mcpserver.exceptions import ToolError
 from integrations.notion import blocks
 
 API_BASE = "https://api.notion.com/v1"
@@ -78,7 +79,7 @@ def raise_for_status(resp: httpx.Response) -> None:
 
 
 def request(client: httpx.Client, method: str, path: str, **kwargs: Any) -> httpx.Response:
-    resp = client.request(method, path, **kwargs)
+    resp = request_with_outcome(client, method, path, **kwargs)
     raise_for_status(resp)
     return resp
 
@@ -184,6 +185,10 @@ def create_page(client: httpx.Client, root_page_url_or_id: str, title: str, mark
     groups = blocks.batches(page_blocks)
     page = _create_page(client, folder_id, title, groups[0] if groups else [])
     # 페이지 생성 API는 children 100개까지만 받는다. 남은 본문은 생성한 페이지에 이어 붙인다.
-    for group in groups[1:]:
-        request(client, "PATCH", f"/blocks/{page['id']}/children", json={"children": group})
+    try:
+        for group in groups[1:]:
+            request(client, "PATCH", f"/blocks/{page['id']}/children", json={"children": group})
+    except (ToolError, httpx.HTTPError) as exc:
+        # 페이지는 이미 존재한다. 전체 재시도로 두 번째 페이지를 만들지 않게 확인 대상으로 남긴다.
+        raise tool_error("RESULT_UNKNOWN", f"Notion 페이지 생성 후 본문 추가를 완료하지 못했습니다. {page.get('url', '')} 확인 필요: {exc}") from exc
     return {"status": "created", "page_id": page.get("id"), "url": page.get("url"), "folder_page_id": folder_id}

@@ -20,7 +20,7 @@ function read(user: User): StoredTicket[] {
   const statuses: MyTicket['status'][] = ['PENDING_REVIEW', 'PENDING_REVIEW', 'CONFIRMED', 'REJECTED', 'FAILED', 'FAILED', 'FAILED']
   const titles = ['CSV 빈 결과 오류 수정', '다운로드 완료 안내 개선', '파일명 날짜 형식 정리', '내보내기 도움말 작성', '내보내기 권한 오류 처리', '대용량 CSV 분할 다운로드', 'CSV 점검 회의 공지']
   const failures: Record<number, MyTicket['publishFailure']> = {
-    4: { errorCode: 'GITHUB_FORBIDDEN', errorMessage: 'GitHub 저장소 권한이 없습니다.', failureCategory: 'REPOSITORY_PERMISSION', retryable: true, outcomeUnknown: false, resolution: 'RETRY', checkUrl: null },
+    4: { errorCode: 'GITHUB_FORBIDDEN', errorMessage: 'GitHub 저장소 권한이 없습니다.', failureCategory: 'REPOSITORY_PERMISSION', retryable: false, outcomeUnknown: false, resolution: 'RETRY', checkUrl: null },
     5: { errorCode: 'RESULT_UNKNOWN', errorMessage: '요청은 보냈지만 결과를 받지 못했습니다.', failureCategory: 'OTHER', retryable: true, outcomeUnknown: true, resolution: 'RETRY', checkUrl: 'https://github.com/example/meet-to-ticket/issues' },
     // Slack, Notion은 이미 반영됐는지 자동으로 확인할 수 없어 확인 결과를 남겨야 한다 (#280)
     6: { errorCode: 'SLACK_VERIFY_REQUIRED', errorMessage: '이전 Slack 공지 결과를 알 수 없어 다시 보내지 않았습니다.', failureCategory: 'OTHER', retryable: false, outcomeUnknown: true, resolution: 'MANUAL_CHECK', checkUrl: 'https://slack.com/app_redirect?channel=C0EXAMPLE' },
@@ -115,11 +115,33 @@ export function retryMockTicket(user: User, ticketId: string) {
   const { tickets, ticket } = owned(user, ticketId)
   if (ticket.status !== 'FAILED') throw fail(409, 'TICKET_STATUS_CONFLICT', '실패한 티켓만 다시 시도할 수 있습니다.')
   if (ticket.publishFailure?.resolution === 'MANUAL_CHECK') throw fail(409, 'TICKET_STATUS_CONFLICT', '확인 결과를 먼저 남겨 주세요.')
-  ticket.status = 'PUBLISHED'
-  ticket.publishTargetLocked = false
+  if (!ticket.publishFailure?.retryable) throw fail(409, 'PUBLISH_RETRY_NOT_ALLOWED', '오류 원인을 해결한 뒤 수정·재승인해 주세요.')
+  return queueMockRetry(user, tickets, ticket)
+}
+
+export function retryMockTicketComment(user: User, ticketId: string) {
+  const { tickets, ticket } = owned(user, ticketId)
+  if (ticket.status !== 'UPDATED' || ticket.publishTarget !== 'GITHUB' || ticket.publishFailure?.errorCode !== 'COMMENT_FAILED')
+    throw fail(409, 'TICKET_STATUS_CONFLICT', '알림 댓글 실패 티켓만 다시 보낼 수 있습니다.')
+  return queueMockRetry(user, tickets, ticket)
+}
+
+function queueMockRetry(user: User, tickets: StoredTicket[], ticket: StoredTicket) {
+  const batchId = crypto.randomUUID()
+  const batches = readBatches()
+  batches.push({ userId: user.userId, result: {
+    batchId, status: 'RUNNING', executionMode: 'MOCK', createdAt: new Date().toISOString(), finishedAt: null,
+    summary: { total: 1, published: 0, linked: 0, updated: 0, failed: 0, publishing: 1 },
+    tickets: [{ ticketId: ticket.ticketId, title: ticket.title, status: 'PUBLISHING', processingType: ticket.processingType,
+      projectId: ticket.projectId, projectName: ticket.projectName, githubIssueNumber: null,
+      githubIssueUrl: null, errorCode: null, errorMessage: null, failureCategory: null,
+      retryable: false, outcomeUnknown: false, publishTarget: ticket.publishTarget }],
+  } })
+  sessionStorage.setItem(BATCH_KEY, JSON.stringify(batches))
+  ticket.status = 'PUBLISHING'
   ticket.publishFailure = null
   write(tickets)
-  return { batchId: crypto.randomUUID(), count: 1 }
+  return { batchId, count: 1 }
 }
 
 export function resolveMockTicketOutcome(user: User, ticketId: string, body: TicketOutcomeResolution) {
