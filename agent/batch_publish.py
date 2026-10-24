@@ -127,7 +127,8 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
     """이미 재대조가 반영된 티켓 하나를 CREATE/LINK/UPDATE로 실행한다."""
     ticket = _ticket(source)
     handling = ticket["handling"]
-    kind = handling["type"]
+    # Slack·Notion은 항상 신규 발행이다 (백엔드 REQ-015). 저장된 유형이 달라도 실패 결과까지 CREATE로 보고한다 (#297)
+    kind = handling["type"] if source.publish_target == "GITHUB" else "CREATE"
     number = handling.get("issue_number")
     sent = False  # GitHub 쓰기 요청을 보낸 뒤의 예외는 결과를 모르므로 UNKNOWN으로 남긴다
     try:
