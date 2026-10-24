@@ -6,7 +6,7 @@ import { Spinner } from './Spinner'
 
 interface Props {
   taskId: string
-  meetingTitle: string
+  meetingTitle?: string
   onFinish: (task: AnalysisTask) => void
   onCancel: () => void
 }
@@ -50,9 +50,7 @@ export function AnalysisProgress({ taskId, meetingTitle, onFinish, onCancel }: P
       <Spinner label="처리 상태 확인 중" />
       <div>
         <h2 aria-live="polite">{progressHeading(task)}</h2>
-        <p className="muted">
-          <strong>{meetingTitle}</strong> / 경과 {elapsed}
-        </p>
+        <p className="muted">{meetingTitle && <><strong>{meetingTitle}</strong> / </>}경과 {elapsed}</p>
       </div>
 
       {missingProgress && <p className="muted" role="status">상세 진행 단계를 확인할 수 없어 작업 상태를 계속 확인하고 있습니다.</p>}

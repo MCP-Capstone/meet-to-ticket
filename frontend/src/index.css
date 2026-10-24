@@ -805,23 +805,7 @@ button.secondary {
   min-width: 0;
 }
 .upload-settings input { min-width: 0; }
-.upload-project-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding: 14px;
-  border-radius: 8px;
-  background: var(--bg);
-  font-size: 13px;
-}
-.upload-project-summary > div {
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 12px;
-}
-.upload-project-summary dt { color: var(--muted); }
-.upload-project-summary dd { margin: 0; overflow-wrap: anywhere; }
+.upload-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dropzone:focus-within {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -829,7 +813,6 @@ button.secondary {
 @media (max-width: 560px) {
   .upload-settings { grid-template-columns: minmax(0, 1fr); }
   .upload-form .tabs button { padding: 10px 6px; font-size: 13px; }
-  .upload-project-summary > div { grid-template-columns: 84px minmax(0, 1fr); gap: 8px; }
 }
 
 /* 프로젝트 역할 (TASK-056 화면 / #172) */

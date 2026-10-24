@@ -196,7 +196,8 @@ function App() {
       // 접수 완료 후 메타데이터 조회가 실패해도 새 처리 요청을 보내지 않는다.
       setMeeting({
         meetingId: res.meetingId, projectId, meetingDate: input.meetingDate,
-        title: input.title?.trim() || input.file?.name.replace(/\.[^.]+$/, '') || `${input.meetingDate} 회의`,
+        // 회의명은 백엔드가 분석·저장한 값만 보여 준다. 입력 파일명이나 날짜로 임의 제목을 만들지 않는다.
+        title: input.title?.trim() || '',
         participantIds: [], originalFilename: input.file?.name ?? '', readyForAnalysis: true,
       })
       setTaskId(res.taskId)
@@ -441,7 +442,7 @@ function App() {
           )}
 
           {step === 'analyzing' && taskId !== null && meeting && (
-            <AnalysisProgress taskId={taskId} meetingTitle={meeting.title} onFinish={handleFinish} onCancel={reset} />
+            <AnalysisProgress taskId={taskId} meetingTitle={meeting.title || undefined} onFinish={handleFinish} onCancel={reset} />
           )}
 
           {step === 'result' && meeting && result && taskId !== null && (
