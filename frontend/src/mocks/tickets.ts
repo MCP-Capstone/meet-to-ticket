@@ -229,6 +229,10 @@ export function previewMockTicket(user: User, ticketId: string): TicketPublicati
   const lines = ['## 작업 내용', ticket.description ?? '']
   for (const [title, values] of [['상세 작업', backlog.tasks], ['완료 조건', backlog.acceptanceCriteria], ['근거', backlog.evidenceQuotes]] as const) if (values.length) lines.push(`## ${title}`, ...values.map((v) => `- ${v}`))
   lines.push('## 담당', ticket.assignee?.name ?? '미정', '## 기한', [ticket.due.text, ticket.due.date, ticket.due.time].filter(Boolean).join(' · ') || '미정')
-  return { ticketId, title: ticket.title, status: ticket.status, publishTarget: ticket.publishTarget, executionMode: 'MOCK', backlog,
-    publication: ticket.publishTarget === 'GITHUB' ? { kind: ticket.processingType, body: lines.join('\n\n'), secondaryBody: null, labels: [], githubAssignees: [], targetIssueNumber: ticket.processingType === 'CREATE' ? null : ticket.dedupe?.issue?.number ?? null } : null }
+  const publication = ticket.publishTarget === 'GITHUB'
+    ? { kind: ticket.processingType, body: lines.join('\n\n'), secondaryBody: null, labels: [], githubAssignees: [], targetIssueNumber: ticket.processingType === 'CREATE' ? null : ticket.dedupe?.issue?.number ?? null }
+    : ticket.publishTarget === 'SLACK'
+      ? { kind: 'CREATE' as const, body: ticket.description ?? '', secondaryBody: null, labels: [], githubAssignees: [], targetIssueNumber: null }
+      : null
+  return { ticketId, title: ticket.title, status: ticket.status, publishTarget: ticket.publishTarget, executionMode: 'MOCK', backlog, publication }
 }

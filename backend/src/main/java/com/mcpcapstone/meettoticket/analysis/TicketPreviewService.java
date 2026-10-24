@@ -34,6 +34,12 @@ public class TicketPreviewService {
 		if (snapshot.target() == PublishTarget.GITHUB) {
 			try { publication = gateway.render(snapshot.request()); }
 			catch (AgentException e) { throw new BusinessException(ErrorCode.TICKET_PREVIEW_UNAVAILABLE); }
+		} else if (snapshot.target() == PublishTarget.SLACK) {
+			// Agent 발행도 description을 우선하고, 이전 초안만 slack.text를 fallback으로 쓴다.
+			// 이 값을 그대로 보여 주어 저장된 문구와 실제 전송 문구가 달라지지 않게 한다.
+			String body = snapshot.backlog().description();
+			if (body == null || body.isBlank()) body = snapshot.legacySlackText();
+			publication = new TicketPreviewGateway.View("CREATE", body == null ? "" : body, null, List.of(), List.of(), null);
 		}
 		return new Result(id, snapshot.request().title(), snapshot.status(), snapshot.target(),
 				properties.getMode().equalsIgnoreCase("mock") ? "MOCK" : "LIVE", publication, snapshot.backlog());
@@ -47,14 +53,16 @@ public class TicketPreviewService {
 		JsonNode c = json.read(item.getContentJson());
 		return new Snapshot(mapper.toTicket(item), item.getTicketStatus(), item.getPublishTarget(),
 				new Backlog(c.path("description").asText(null), strings(c.path("tasks")),
-						strings(c.path("acceptance_criteria")), strings(c.path("evidence_quotes")), strings(c.path("open_questions"))));
+						strings(c.path("acceptance_criteria")), strings(c.path("evidence_quotes")), strings(c.path("open_questions"))),
+				c.path("slack").path("text").asText(null));
 	}
 	private static List<String> strings(JsonNode node) {
 		List<String> out = new ArrayList<>();
 		node.forEach(v -> { if (v.isString() && !v.asText().isBlank()) out.add(v.asText()); });
 		return out;
 	}
-	private record Snapshot(PublishGateway.Ticket request, TicketStatus status, PublishTarget target, Backlog backlog) {}
+	private record Snapshot(PublishGateway.Ticket request, TicketStatus status, PublishTarget target, Backlog backlog,
+							String legacySlackText) {}
 	public record Backlog(String description, List<String> tasks, List<String> acceptanceCriteria,
 						  List<String> evidenceQuotes, List<String> openQuestions) {}
 	public record Result(UUID ticketId, String title, TicketStatus status, PublishTarget publishTarget,

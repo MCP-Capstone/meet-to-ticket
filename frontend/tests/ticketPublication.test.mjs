@@ -21,6 +21,16 @@ test('Notion/Slack은 신규 생성으로 정규화하고 GitHub 선택은 보�
     assert.deepEqual(publicationRequest('GITHUB', type), { publishTarget: 'GITHUB', processingType: type })
   }
 })
+
+test('Slack 미리보기는 저장한 티켓 본문을 발행 기준으로 표시한다', (t) => {
+  storage(t)
+  const item = tickets.listMockTickets(user).tickets.find((ticket) => ticket.status === 'PENDING_REVIEW')
+  assert.ok(item)
+  const updated = changes(item.ticketId, 'CREATE', 'SLACK')
+  const preview = tickets.previewMockTicket(user, updated.ticketId)
+  assert.equal(preview.publication.kind, 'CREATE')
+  assert.equal(preview.publication.body, updated.description)
+})
 function storage(t) {
   const values = new Map()
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')

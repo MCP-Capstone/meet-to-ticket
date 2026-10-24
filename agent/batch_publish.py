@@ -171,7 +171,9 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             if not channel_id:
                 raise ToolCallError("INVALID_ARGUMENT", "Slack 공지에는 프로젝트 slack_channel_id가 필요합니다")
             notice = ticket.get("slack") or {}
-            text = (notice.get("text") or ticket.get("description") or "").strip()
+            # 담당자가 저장한 description이 Slack의 단일 발행 본문이다. 이전 초안에는
+            # description이 없을 수 있으므로 그때만 기존 slack.text를 호환용으로 사용한다.
+            text = (ticket.get("description") or notice.get("text") or "").strip()
             if not text:
                 raise ToolCallError("INVALID_ARGUMENT", "Slack 공지 문구가 비어 있습니다")
             reviewer_names = {r.get("name") for r in notice.get("reviewers") or []}
