@@ -164,6 +164,8 @@ docker compose down -v    # 종료 + 데이터 삭제
 - `docs/tech-stack.md`: 기술 스택
 - `docs/convention.md`: 브랜치 / 커밋 / PR 규칙
 - `docs/publish-targets.md`: 발행 대상별 매핑, 상태 대응표, 재발행/결과 불명 정책
+- `docs/revisions-and-history.md`: 에이전트 원본/수정본/발행본 리비전, 상태 이력, 승인 이력, 사용자 노출 상태, deprecated 컬럼
+- `docs/metrics/README.md`: 수정률, 승인율, 발행 성공률 지표 정의와 SQL
 - `docs/dev-env.md`: 포트, CORS, 실행 순서
 - `backend/README.md`: API, demo 프로필, 실제 Agent 연결
 - `agent/README.md`, `business-mcp/README.md`, `rag-mcp/README.md`: 개발환경과 실행

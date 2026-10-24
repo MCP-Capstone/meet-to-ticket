@@ -39,6 +39,7 @@ public enum ErrorCode {
 	TICKET_STATUS_CONFLICT(HttpStatus.CONFLICT, "현재 티켓 상태에서는 할 수 없는 작업입니다."),
 	PUBLISH_RETRY_NOT_ALLOWED(HttpStatus.CONFLICT, "자동 재시도할 수 없는 실패입니다. 오류 원인이나 프로젝트 설정을 해결한 뒤 티켓을 수정/재승인해 주세요."),
 	TICKET_UPLOADER_REQUIRED(HttpStatus.FORBIDDEN, "회의록을 올린 사람만 대표 담당을 지정할 수 있습니다."),
+	TICKET_HISTORY_FORBIDDEN(HttpStatus.FORBIDDEN, "티켓 담당자나 회의록을 올린 사람만 이력을 볼 수 있습니다."),
 	MEETING_REVIEW_INCOMPLETE(HttpStatus.CONFLICT, "해당 회의의 내 티켓을 모두 확인 또는 거절한 뒤 발행해 주세요."),
 	PUBLISH_TARGET_UNSUPPORTED(HttpStatus.CONFLICT, "현재 일괄 발행은 GitHub 티켓만 지원합니다."),
 	PUBLISH_SELECTION_CHANGED(HttpStatus.CONFLICT, "발행 대상이 변경됐습니다. 목록을 새로고침하고 다시 확인해 주세요."),

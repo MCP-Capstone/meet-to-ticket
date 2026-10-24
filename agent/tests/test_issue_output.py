@@ -26,9 +26,9 @@ TICKET = {
 
 def test_body_sections_in_order():
     body = build_issue_body(TICKET, "10min_1", "배경 문단")
-    order = ["## 작업 내용", "## 상세 작업", "## 완료 조건", "## 근거", "## 담당", "## 기한",
-             "## 관련 이슈", "## 상위 이슈", "<summary>회의 배경</summary>", "회의: 10min_1"]
-    positions = [body.index(h) for h in order]
+    order = ["## 배경", "## 작업 범위", "## 작업 내용", "## 상세 작업", "## 완료 조건", "## 회의 근거",
+             "## 담당", "## 기한", "## 관련 이슈", "## 상위 이슈", "회의: 10min_1"]
+    positions = [body.rindex(h) if h == "회의: 10min_1" else body.index(h) for h in order]
     assert positions == sorted(positions)
     assert "- [ ] 내보내기 API 추가\n- [ ] CSV 생성기 구현" in body
     assert "## 완료 조건\n- 3만 건 내보내기가 완료된다" in body  # 완료 조건은 체크박스가 아니다
@@ -39,8 +39,8 @@ def test_body_sections_in_order():
 
 def test_empty_sections_are_omitted():
     body = build_issue_body({"action_text": "할 일"}, "m", "")
-    assert body.startswith("## 작업 내용\n할 일")
-    for h in ["## 상세 작업", "## 완료 조건", "## 근거", "## 관련 이슈", "## 상위 이슈", "## 확인 필요", "회의 배경"]:
+    assert body.startswith("## 작업 범위\n- 회의록에 정한 작업 범위")
+    for h in ["## 상세 작업", "## 완료 조건", "## 회의 근거", "## 관련 이슈", "## 상위 이슈", "## 확인 필요", "회의 배경"]:
         assert h not in body
     assert "## 담당\n- 회의록 담당자: 없음" in body and "## 기한\n없음" in body  # 담당·기한은 항상 표시
 
@@ -111,6 +111,6 @@ async def test_publish_sends_ticket_labels_and_body(settings):
     pub = FakePublisher()
     state = await run_plain(AgentNodes(FakeLLM(), pub, FakeReporter(), settings), label_state(["backend"]))
     assert pub.calls and all(c["labels"] == ["backend"] for c in pub.calls)
-    assert all(c["body"].startswith("## 작업 내용") and "## 상세 작업" in c["body"] for c in pub.calls)
+    assert all(c["body"].startswith("## 배경") and "## 상세 작업" in c["body"] for c in pub.calls)
     content = state["result"]["items"][0]["content_json"]
     assert content["labels"] == ["backend"] and content["tasks"]

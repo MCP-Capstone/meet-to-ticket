@@ -18,13 +18,18 @@ import java.time.Duration;
 public class PublishBatchExpiry {
     private final PublishService publish;
 
-    @Value("${app.publish.result-timeout:30m}")
+    // Agent 발행 마감(PUBLISH_DEADLINE_SECONDS, 기본 10분)보다 길게 둔다. 정상 실행은 마감 안에 보고를 받는다 (#302)
+    @Value("${app.publish.result-timeout:15m}")
     private Duration timeout;
+
+    // 접수 직후 Agent가 묶음을 등록하기 전의 404를 잃은 묶음으로 보지 않도록 기다리는 시간
+    @Value("${app.publish.lost-grace:1m}")
+    private Duration lostGrace;
 
     @Scheduled(fixedDelayString = "${app.publish.poll-interval-ms:5000}")
     public void reconcile() {
         try {
-            publish.reconcileRunning();
+            publish.reconcileRunning(lostGrace);
         } catch (RuntimeException e) {
             log.warn("일괄 발행 결과 조회 실패, 다음 주기에 다시 시도: {}", e.getMessage());
         }

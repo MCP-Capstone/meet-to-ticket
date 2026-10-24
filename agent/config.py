@@ -42,6 +42,11 @@ class Settings:
     mcp_server_url: str = "http://127.0.0.1:8000/mcp"
     rag_enabled: bool = False           # rag-mcp(기존 이슈 색인·검색)를 쓸지. 끄면 중복 판단 없이 발행
     rag_mcp_url: str = "http://127.0.0.1:8002/mcp"
+    mcp_http_timeout_seconds: int = 10  # MCP 서버 연결·요청 전송 시간 한도
+    # MCP 요청 하나(도구 호출, 도구 목록 조회)의 응답 대기 한도 (0 이하면 끔). 지정하지 않으면 끝없이 기다린다 (#299)
+    mcp_call_timeout_seconds: int = 90
+    # 일괄 발행 묶음 전체 마감 (0 이하면 끔). Backend 결과 대기 기한(PUBLISH_RESULT_TIMEOUT)보다 짧아야 한다
+    publish_deadline_seconds: int = 600
     rag_sync_timeout_seconds: int = 30  # 실행마다 색인 갱신(sync_issues)을 기다리는 시간
     context_timeout_seconds: int = 120  # GitHub/Notion 조회의 실제 소요 시간을 포함하며, 넘으면 읽은 부분까지 사용
     tool_result_max_chars: int = 2000   # 모델에게 넘기는 도구 결과 길이 한도
@@ -104,6 +109,9 @@ def load_settings(validate: bool = True) -> Settings:
         mcp_server_url=_str("MCP_SERVER_URL", "http://127.0.0.1:8000/mcp"),
         rag_enabled=_bool("RAG_ENABLED", False),
         rag_mcp_url=_str("RAG_MCP_URL", "http://127.0.0.1:8002/mcp"),
+        mcp_http_timeout_seconds=_int("MCP_HTTP_TIMEOUT_SECONDS", 10),
+        mcp_call_timeout_seconds=_int("MCP_CALL_TIMEOUT_SECONDS", 90),
+        publish_deadline_seconds=_int("PUBLISH_DEADLINE_SECONDS", 600),
         rag_sync_timeout_seconds=_int("RAG_SYNC_TIMEOUT_SECONDS", 30),
         context_timeout_seconds=context_timeout_seconds(),
         tool_result_max_chars=_int("TOOL_RESULT_MAX_CHARS", 2000),

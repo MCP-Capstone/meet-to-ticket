@@ -32,6 +32,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.mcpcapstone.meettoticket.agent.AgentContracts;
 import com.mcpcapstone.meettoticket.agent.AgentException;
 import com.mcpcapstone.meettoticket.agent.MockPublishGateway;
+import com.mcpcapstone.meettoticket.agent.PublishBatchLostException;
 import com.mcpcapstone.meettoticket.agent.PublishGateway;
 import com.mcpcapstone.meettoticket.auth.SessionConst;
 import com.mcpcapstone.meettoticket.common.JsonCodec;
@@ -123,9 +124,56 @@ class PublishBatchTest {
 				19, "https://github.com/owner/repo/issues/19", null, List.of(), null, null, false, null, null, null);
 		when(gateway.status(id.toString())).thenReturn(Optional.of(
 				new PublishGateway.Result(id.toString(), "SUCCEEDED", Map.of(), List.of(item), null, null)));
-		publishService.reconcileRunning();
+		publishService.reconcileRunning(Duration.ofMinutes(1));
 		assertThat(batches.findById(id).orElseThrow().getStatus()).isEqualTo(PublishBatchStatus.SUCCEEDED);
 		assertThat(items.findById(ticket.getId()).orElseThrow().getTicketStatus()).isEqualTo(TicketStatus.PUBLISHED);
+		verify(gateway, times(1)).submit(any());
+	}
+
+	// #302: Agent가 재시작돼 묶음을 잊으면(GET /publish/{id} 404) 결과 대기 기한까지 기다리지 않고 결과 모름으로 끝낸다.
+	// #299에서는 30분 기한이 지나야 끝났다. 막 접수한 묶음은 Agent가 등록하기 전일 수 있어 유예 시간 동안은 기다린다.
+	@Test
+	void Agent가_묶음을_모르면_유예_시간_뒤_결과_모름으로_바로_끝낸다() throws Exception {
+		TaskItem ticket = confirmed(project, "Agent 재시작");
+		UUID id = publish(null);
+		// 테스트 DB에는 다른 테스트가 남긴 실행 중 묶음도 있다. 모두 잃은 묶음으로 답하게 해 한 주기 조회 수 제한과 무관하게 한다
+		when(gateway.status(any())).thenAnswer(call -> { throw new PublishBatchLostException(call.getArgument(0)); });
+
+		publishService.reconcileRunning(Duration.ofMinutes(1));
+		assertThat(batches.findById(id).orElseThrow().getStatus()).isEqualTo(PublishBatchStatus.RUNNING);
+		assertThat(items.findById(ticket.getId()).orElseThrow().getTicketStatus()).isEqualTo(TicketStatus.PUBLISHING);
+
+		// 한 주기에 최대 10개씩 끝내므로 이 묶음이 끝날 때까지 주기를 반복한다
+		for (int cycle = 0; cycle < 20 && batches.findById(id).orElseThrow().getStatus() == PublishBatchStatus.RUNNING; cycle++)
+			publishService.reconcileRunning(Duration.ZERO);
+		assertThat(batches.findById(id).orElseThrow().getStatus()).isEqualTo(PublishBatchStatus.FAILED);
+		TaskItem lost = items.findById(ticket.getId()).orElseThrow();
+		assertThat(lost.getTicketStatus()).isEqualTo(TicketStatus.FAILED);
+		assertThat(lost.getPublishErrorCode()).isEqualTo("RESULT_LOST");
+		assertThat(lost.isPublishOutcomeUnknown()).isTrue();
+		assertThat(lost.isPublishRetryable()).isTrue();
+		verify(gateway, times(1)).submit(any());
+	}
+
+	// Agent가 묶음을 처리 중이라고 답하는데 결과가 오지 않으면 결과 대기 기한(app.publish.result-timeout)이 지나야 결과 모름으로 끝낸다.
+	// Agent 발행 마감(PUBLISH_DEADLINE_SECONDS)이 정상 실행을 기한 안에 끝내므로, 이 경로는 Agent가 응답하지 않는 경우의 마지막 안전망이다.
+	@Test
+	void Agent가_결과를_주지_않으면_결과_대기_기한_뒤_결과_모름으로_끝낸다() throws Exception {
+		TaskItem ticket = confirmed(project, "결과 없음");
+		UUID id = publish(null);
+		when(gateway.status(id.toString())).thenReturn(Optional.empty());
+
+		publishService.reconcileRunning(Duration.ZERO);
+		publishService.expireStale(Duration.ofMinutes(15));
+		assertThat(batches.findById(id).orElseThrow().getStatus()).isEqualTo(PublishBatchStatus.RUNNING);
+		assertThat(items.findById(ticket.getId()).orElseThrow().getTicketStatus()).isEqualTo(TicketStatus.PUBLISHING);
+
+		publishService.expireStale(Duration.ZERO);
+		assertThat(batches.findById(id).orElseThrow().getStatus()).isEqualTo(PublishBatchStatus.FAILED);
+		TaskItem expired = items.findById(ticket.getId()).orElseThrow();
+		assertThat(expired.getTicketStatus()).isEqualTo(TicketStatus.FAILED);
+		assertThat(expired.getPublishErrorCode()).isEqualTo("RESULT_TIMEOUT");
+		assertThat(expired.isPublishOutcomeUnknown()).isTrue();
 		verify(gateway, times(1)).submit(any());
 	}
 
@@ -141,7 +189,7 @@ class PublishBatchTest {
 	void Agent에_닿지_않으면_그_주기의_결과_조회를_바로_멈춘다() throws Exception {
 		startBatches(2);
 		when(gateway.status(any())).thenThrow(new AgentException(true));
-		publishService.reconcileRunning();
+		publishService.reconcileRunning(Duration.ofMinutes(1));
 		// 묶음마다 타임아웃을 기다리지 않도록 첫 실패에서 멈춘다.
 		verify(gateway, times(1)).status(any());
 	}
@@ -150,7 +198,7 @@ class PublishBatchTest {
 	void 한_묶음의_반영_오류는_다른_묶음의_조회를_막지_않는다() throws Exception {
 		startBatches(2);
 		when(gateway.status(any())).thenThrow(new IllegalStateException("반영 실패"));
-		publishService.reconcileRunning();
+		publishService.reconcileRunning(Duration.ofMinutes(1));
 		verify(gateway, atLeast(2)).status(any());
 	}
 
@@ -158,7 +206,7 @@ class PublishBatchTest {
 	void 한_주기에_조회하는_묶음_수를_제한한다() throws Exception {
 		startBatches(12);
 		when(gateway.status(any())).thenReturn(Optional.empty());
-		publishService.reconcileRunning();
+		publishService.reconcileRunning(Duration.ofMinutes(1));
 		verify(gateway, times(10)).status(any());
 	}
 

@@ -121,7 +121,7 @@ async def test_ev29_extracts_only_real_task_and_publishes_nothing(draft_settings
     pub = FakePublisher()
     result = await run(make_request("ev29", EV29), draft_settings, llm=fake, publisher=pub, reporter=FakeReporter())
     tickets = real_items(result)  # 회의 결과 공지 항목은 제외
-    assert [i.title for i in tickets] == [REAL_TASK]
+    assert [i.title for i in tickets] == [f"feat: {REAL_TASK}"]
     assert pub.calls == [] and result.summary.get("published", 0) == 0
     # 모델에 간 초안 입력에도 지시문은 할 일로 들어가지 않는다
     assert all(INJECTION not in it["action"] for call in fake.draft_calls for it in call)
@@ -137,8 +137,8 @@ async def test_ev29_if_model_obeys_code_limits_damage(draft_settings):
     result = await run(make_request("ev29", EV29), draft_settings, llm=fake, publisher=pub, reporter=FakeReporter())
     assert pub.calls == []  # 승인 없이 발행되지 않는다
     by_title = {i.title: i for i in result.items}
-    real = by_title[REAL_TASK].content_json
-    fabricated = [i.content_json for t, i in by_title.items() if t.startswith("지어낸 업무")]
+    real = by_title[f"feat: {REAL_TASK}"].content_json
+    fabricated = [i.content_json for t, i in by_title.items() if t.startswith("feat: 지어낸 업무")]
     assert len(fabricated) == 19
     assert all(any("근거를 찾지 못해" in w for w in c["warnings"]) for c in fabricated)  # 카드에서 확인 필요
     assert not any("근거를 찾지 못해" in w for w in real["warnings"])

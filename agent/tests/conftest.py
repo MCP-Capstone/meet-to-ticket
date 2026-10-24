@@ -138,10 +138,12 @@ class FakeLLM:
                 quote = "원문에 없는 문장"
             out.append(DraftTicket(
                 work_key=it["work_key"],
-                title=f"{it['action']}" + (" (수정)" if "feedback" in it else ""),
+                title=f"feat: {it['action']}" + (" (수정)" if "feedback" in it else ""),
                 description=f"{it['action']}을(를) 진행한다. 가나다라 표시.",
                 tasks=[f"{it['action']} 작업"],
                 acceptance_criteria=["결과를 팀에 공유한다"],
+                background="회의에서 정한 작업 배경이다.",
+                work_scope=[it["action"]],
                 evidence_quotes=[quote],
                 open_questions=list(self.draft_questions),
                 publish_target="NOTION" if it["work_key"] in self.notion_for else "GITHUB",

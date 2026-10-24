@@ -154,6 +154,9 @@ def new_ticket(todo: ExtractedTodo, members: list[ProjectMember], meeting_date: 
         "expected": {"raw": expected.raw, "kind": expected.kind, "keys": expected.keys},
         "title": "",
         "description": "",
+        "background": "",
+        "work_scope": [],
+        "references": [],
         "tasks": [],
         "acceptance_criteria": [],
         "evidence_quotes": list(todo.evidence_quotes),
@@ -336,6 +339,7 @@ class AgentNodes:
                 if d is not None:
                     # Phase 1 흐름(PUBLISH_ON_RUN)은 분류하지 않고 GitHub로만 발행한다 (baseline 재현)
                     self._apply_draft(t, d, labels, state["original_content"], context["open_questions"],
+                                      context_docs=(state.get("project_context") or {}).get("notionDocs") or [],
                                       classify=not self.settings.publish_on_run, context_text=context_text)
                 elif t["revisions"] < self.settings.max_revisions:
                     # 초안이 빠진 할 일은 검수로 보내지 않고 다시 작성한다 (보완 한도를 같이 쓴다).
@@ -348,11 +352,14 @@ class AgentNodes:
 
     @staticmethod
     def _apply_draft(t: dict[str, Any], d: Any, labels: list[str], source: str, open_questions: list[str],
-                     classify: bool = True, context_text: str = "") -> None:
+                     context_docs: list[dict[str, Any]] | None = None, classify: bool = True,
+                     context_text: str = "") -> None:
         # 초안 단계 경고는 초안을 다시 쓸 때마다 새로 계산한다 (보완할 때 같은 경고가 쌓이지 않게)
         t["warnings"] = [w for w in t["warnings"] if not w.startswith(DRAFT_WARNING_PREFIXES)]
         t["title"] = d.title.strip()
         t["description"] = d.description.strip()
+        t["background"] = d.background.strip()
+        t["work_scope"] = [x.strip() for x in d.work_scope if x.strip()]
         t["tasks"] = [x.strip() for x in d.tasks if x.strip()]
         t["acceptance_criteria"] = [c.strip() for c in d.acceptance_criteria if c.strip()]
         # 출력 검증: 제목/설명이 한도를 넘으면 공백 경계에서 자르고 말줄임표를 붙인다. 작업/완료 조건 항목은 버리지 않고
@@ -396,6 +403,15 @@ class AgentNodes:
         if len(picked) < len([q for q in d.open_questions if q.strip()]):
             log.info("추출된 미결 질문에 없는 초안 질문을 뺌: %s", t["work_key"] or t["task_item_id"])
         t["open_questions"] = list(dict.fromkeys(picked))
+        # 참고 문서는 LLM이 본문 작성에 직접 썼다고 선택한 제목만, 실제 URL이 있을 때 저장한다.
+        # 조회에 성공했다는 사실만으로 출처를 붙이면 근거처럼 보일 수 있어 제외한다.
+        by_title = {normalize_ws(str(doc.get("title") or "")): doc for doc in context_docs or []}
+        references = []
+        for title in d.reference_titles:
+            doc = by_title.get(normalize_ws(title))
+            if doc and doc.get("url") and all(r["title"] != doc.get("title") for r in references):
+                references.append({"title": doc.get("title"), "url": doc.get("url")})
+        t["references"] = references
 
     # ------------------------------------------------------------ 3. 검수
 
@@ -559,6 +575,8 @@ class AgentNodes:
                     "action": t["action_text"],
                     "title": t["title"],
                     "description": t["description"],
+                    "background": t.get("background", ""),
+                    "work_scope": t.get("work_scope", []),
                     "tasks": t["tasks"],
                     "acceptance_criteria": t["acceptance_criteria"],
                     "evidence_quotes": t["evidence_quotes"],
@@ -707,7 +725,9 @@ class AgentNodes:
                 t["publish_status"] = "FAILED"
                 t["error_message"] = f"[{fatal}] 앞선 오류로 발행을 중단함"
                 continue
-            body = build_issue_body(t, state["meeting_id"], state.get("background", ""))
+            body = build_issue_body(t, state["meeting_id"], state.get("background", ""),
+                                    meeting_title=state.get("meeting_title", ""),
+                                    meeting_date=state.get("meeting_date"))
             try:
                 res = await self.publisher.create_issue(
                     owner=state["owner"],
@@ -808,10 +828,14 @@ class AgentNodes:
                     },
                     "warnings": t["warnings"],
                     "dedupe": t.get("dedupe"),
+                    "meeting": {"title": state.get("meeting_title", ""), "date": state.get("meeting_date")},
+                    "references": t.get("references", []),
                     "publish_target": t.get("publish_target", TARGET_GITHUB),
                     "target_reason": t.get("target_reason"),
                     # 발행할 때 쓰는 것과 같은 본문. 발행 전 초안 저장과 미리보기에 쓴다
-                    "issue_body": build_issue_body(t, state["meeting_id"], state.get("background", ""))
+                    "issue_body": build_issue_body(t, state["meeting_id"], state.get("background", ""),
+                                                   meeting_title=state.get("meeting_title", ""),
+                                                   meeting_date=state.get("meeting_date"))
                     if t.get("publish_target", TARGET_GITHUB) == TARGET_GITHUB else None,
                     "notion_page": build_notion_page(t, state["meeting_id"], state.get("background", ""))
                     if t.get("publish_target") == TARGET_NOTION else None,

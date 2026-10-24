@@ -40,9 +40,24 @@ public class TaskItem {
     @Column(columnDefinition = "text")
     private String reason;
 
+    /**
+     * Agent가 분석을 마칠 때 정한 검수 결과(APPROVED/REJECTED/PENDING)를 저장한 값이다. 티켓 상태 전이로는 바뀌지 않는다.
+     *
+     * @deprecated 상태의 유일한 원천은 {@link #ticketStatus}다. 2릴리스 뒤 컬럼을 DROP한다 (#264, docs/revisions-and-history.md).
+     *     새 코드는 읽지 않는다. 지금 읽는 곳은 분석 결과 조회 응답을 만드는 {@code AnalysisStore.itemView}뿐이다.
+     */
+    @Deprecated
     @Column(name = "review_status", nullable = false, length = 30)
     private String reviewStatus;
 
+    /**
+     * Agent가 분석을 마칠 때 보고한 발행 결과(SUCCEEDED/FAILED/UNKNOWN/BLOCKED/SKIPPED/DRAFT)를 저장한 값이다.
+     * 일괄 발행 결과(PublishService)로는 갱신되지 않아 지금 발행 상태가 아니다.
+     *
+     * @deprecated 상태의 유일한 원천은 {@link #ticketStatus}다. 2릴리스 뒤 컬럼을 DROP한다 (#264, docs/revisions-and-history.md).
+     *     새 코드는 읽지 않는다. 지금 읽는 곳은 분석 결과 조회 응답을 만드는 {@code AnalysisStore.itemView}뿐이다.
+     */
+    @Deprecated
     @Column(name = "publish_status", nullable = false, length = 30)
     private String publishStatus;
 
@@ -60,6 +75,7 @@ public class TaskItem {
     @JoinColumn(name = "assignee_member_id")
     private ProjectMember assignee;
 
+    // 티켓 상태의 유일한 원천. 사용자 노출 4상태는 여기서 파생한다 (TicketDisplayStatus). 바뀔 때마다 ticket_status_history에 남는다.
     // 기존 행은 컬럼이 추가될 때 담당 지정 필요로 채운다.
     @Enumerated(EnumType.STRING)
     @ColumnDefault("'ASSIGNEE_REQUIRED'")
@@ -110,8 +126,8 @@ public class TaskItem {
         this.contentJson = json;
         this.action = item.action();
         this.reason = item.reason();
-        this.reviewStatus = item.reviewStatus();
-        this.publishStatus = item.publishStatus();
+        this.reviewStatus = item.reviewStatus(); // deprecated 컬럼: 분석 결과 조회가 읽으므로 계속 채운다
+        this.publishStatus = item.publishStatus(); // deprecated 컬럼: 위와 같음
         this.githubIssueNumber = item.githubIssueNumber();
         this.githubIssueUrl = item.githubIssueUrl();
         this.errorMessage = item.errorMessage();
@@ -206,6 +222,30 @@ public class TaskItem {
     // 재대조할 수 없는 대상(Notion, Slack)은 PublishResolution.MANUAL_CHECK가 먼저 막는다.
     public boolean canRetryPublish() {
         return publishRetryable || publishOutcomeUnknown;
+    }
+
+    // 복구 워커가 이 티켓의 발행 기록을 결과 모름으로 판단했을 때 티켓에도 반영한다. 반영하지 않으면 다시 발행할 때 Agent가 재대조하지 않고
+    // (Notion, Slack은 수동 확인 없이) 중복 발행할 수 있다. 상태가 바뀌었으면 true다.
+    // 확인/실패 티켓은 결과 모름 실패로 두어 기존 재대조(GitHub) 또는 resolve-outcome(Notion, Slack) 경로를 타게 한다.
+    // 아직 발행 전인 검토 대기, 담당 필요 티켓은 상태를 바꾸지 않고 지난 결과 모름만 남겨 다음 발행에서 재대조하게 한다.
+    // 이미 끝났거나 다른 묶음이 기다리는 티켓은 건드리지 않는다.
+    public boolean markOutcomeUnknownByRecovery(String errorCode, String message) {
+        switch (ticketStatus) {
+            case CONFIRMED, FAILED -> {
+                if (ticketStatus == TicketStatus.FAILED && mustRecheckOnPublish()) return false;
+                recordPublishResult(TicketStatus.FAILED, null, null, null, errorCode, message, true, true);
+                this.publishBatch = null;
+                return true;
+            }
+            case PENDING_REVIEW, ASSIGNEE_REQUIRED -> {
+                if (previousOutcomeUnknown) return false;
+                this.previousOutcomeUnknown = true;
+                return false;
+            }
+            default -> {
+                return false;
+            }
+        }
     }
 
     public void moveTo(TicketStatus status) {

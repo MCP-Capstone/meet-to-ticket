@@ -159,7 +159,7 @@ export function resolveMockTicketOutcome(user: User, ticketId: string, body: Tic
     // 백엔드처럼 결과 모름 자체의 실패만 '반영되지 않음' 사유로 바꾸고, 설정 오류 사유는 남긴다.
     // outcomeUnknown은 지난 결과 모름까지 포함하므로 판정에 쓰지 않고 오류 코드로 본다.
     const failure = ticket.publishFailure
-    ticket.publishFailure = ['RESULT_UNKNOWN', 'RESULT_TIMEOUT', 'RESULT_MISSING', 'NOTION_VERIFY_REQUIRED', 'SLACK_VERIFY_REQUIRED'].includes(failure.errorCode ?? '')
+    ticket.publishFailure = ['RESULT_UNKNOWN', 'RESULT_TIMEOUT', 'RESULT_MISSING', 'RESULT_LOST', 'NOTION_VERIFY_REQUIRED', 'SLACK_VERIFY_REQUIRED'].includes(failure.errorCode ?? '')
       ? { errorCode: 'VERIFIED_NOT_APPLIED', errorMessage: '대상 도구에 반영되지 않은 것을 확인했습니다. 다시 시도하세요.', failureCategory: 'OTHER', retryable: true, outcomeUnknown: false, resolution: 'RETRY', checkUrl: null }
       : { ...failure, outcomeUnknown: false, resolution: 'RETRY', checkUrl: null }
   }
@@ -229,6 +229,10 @@ export function previewMockTicket(user: User, ticketId: string): TicketPublicati
   const lines = ['## 작업 내용', ticket.description ?? '']
   for (const [title, values] of [['상세 작업', backlog.tasks], ['완료 조건', backlog.acceptanceCriteria], ['근거', backlog.evidenceQuotes]] as const) if (values.length) lines.push(`## ${title}`, ...values.map((v) => `- ${v}`))
   lines.push('## 담당', ticket.assignee?.name ?? '미정', '## 기한', [ticket.due.text, ticket.due.date, ticket.due.time].filter(Boolean).join(' · ') || '미정')
-  return { ticketId, title: ticket.title, status: ticket.status, publishTarget: ticket.publishTarget, executionMode: 'MOCK', backlog,
-    publication: ticket.publishTarget === 'GITHUB' ? { kind: ticket.processingType, body: lines.join('\n\n'), secondaryBody: null, labels: [], githubAssignees: [], targetIssueNumber: ticket.processingType === 'CREATE' ? null : ticket.dedupe?.issue?.number ?? null } : null }
+  const publication = ticket.publishTarget === 'GITHUB'
+    ? { kind: ticket.processingType, body: lines.join('\n\n'), secondaryBody: null, labels: [], githubAssignees: [], targetIssueNumber: ticket.processingType === 'CREATE' ? null : ticket.dedupe?.issue?.number ?? null }
+    : ticket.publishTarget === 'SLACK'
+      ? { kind: 'CREATE' as const, body: ticket.description ?? '', secondaryBody: null, labels: [], githubAssignees: [], targetIssueNumber: null }
+      : null
+  return { ticketId, title: ticket.title, status: ticket.status, publishTarget: ticket.publishTarget, executionMode: 'MOCK', backlog, publication }
 }

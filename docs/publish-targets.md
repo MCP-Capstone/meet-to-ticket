@@ -75,29 +75,30 @@
 
 ## 3. 사용자 노출 상태와 내부 상태 대응
 
-### 3.1 정책 목표 상태 4종 (현재 UI는 9종 라벨)
+### 3.1 사용자 노출 상태 4종
 
-아래 표는 정책 목표의 4종 상태와 내부 `TicketStatus`의 대응이다. 현재 화면은 4종으로 합치지 않고 내부 상태 라벨 9종을 그대로 보여 준다.
+아래 표는 사용자 노출 4종 상태와 내부 `TicketStatus`의 대응이다. 백엔드는 이 대응을 `TicketDisplayStatus.of`로 파생해 티켓 응답의 `displayStatus` 필드로 준다 (#264, 기존 `status`는 그대로). 현재 화면은 아직 `displayStatus`를 쓰지 않고 내부 상태 라벨을 그대로 보여 준다.
 
 | 사용자 노출 상태 | 내부 `TicketStatus` | 비고 |
 |---|---|---|
 | 검토 대기 | `ASSIGNEE_REQUIRED`, `PENDING_REVIEW`, `CONFIRMED` | 담당 지정 필요, 담당자 검토 중, 확인 후 발행 전. 확인(`CONFIRMED`)은 발행 대기이므로 이 묶음에 둔다 |
 | 발행 중 | `PUBLISHING` | 묶음 결과를 기다리는 중. 같은 티켓을 다시 담을 수 없다 |
-| 발행됨 | `PUBLISHED`, `LINKED`, `UPDATED` | 신규 생성/기존 항목 연결/기존 항목 갱신. Slack 게시는 에이전트 상태 `POSTED`를 `PUBLISHED`로 저장한다 |
-| 실패/확인 필요 | `FAILED` | 3.2의 구분표를 따른다. `outcomeUnknown`만으로 안전한 재시도 여부를 판단하면 안 된다 |
-| (4종 밖) | `REJECTED` | 담당자가 거절한 티켓. 발행 대상이 아니므로 4종 상태에 넣지 않고 별도 표시한다 |
+| 발행됨 | `PUBLISHED`, `LINKED`, `UPDATED` | 신규 생성/기존 항목 연결/기존 항목 갱신. Slack 게시는 에이전트 상태 `POSTED`를 `PUBLISHED`로 저장한다. 단, 알림 댓글이 실패해 오류 코드(`COMMENT_FAILED`)가 남은 `UPDATED`는 아래 실패/확인 필요다 |
+| 실패/확인 필요 | `FAILED`, `SKIPPED`, `UPDATED` + 오류 코드(`COMMENT_FAILED`) | `FAILED`는 3.2의 구분표를 따른다. `outcomeUnknown`만으로 안전한 재시도 여부를 판단하면 안 된다. `SKIPPED`(발행 생략, 외부에 아무것도 만들지 않음)와 알림 댓글 실패는 발행됨에 합치지 않고 확인이 필요한 쪽에 둔다 |
+| (4종 밖) | `REJECTED` | 담당자가 거절한 티켓. 발행 대상이 아니므로 4종 상태에 넣지 않고 별도 표시한다 (`displayStatus`는 null) |
 
 ### 3.2 FAILED 세부 구분
 
 | `outcomeUnknown` | `retryable` | 의미 | 예 |
 |---|---|---|---|
-| true | 대개 true | 대상에 반영됐을 수 있음. 확인 후 재시도 | `RESULT_UNKNOWN`, `RESULT_TIMEOUT`, `RESULT_MISSING`(이 둘은 `retryable=false`로 저장됨) |
-| false | true | 대개 반영되지 않은 실패로 재시도 가능 | `GITHUB_RATE_LIMIT`, `NOTION_RATE_LIMIT`. `MCP_UNAVAILABLE`은 조건부(5절 참고) |
+| true | 대개 true | 대상에 반영됐을 수 있음. 확인 후 재시도 | `RESULT_UNKNOWN`, `RESULT_TIMEOUT`, `RESULT_MISSING`(이 둘은 `retryable=false`로 저장됨), `RESULT_LOST`(Agent 재시작). 마감에 걸린 쓰기도 `RESULT_UNKNOWN` |
+| false | true | 대개 반영되지 않은 실패로 재시도 가능 | `GITHUB_RATE_LIMIT`, `NOTION_RATE_LIMIT`, 마감이 지나 보내지 않은 `PUBLISH_DEADLINE`. `MCP_UNAVAILABLE`은 조건부(5절 참고) |
 | false | false | 재시도해도 소용없거나 대상에 이미 있을 수 있음. 안전한 재시도가 아니다 | 권한/설정 오류(`GITHUB_FORBIDDEN`, `NOTION_ROOT_MISSING`), 예외: `NOTION_VERIFY_REQUIRED`, `SLACK_VERIFY_REQUIRED`, `MARKER_CHECK_INCOMPLETE`는 대상에 이미 반영됐을 수 있는데도 `outcomeUnknown=false`. 앞의 둘은 `MANUAL_CHECK`로 확인 결과를 남겨야 하고, 확인 결과가 `applied=false`이면 `VERIFIED_NOT_APPLIED`(`outcomeUnknown=false`, `retryable=true`)가 된다 |
 
 ### 3.3 현재 구현과 차이
 
-- 화면은 4종으로 합치지 않고 내부 상태 라벨을 그대로 쓴다 (`TicketCard.tsx`: 담당 지정 필요, 검토 대기, 확인, 거절, 발행 중, 발행됨, 연결됨, 갱신됨, 실패). 4종 표시는 정책 목표이며, 이 문서가 대응 기준이다.
+- 화면은 4종으로 합치지 않고 내부 상태 라벨을 그대로 쓴다 (`TicketCard.tsx`: 담당 지정 필요, 검토 대기, 확인, 거절, 발행 중, 발행됨, 연결됨, 갱신됨, 발행 생략, 실패). 백엔드는 `displayStatus`를 이미 주므로 화면은 필요할 때 이 값으로 바꿀 수 있고, 이 문서가 대응 기준이다.
+- `displayStatus`는 티켓 응답(`MyTicketService.Ticket`: 내 티켓, 전송 결과, 티켓 동작 응답)에만 있다. 발행 묶음 결과의 티켓 항목(`PublishService.Entry`)에는 아직 없다.
 - 결과 화면은 묶음 요약(`Summary`)에서 발행됨/연결됨/갱신됨/실패/발행 중을 따로 센다.
 - 묶음(`PublishBatchStatus`)은 `RUNNING`, `SUCCEEDED`, `PARTIAL_FAILED`, `FAILED`이며 티켓 상태와 별개다.
 
@@ -107,9 +108,11 @@
 
 ### 4.1 현재 구현
 
-- 원인: 쓰기 요청을 보낸 뒤 예외가 난 경우(Agent 내부 `UNKNOWN` 상태), Agent 보고에 빠진 티켓, 기한 안에 보고가 오지 않은 묶음.
-- 저장: 티켓은 `FAILED` + `outcomeUnknown=true`로 저장된다 (`RESULT_UNKNOWN`, `RESULT_MISSING`, `RESULT_TIMEOUT` 등의 오류 코드).
-- 기한 정리: 접수 확인에 실패했거나 Agent가 보고하지 못한 묶음은 기한(`app.publish.result-timeout`, 기본 30분)이 지나면 `PublishBatchExpiry`가 1분(`app.publish.expire-interval-ms`, 기본 60000) 주기로 `RESULT_TIMEOUT` 실패로 끝낸다. 그 전까지 티켓은 발행 중에 머문다.
+- 원인: 쓰기 요청을 보낸 뒤 예외가 난 경우(Agent 내부 `UNKNOWN` 상태), Agent 발행 마감에 걸린 처리 중 티켓, Agent 보고에 빠진 티켓, Agent가 재시작돼 잃은 묶음, 기한 안에 보고가 오지 않은 묶음.
+- 저장: 티켓은 `FAILED` + `outcomeUnknown=true`로 저장된다 (`RESULT_UNKNOWN`, `RESULT_MISSING`, `RESULT_TIMEOUT`, `RESULT_LOST` 등의 오류 코드).
+- 시간 상한 (#302): Agent는 MCP 요청 하나를 `MCP_CALL_TIMEOUT_SECONDS`(기본 90초), 묶음 전체를 `PUBLISH_DEADLINE_SECONDS`(기본 600초) 안에 끝낸다. 마감에 걸리면 쓰기 요청을 보낸 티켓은 결과 모름(`RESULT_UNKNOWN`), 보내지 않은 티켓은 재시도 가능 실패(`PUBLISH_DEADLINE`)다. MCP 서버가 멈추면 연결 정리에 최대 `MCP_CALL_TIMEOUT_SECONDS`가 더 걸린다.
+- 잃은 묶음: Agent는 묶음 기록을 메모리에만 두므로 재시작하면 처리 중이던 묶음도 `GET /publish/{batchId}`가 404다. Backend는 접수 뒤 유예 시간(`app.publish.lost-grace`, 기본 1분)이 지난 묶음의 404를 잃은 묶음으로 보고 다음 결과 조회 주기(5초)에 `RESULT_LOST` 결과 모름으로 끝낸다.
+- 기한 정리: 접수 확인에 실패했거나 Agent가 보고하지 못한 묶음은 기한(`app.publish.result-timeout`, 기본 15분)이 지나면 `PublishBatchExpiry`가 1분(`app.publish.expire-interval-ms`, 기본 60000) 주기로 `RESULT_TIMEOUT` 실패로 끝낸다. Agent 마감보다 길게 두는 마지막 안전망이며, 그 전까지 티켓은 발행 중에 머문다.
 - 화면(GitHub 등 `RETRY`): 결과 불명 안내와 확인 체크박스를 표시한다. 재시도 가능(`retryable=true`이거나 결과 불명)하고 확인한 경우만 "다시 시도"가 활성화된다. `RESULT_TIMEOUT`/`RESULT_MISSING` 같은 결과 불명도 담당자가 확인한 뒤 다시 시도할 수 있고, 지난 결과 불명 표시가 유지돼 Agent가 재대조한다 (2.3 참고, #291). 수정 후 재승인 경로를 택해도 결과 불명 표시는 남아 재대조를 강제한다.
 - 화면(Notion/Slack, `MANUAL_CHECK`): 다시 시도 대신 "이미 반영됨"/"반영되지 않음" 버튼과 선택 링크 입력을 보여 준다. 각각 확인 창을 거쳐 `resolve-outcome`을 호출한다. 결과 화면(`PublishBatchResult.tsx`)에는 "{도구명}에 반영됐을 수 있습니다. 다시 시도하기 전에 확인하세요."라는 다른 문구가 있다.
 - 자동 회수(자동으로 반영 여부를 확인해 상태를 바로잡는 것)와 "발행 확인 중" 표시, 5분 뒤 수동 확인 전환은 코드에 없다. 코드가 하는 재대조는 사용자가 다시 시도할 때 대상별로 돌아간다 (2.3 참고).
@@ -129,7 +132,7 @@
 - Slack 공지 일괄 발행은 backend(`PublishService.publishable`)와 Agent(`batch_publish.py` SLACK 분기)에 구현되어 있다.
 - #291: HTTP 연결/풀 확보 실패처럼 미전송이 확인되는 경우만 `MCP_UNAVAILABLE`로 분류한다(langchain-mcp-adapters가 ExceptionGroup으로 감싸도 안쪽을 본다). 쓰기 요청의 읽기/쓰기/연결 종료 오류는 MCP에서 `[RESULT_UNKNOWN]`으로 전달하고 Agent가 `UNKNOWN`으로 보존한다. 단계가 불명인 Agent 쓰기 예외도 보수적으로 `UNKNOWN`이다. Slack 게시 후 링크 조회 실패는 확인 대상으로 남긴다. Notion 페이지 생성 후 나머지 본문 추가가 4xx로 거절되면 만든 페이지를 보관 처리하고 원래 오류로 실패시키며, 시간 초과/5xx/보관 실패처럼 모호하면 확인 대상으로 남긴다.
 - 재시도 제한과 알림 댓글 복구 경로는 2.3을 참고한다 (#291).
-- 댓글 표식은 이번 수정 이후의 UPDATE 알림에 포함된다. 과거 표식 없는 댓글은 같은 회의의 알림 문구로 찾는다. Agent 재시작/장시간 실행과 겹치는 경쟁 조건의 정확히 한 번 처리는 보장하지 않는다. DB 예약/멱등성 복구 작업(#263)은 별도 범위다.
+- 댓글 표식은 이번 수정 이후의 UPDATE 알림에 포함된다. 과거 표식 없는 댓글은 같은 회의의 알림 문구로 찾는다. Agent 재시작/장시간 실행과 겹치는 경쟁 조건의 정확히 한 번 처리는 보장하지 않는다. DB 멱등키와 예약 기록은 [발행 기록과 멱등키](publications.md)(#263 PR1)가 맡고, 멈춘 예약의 복구 워커는 PR2 범위다.
 - 해소됨: Slack 메시지 링크는 Agent가 MCP 응답의 `permalink`를 읽어 `message_url`로 저장한다 (`batch_publish.py`). Notion/Slack 결과 불명 뒤 재발행 차단과 수동 확인 해소 흐름(`resolve-outcome`)은 2.3에 있다.
 - 결과 화면 링크 허용 도메인은 `frontend/src/batchPublish.ts`의 `safePublishUrl`이 대상별로 검사한다.
 

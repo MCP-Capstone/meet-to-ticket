@@ -74,7 +74,7 @@ public final class ApiExamples {
                  "taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81","createdAt":"2026-10-22T10:31:00+09:00",
                  "description":"필터 결과가 0건이면 헤더만 있는 CSV를 내려준다.",
                  "due":{"text":"내일 오후 5시","date":"2026-10-23","time":"17:00"},
-                 "assignee":{"projectMemberId":11,"name":"박종민"}},
+                 "assignee":{"projectMemberId":11,"name":"박종민"},"displayStatus":"REVIEW_PENDING"},
                "mine":false,
                "preview":{"body":"## 작업 내용\\n필터 결과가 0건이면 헤더만 있는 CSV를 내려준다.\\n","labels":["bug"],
                  "evidenceQuotes":["박종민이 내일 오후 5시까지 수정한다."]}},
@@ -83,7 +83,7 @@ public final class ApiExamples {
                  "dedupe":{"judged":false,"skipped":null,"relation":null,"issue":null,"overlap":false,"reason":null,"before":null,"after":null,"changed":false},
                  "projectId":1,"projectName":"CSV 내보내기","meetingId":2,"meetingTitle":"CSV 중간 점검",
                  "taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81","createdAt":"2026-10-22T10:31:00+09:00",
-                 "description":"내보내기 전체 흐름을 함께 점검한다.","due":{"text":null,"date":null,"time":null},"assignee":null},
+                 "description":"내보내기 전체 흐름을 함께 점검한다.","due":{"text":null,"date":null,"time":null},"assignee":null,"displayStatus":"REVIEW_PENDING"},
                "mine":false,"preview":{"body":"## 작업 내용\\n내보내기 전체 흐름을 함께 점검한다.\\n","labels":[],"evidenceQuotes":[]}}],
              "canAssign":true,
              "members":[{"memberId":11,"name":"박종민"},{"memberId":12,"name":"함주헌"}]}""";
@@ -94,6 +94,32 @@ public final class ApiExamples {
               "message": "회의록을 올린 사람만 대표 담당을 지정할 수 있습니다."
             }
             """;
+
+    public static final String ERROR_TICKET_HISTORY_FORBIDDEN = """
+            {
+              "code": "TICKET_HISTORY_FORBIDDEN",
+              "message": "티켓 담당자나 회의록을 올린 사람만 이력을 볼 수 있습니다."
+            }""";
+
+    public static final String TICKET_HISTORY = """
+            {"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5",
+             "revisions":[
+               {"rev":1,"kind":"AGENT","snapshot":{"title":"CSV 빈 결과 오류 수정","assignee_member_id":11,"assignee_name":"박종민","publish_target":"GITHUB","processing_type":"CREATE",
+                "content":{"description":"CSV 내보내기에서 결과가 비면 오류가 난다.","due":{"text":"내일 오후 6시","date":"2026-10-23","time":"18:00"}}},
+                "schemaVersion":1,"promptVersion":null,"model":null,"actor":null,"createdAt":"2026-10-22T10:31:00+09:00"},
+               {"rev":2,"kind":"USER_EDIT","snapshot":{"title":"CSV 빈 결과 오류 수정","assignee_member_id":11,"assignee_name":"박종민","publish_target":"GITHUB","processing_type":"CREATE",
+                "content":{"description":"CSV 내보내기에서 결과가 비면 500 오류가 난다.","due":{"text":"금요일까지","date":"2026-10-23","time":"18:00"}}},
+                "schemaVersion":1,"promptVersion":null,"model":null,"actor":{"userId":3,"name":"박종민"},"createdAt":"2026-10-22T11:02:00+09:00"},
+               {"rev":3,"kind":"PUBLISHED","snapshot":{"title":"CSV 빈 결과 오류 수정","assignee_member_id":11,"assignee_name":"박종민","publish_target":"GITHUB","processing_type":"CREATE",
+                "content":{"description":"CSV 내보내기에서 결과가 비면 500 오류가 난다.","due":{"text":"금요일까지","date":"2026-10-23","time":"18:00"}},
+                "result":{"status":"PUBLISHED","processing_type":"CREATE","github_issue_number":42,"url":"https://github.com/MCP-Capstone/mcp-capstone/issues/42","error_code":null}},
+                "schemaVersion":1,"promptVersion":null,"model":null,"actor":{"userId":3,"name":"박종민"},"createdAt":"2026-10-22T11:05:00+09:00"}],
+             "statusHistory":[
+               {"from":null,"to":"PENDING_REVIEW","actor":null,"reason":"AGENT_RESULT","createdAt":"2026-10-22T10:31:00+09:00"},
+               {"from":"PENDING_REVIEW","to":"CONFIRMED","actor":{"userId":3,"name":"박종민"},"reason":"CONFIRM","createdAt":"2026-10-22T11:02:00+09:00"},
+               {"from":"CONFIRMED","to":"PUBLISHING","actor":{"userId":3,"name":"박종민"},"reason":"PUBLISH_REQUESTED","createdAt":"2026-10-22T11:04:00+09:00"},
+               {"from":"PUBLISHING","to":"PUBLISHED","actor":null,"reason":"PUBLISH_RESULT","createdAt":"2026-10-22T11:05:00+09:00"}],
+             "approval":{"actor":{"userId":3,"name":"박종민"},"approvedAt":"2026-10-22T11:02:00+09:00"}}""";
 
     public static final String ERROR_TICKET_NOT_FOUND = """
             {
@@ -279,7 +305,7 @@ public final class ApiExamples {
                "meetingId":2,"meetingTitle":"CSV 중간 점검","taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81",
                "createdAt":"2026-10-22T10:31:00+09:00",
                "description":"CSV 내보내기에서 결과가 비면 오류가 난다.","due":{"text":"내일 오후 6시","date":"2026-10-23","time":"18:00"},
-               "assignee":{"projectMemberId":11,"name":"박종민"},"publishFailure":null}]}""";
+               "assignee":{"projectMemberId":11,"name":"박종민"},"publishFailure":null,"displayStatus":"REVIEW_PENDING"}]}""";
 
     public static final String PUBLISH_STARTED = """
             {"batchId":"5f1d6c1e-0f8b-4f6a-8f43-0b0a6d2b9e11","count":3}""";
@@ -319,7 +345,7 @@ public final class ApiExamples {
              "meetingId":2,"meetingTitle":"CSV 중간 점검","taskId":"9b12ec5a-1423-4b71-8e20-f8f28d306c81",
              "createdAt":"2026-10-22T10:31:00+09:00",
              "description":"CSV 내보내기에서 결과가 비면 오류가 난다.","due":{"text":"내일 오후 6시","date":"2026-10-23","time":"18:00"},
-             "assignee":{"projectMemberId":11,"name":"박종민"},"publishFailure":null}""";
+             "assignee":{"projectMemberId":11,"name":"박종민"},"publishFailure":null,"displayStatus":"REVIEW_PENDING"}""";
 
     public static final String STATUS_RUNNING = """
             {

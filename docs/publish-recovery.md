@@ -6,7 +6,7 @@
 
 실패 티켓이 다시 시도할 수 없는 실패(retryable=false이고 결과 모름도 아님)면 API는 409 PUBLISH_RETRY_NOT_ALLOWED를 반환하고 화면은 재시도 버튼을 비활성화한다. 원인이나 프로젝트 설정을 해결한 뒤 수정/재승인 경로를 사용한다.
 
-결과 모름(RESULT_UNKNOWN, RESULT_TIMEOUT, RESULT_MISSING, 묶음 전체 실패로 보고에서 빠진 티켓)은 재시도 가능으로 본다(`TaskItem.canRetryPublish`). GitHub는 담당자가 반영 여부를 확인했다고 체크한 뒤 다시 시도하면 Agent가 이미 반영된 이슈, 댓글, 섹션을 먼저 재대조한다. 이 수정 전에 retryable=false로 저장된 결과 모름 행도 같은 기준으로 다시 시도할 수 있다.
+결과 모름(RESULT_UNKNOWN, RESULT_TIMEOUT, RESULT_MISSING, RESULT_LOST, 묶음 전체 실패로 보고에서 빠진 티켓)은 재시도 가능으로 본다(`TaskItem.canRetryPublish`). GitHub는 담당자가 반영 여부를 확인했다고 체크한 뒤 다시 시도하면 Agent가 이미 반영된 이슈, 댓글, 섹션을 먼저 재대조한다. 이 수정 전에 retryable=false로 저장된 결과 모름 행도 같은 기준으로 다시 시도할 수 있다.
 
 Notion/Slack의 결과 모름은 기존과 같이 수동 확인 결과를 먼저 남겨야 한다(MANUAL_CHECK). 단순 수정으로 이 확인 절차를 우회하지 않는다.
 
@@ -20,7 +20,9 @@ Notion/Slack의 결과 모름은 기존과 같이 수동 확인 결과를 먼저
 - 댓글이 많아 조회가 끝나지 않으면(MARKER_CHECK_INCOMPLETE) 전송하지 않고 재전송도 막는다. 티켓은 UPDATED + MARKER_CHECK_INCOMPLETE(retryable=false)로 남고, 담당자가 GitHub에서 직접 확인한다.
 - 댓글 재전송의 접수 실패, 결과 누락, 응답 유실에도 본문 갱신 성공과 기존 이슈 링크를 보존한다.
 
-같은 회의의 알림 문구는 work_key와 상관없이 같으므로, 같은 이슈를 갱신한 같은 회의의 다른 티켓 알림이 있으면 보낸 것으로 본다. 장시간 실행 경쟁 조건까지 보장하지는 않는다. DB 멱등성, 예약 상태, 복구 워커는 #263 범위다.
+같은 회의의 알림 문구는 work_key와 상관없이 같으므로, 같은 이슈를 갱신한 같은 회의의 다른 티켓 알림이 있으면 보낸 것으로 본다. 장시간 실행 경쟁 조건까지 보장하지는 않는다. DB 멱등키와 예약 상태는 [발행 기록과 멱등키](publications.md)에 있고, 멈춘 발행 기록을 정리하는 복구 워커(#263 PR2)도 같은 문서에 있다.
+
+결과 모름 GitHub 신규 발행의 재대조는 같은 work_key의 열린 이슈 중 제목이 같거나, 제목이 수정됐어도 본문 끝줄의 회의 ID와 work_key가 모두 같은 이슈를 기존 이슈로 연결한다. 회의 ID가 다른 이슈는 연결하지 않는다.
 
 ## 전송 단계별 실패 분류
 

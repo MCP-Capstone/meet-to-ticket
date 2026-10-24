@@ -84,6 +84,14 @@ app:
     submitting-timeout: ${ANALYSIS_SUBMITTING_TIMEOUT:2m}
     failure-reconcile-interval-ms: ${ANALYSIS_FAILURE_RECONCILE_INTERVAL_MS:5000}
   publish:
-    # 이 시간 안에 Agent 발행 결과가 오지 않으면 묶음을 결과 모름으로 끝낸다.
-    result-timeout: ${PUBLISH_RESULT_TIMEOUT:30m}
+    # 이 시간 안에 Agent 발행 결과가 오지 않으면 묶음을 결과 모름으로 끝낸다. Agent 발행 마감(PUBLISH_DEADLINE_SECONDS)보다 길어야 한다.
+    result-timeout: ${PUBLISH_RESULT_TIMEOUT:15m}
     expire-interval-ms: ${PUBLISH_EXPIRE_INTERVAL_MS:60000}
+    # 티켓이 더 이상 기다리지 않는데 RESERVED/SENT로 남은 발행 기록을 정리한다 (#263, docs/publications.md).
+    recovery:
+      enabled: ${PUBLISH_RECOVERY_ENABLED:true}
+      interval-ms: ${PUBLISH_RECOVERY_INTERVAL_MS:300000}
+      stale-after: ${PUBLISH_RECOVERY_STALE_AFTER:10m}
+      batch-size: ${PUBLISH_RECOVERY_BATCH_SIZE:100}
+    # Agent가 묶음을 모르면(재시작) 이 시간이 지난 묶음부터 바로 결과 모름(RESULT_LOST)으로 끝낸다.
+    lost-grace: ${PUBLISH_LOST_GRACE:1m}

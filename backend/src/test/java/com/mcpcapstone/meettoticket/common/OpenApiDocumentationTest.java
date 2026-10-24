@@ -28,7 +28,7 @@ class OpenApiDocumentationTest {
     @Test
     void 공개_API와_세션인증을_문서화하고_내부_서버_API를_섞지_않는다() throws Exception {
         JsonNode doc = document();
-        assertThat(doc.path("paths").size()).isEqualTo(33);
+        assertThat(doc.path("paths").size()).isEqualTo(34);
         assertThat(doc.at("/paths/~1api~1tickets~1{ticketId}~1retry-comment/post/operationId").asText()).isEqualTo("retryUpdateComment");
         for (var entry : doc.path("paths").properties()) {
             assertThat(entry.getKey()).startsWith("/api/");
@@ -50,6 +50,11 @@ class OpenApiDocumentationTest {
         JsonNode projectSecurity = doc.at("/paths/~1api~1projects/get").has("security")
                 ? doc.at("/paths/~1api~1projects/get/security") : doc.path("security");
         assertThat(projectSecurity.path(0).path("sessionCookie").isArray()).isTrue();
+        // 사용자 노출 상태는 기존 status에 더해진 필드다 (#264)
+        assertThat(doc.at("/components/schemas/Ticket/properties/displayStatus/enum").toString())
+                .contains("REVIEW_PENDING", "PUBLISHING", "PUBLISHED", "NEEDS_ATTENTION");
+        assertThat(doc.at("/components/schemas/Ticket/properties/status/enum").toString()).contains("ASSIGNEE_REQUIRED", "SKIPPED");
+        assertThat(doc.at("/components/schemas/Ticket/required").toString()).contains("displayStatus");
         JsonNode projectExample = doc.at("/paths/~1api~1projects/get/responses/200/content/application~1json/example/projects/0");
         assertThat(projectExample.path("memberCount").asInt()).isEqualTo(6);
         assertThat(projectExample.path("connections").path("github").asText()).isEqualTo("CONNECTED");

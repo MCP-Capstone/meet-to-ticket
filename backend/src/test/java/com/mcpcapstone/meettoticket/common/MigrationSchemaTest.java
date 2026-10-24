@@ -172,7 +172,7 @@ class MigrationSchemaTest {
 		boot(FRESH, true, "validate").close();
 
 		assertThat(query(FRESH, "select version || ':' || type || ':' || success from flyway_schema_history order by installed_rank"))
-			.containsExactly("1:SQL:true", "2:SQL:true", "3:SQL:true");
+			.containsExactly("1:SQL:true", "2:SQL:true", "3:SQL:true", "4:SQL:true", "5:SQL:true", "6:SQL:true");
 
 		var fresh = describe(FRESH);
 		assertThat(fresh).contains(DISPATCH_FK);
@@ -187,7 +187,7 @@ class MigrationSchemaTest {
 		boot(LEGACY, true, "validate").close();
 
 		assertThat(query(LEGACY, "select version || ':' || type from flyway_schema_history order by installed_rank"))
-			.containsExactly("1:BASELINE", "2:SQL", "3:SQL");
+			.containsExactly("1:BASELINE", "2:SQL", "3:SQL", "4:SQL", "5:SQL", "6:SQL");
 		assertThat(query(LEGACY, "select task_id::text from analysis_dispatches")).containsExactly(TASK);
 		// 지운 고아 행은 보관 테이블에 그대로 남는다.
 		assertThat(query(LEGACY, "select task_id::text || ':' || state || ':' || attempts from analysis_dispatches_orphans"))
@@ -247,6 +247,259 @@ class MigrationSchemaTest {
 		exec(LEGACY, "update task_items set ticket_status = 'FAILED' where ticket_status = 'RETIRED_VALUE'");
 		flyway(LEGACY).migrate();
 		assertThat(query(LEGACY, "select version from flyway_schema_history where success order by installed_rank"))
-			.containsExactly("1", "2", "3");
+			.containsExactly("1", "2", "3", "4", "5", "6");
+	}
+
+	static Flyway flywayTo(String schema, String target) {
+		return Flyway.configure()
+			.dataSource(url(schema), USER, PASSWORD)
+			.schemas(schema)
+			.locations("classpath:db/migration")
+			.baselineOnMigrate(true)
+			.baselineVersion("1")
+			.target(target)
+			.load();
+	}
+
+	static final String ITEM_A = "00000000-0000-0000-0000-0000000000b1";
+	static final String ITEM_B = "00000000-0000-0000-0000-0000000000b2";
+
+	@Test
+	void v4KeepsExistingTicketsAndBackfillsOneAgentRevisionEach() throws Exception {
+		legacyDatabase(LEGACY);
+		flywayTo(LEGACY, "3").migrate();
+		exec(LEGACY, """
+			update analysis_tasks set finished_at = '2026-10-22 10:31:00+09';
+			insert into project_members (project_id, user_id, name, github_name)
+				select project_id, null, '박종민', 'pjm' from projects;
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status, assignee_member_id, publish_target, processing_type)
+				select '%s', '%s', '이미 발행된 티켓', '{"description":"본문","due":{"date":"2026-10-23"},"count":3}', 'CREATE', 'APPROVED', 'SUCCEEDED', 'PUBLISHED', project_member_id, 'NOTION', 'CREATE' from project_members;
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status)
+				values ('%s', '%s', '담당 없는 티켓', '{}', 'CREATE', 'PENDING', 'DRAFT', 'ASSIGNEE_REQUIRED')""".formatted(ITEM_A, TASK, ITEM_B, TASK));
+		assertThat(query(LEGACY, "select to_regclass('task_item_revisions')::text")).containsNull();
+
+		flyway(LEGACY).migrate();
+
+		// 기존 티켓은 그대로다.
+		assertThat(query(LEGACY, "select title || ':' || ticket_status || ':' || content_json from task_items"))
+			.containsExactlyInAnyOrder(
+				"담당 없는 티켓:ASSIGNEE_REQUIRED:{}",
+				"이미 발행된 티켓:PUBLISHED:{\"description\":\"본문\",\"due\":{\"date\":\"2026-10-23\"},\"count\":3}");
+		// 티켓마다 AGENT 리비전 1건. 현재 값 전체 스냅샷이고, 만든 시각은 분석을 마친 시각이다.
+		assertThat(query(LEGACY, "select task_item_id::text || ':' || rev || ':' || kind || ':' || schema_version from task_item_revisions order by task_item_id"))
+			.containsExactly(ITEM_A + ":1:AGENT:1", ITEM_B + ":1:AGENT:1");
+		assertThat(query(LEGACY, "select snapshot->>'title' || '|' || (snapshot->>'assignee_name') || '|' || (snapshot->>'publish_target') || '|' || (snapshot->'content'->'due'->>'date') || '|' || (snapshot->'content'->>'count') from task_item_revisions where task_item_id = '%s'".formatted(ITEM_A)))
+			.containsExactly("이미 발행된 티켓|박종민|NOTION|2026-10-23|3");
+		assertThat(query(LEGACY, "select (snapshot->'assignee_member_id' = 'null'::jsonb)::text || '|' || (snapshot->'assignee_name' = 'null'::jsonb)::text from task_item_revisions where task_item_id = '%s'".formatted(ITEM_B)))
+			.containsExactly("true|true");
+		assertThat(query(LEGACY, "select (created_at = '2026-10-22 10:31:00+09')::text || '|' || coalesce(prompt_version, '-') || '|' || coalesce(model, '-') || '|' || coalesce(actor_user_id::text, '-') from task_item_revisions where task_item_id = '%s'".formatted(ITEM_A)))
+			.containsExactly("true|-|-|-");
+		// 상태 이력은 채우지 않는다.
+		assertThat(query(LEGACY, "select count(*)::text from ticket_status_history")).containsExactly("0");
+	}
+
+	@Test
+	void v4ConstraintsRejectBadKindDuplicateRevAndCascadeOnTicketDelete() throws Exception {
+		legacyDatabase(LEGACY);
+		flyway(LEGACY).migrate();
+		exec(LEGACY, """
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status)
+			values ('%s', '%s', 't', '{}', 'CREATE', 'PENDING', 'DRAFT', 'PENDING_REVIEW')""".formatted(ITEM_A, TASK));
+		String revision = "insert into task_item_revisions (task_item_id, rev, kind, snapshot, schema_version, created_at) values ('%s', %d, '%s', '{}', 1, now())";
+
+		exec(LEGACY, revision.formatted(ITEM_A, 1, "AGENT"));
+		assertThatThrownBy(() -> exec(LEGACY, revision.formatted(ITEM_A, 1, "USER_EDIT")))
+			.isInstanceOf(SQLException.class).hasMessageContaining("task_item_revisions_task_item_id_rev_key");
+		assertThatThrownBy(() -> exec(LEGACY, revision.formatted(ITEM_A, 2, "DRAFT")))
+			.isInstanceOf(SQLException.class).hasMessageContaining("task_item_revisions_kind_check");
+		exec(LEGACY, "insert into ticket_status_history (task_item_id, from_status, to_status, created_at) values ('%s', null, 'PENDING_REVIEW', now())".formatted(ITEM_A));
+		exec(LEGACY, "insert into ticket_status_history (task_item_id, from_status, to_status, created_at) values ('%s', 'FAILED', 'SKIPPED', now())".formatted(ITEM_A));
+		assertThatThrownBy(() -> exec(LEGACY, "insert into ticket_status_history (task_item_id, from_status, to_status, created_at) values ('%s', 'CONFIRMED', 'DONE', now())".formatted(ITEM_A)))
+			.isInstanceOf(SQLException.class).hasMessageContaining("ticket_status_history_to_status_check");
+
+		// 프로젝트 삭제는 task_items를 일괄 삭제하므로 이력은 DB가 함께 지운다.
+		exec(LEGACY, "delete from task_items where task_item_id = '%s'".formatted(ITEM_A));
+		assertThat(query(LEGACY, "select (select count(*) from task_item_revisions) || ':' || (select count(*) from ticket_status_history)"))
+			.containsExactly("0:0");
+	}
+
+	@Test
+	void v4AbortsWithoutChangingDataWhenContentJsonIsNotJson() throws Exception {
+		legacyDatabase(LEGACY);
+		flywayTo(LEGACY, "3").migrate();
+		exec(LEGACY, """
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status)
+			values ('%s', '%s', '정상', '{}', 'CREATE', 'PENDING', 'DRAFT', 'FAILED'),
+			       ('%s', '%s', '깨진 티켓', 'not json', 'CREATE', 'PENDING', 'DRAFT', 'FAILED')""".formatted(ITEM_A, TASK, ITEM_B, TASK));
+
+		assertThatThrownBy(() -> flyway(LEGACY).migrate())
+			.isInstanceOf(FlywayException.class)
+			.hasMessageContaining(ITEM_B)
+			.hasMessageContaining("V4 중단");
+
+		// V4는 통째로 롤백된다: 이력에 V4 없음, 새 테이블 없음, 티켓 그대로.
+		assertThat(query(LEGACY, "select version from flyway_schema_history where version = '4'")).isEmpty();
+		assertThat(query(LEGACY, "select to_regclass('task_item_revisions')::text || '|' || to_regclass('ticket_status_history')::text"))
+			.containsNull();
+		assertThat(query(LEGACY, "select count(*)::text from task_items")).containsExactly("2");
+
+		// 정리하면 다음 기동에서 적용된다.
+		exec(LEGACY, "update task_items set content_json = '{}' where task_item_id = '%s'".formatted(ITEM_B));
+		flyway(LEGACY).migrate();
+		assertThat(query(LEGACY, "select count(*)::text from task_item_revisions")).containsExactly("2");
+	}
+
+	static final String KEY_A = "v1:" + ITEM_A + ":GITHUB:CREATE";
+
+	static String publication(String itemId, String target, String operation, String key, String status) {
+		return "insert into publications (task_item_id, target, operation, idempotency_key, status, attempt_count, created_at, reserved_at, updated_at) "
+			+ "values ('%s', '%s', '%s', '%s', '%s', 1, now(), now(), now())".formatted(itemId, target, operation, key, status);
+	}
+
+	@Test
+	void v5KeepsExistingDataAndAddsAnEmptyPublicationsTable() throws Exception {
+		legacyDatabase(LEGACY);
+		flywayTo(LEGACY, "4").migrate();
+		exec(LEGACY, """
+			insert into project_members (project_id, user_id, name, github_name)
+				select project_id, null, '박종민', 'pjm' from projects;
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status, assignee_member_id, publish_target, processing_type, github_issue_number, github_issue_url)
+				select '%s', '%s', '이미 발행된 티켓', '{"description":"본문"}', 'CREATE', 'APPROVED', 'SUCCEEDED', 'PUBLISHED', project_member_id, 'GITHUB', 'CREATE', 7, 'https://github.com/o/r/issues/7' from project_members;
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status, publish_error_code, publish_outcome_unknown)
+				values ('%s', '%s', '결과 모름 티켓', '{}', 'CREATE', 'PENDING', 'DRAFT', 'FAILED', 'RESULT_TIMEOUT', true)""".formatted(ITEM_A, TASK, ITEM_B, TASK));
+		assertThat(query(LEGACY, "select to_regclass('publications')::text")).containsNull();
+		String before = query(LEGACY, "select string_agg(task_item_id::text || ':' || ticket_status || ':' || coalesce(github_issue_number::text, '-') || ':' || coalesce(publish_error_code, '-') || ':' || publish_outcome_unknown, ',' order by task_item_id) from task_items").getFirst();
+		String revisions = query(LEGACY, "select count(*)::text from task_item_revisions").getFirst();
+
+		flyway(LEGACY).migrate();
+
+		// 기존 티켓과 리비전은 그대로고, 발행 기록은 비어 있다 (백필하지 않는다).
+		assertThat(query(LEGACY, "select string_agg(task_item_id::text || ':' || ticket_status || ':' || coalesce(github_issue_number::text, '-') || ':' || coalesce(publish_error_code, '-') || ':' || publish_outcome_unknown, ',' order by task_item_id) from task_items"))
+			.containsExactly(before);
+		assertThat(query(LEGACY, "select count(*)::text from task_item_revisions")).containsExactly(revisions);
+		assertThat(query(LEGACY, "select count(*)::text from publications")).containsExactly("0");
+		assertThat(query(LEGACY, "select version from flyway_schema_history where success order by installed_rank"))
+			.containsExactly("1", "2", "3", "4", "5", "6");
+	}
+
+	@Test
+	void v6AddsOutcomeUnknownAndBackfillsOnlyUncertainRows() throws Exception {
+		legacyDatabase(LEGACY);
+		flywayTo(LEGACY, "5").migrate();
+		exec(LEGACY, """
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status)
+			values ('%s', '%s', 't', '{}', 'CREATE', 'PENDING', 'DRAFT', 'CONFIRMED')""".formatted(ITEM_A, TASK));
+		for (String status : List.of("RESERVED", "SENT", "CONFIRMED", "UNCERTAIN", "FAILED"))
+			exec(LEGACY, publication(ITEM_A, "SLACK", "CREATE", "s-" + status, status));
+
+		flyway(LEGACY).migrate();
+
+		assertThat(query(LEGACY, "select string_agg(status || ':' || outcome_unknown, ',' order by status) from publications"))
+			.containsExactly("CONFIRMED:false,FAILED:false,RESERVED:false,SENT:false,UNCERTAIN:true");
+		// 새 행의 기본값은 false다.
+		exec(LEGACY, publication(ITEM_A, "GITHUB", "CREATE", KEY_A, "RESERVED"));
+		assertThat(query(LEGACY, "select outcome_unknown::text from publications where idempotency_key = '%s'".formatted(KEY_A)))
+			.containsExactly("false");
+		assertThat(query(LEGACY, "select indexname from pg_indexes where indexname = 'idx_publications_status_updated_at'"))
+			.containsExactly("idx_publications_status_updated_at");
+	}
+
+	@Test
+	void v5ConstraintsRejectDuplicateKeysBadValuesAndCascadeOnTicketDelete() throws Exception {
+		legacyDatabase(LEGACY);
+		flyway(LEGACY).migrate();
+		exec(LEGACY, """
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status)
+			values ('%s', '%s', 't', '{}', 'CREATE', 'PENDING', 'DRAFT', 'CONFIRMED')""".formatted(ITEM_A, TASK));
+
+		exec(LEGACY, publication(ITEM_A, "GITHUB", "CREATE", KEY_A, "RESERVED"));
+		// 같은 (target, idempotency_key)는 상태와 상관없이 한 줄만 둘 수 있다.
+		assertThatThrownBy(() -> exec(LEGACY, publication(ITEM_A, "GITHUB", "CREATE", KEY_A, "FAILED")))
+			.isInstanceOf(SQLException.class).hasMessageContaining("publications_target_idempotency_key_key");
+		// 대상이 다르면 같은 키 문자열이어도 따로 둘 수 있다.
+		exec(LEGACY, publication(ITEM_A, "NOTION", "CREATE", KEY_A, "CONFIRMED"));
+		assertThatThrownBy(() -> exec(LEGACY, publication(ITEM_A, "GITHUB", "CREATE", "k2", "DONE")))
+			.isInstanceOf(SQLException.class).hasMessageContaining("publications_status_check");
+		assertThatThrownBy(() -> exec(LEGACY, publication(ITEM_A, "JIRA", "CREATE", "k3", "RESERVED")))
+			.isInstanceOf(SQLException.class).hasMessageContaining("publications_target_check");
+		assertThatThrownBy(() -> exec(LEGACY, publication(ITEM_A, "GITHUB", "DELETE", "k4", "RESERVED")))
+			.isInstanceOf(SQLException.class).hasMessageContaining("publications_operation_check");
+		for (String status : List.of("RESERVED", "SENT", "CONFIRMED", "UNCERTAIN", "FAILED"))
+			exec(LEGACY, publication(ITEM_A, "SLACK", "CREATE", "s-" + status, status));
+		// 없는 티켓은 가리킬 수 없다.
+		assertThatThrownBy(() -> exec(LEGACY, publication("00000000-0000-0000-0000-0000000000ee", "GITHUB", "CREATE", "k5", "RESERVED")))
+			.isInstanceOf(SQLException.class).hasMessageContaining("violates foreign key constraint");
+
+		// 프로젝트 삭제는 task_items를 일괄 삭제하므로 발행 기록은 DB가 함께 지운다.
+		assertThat(query(LEGACY, "select count(*)::text from publications")).containsExactly("7");
+		exec(LEGACY, "delete from task_items where task_item_id = '%s'".formatted(ITEM_A));
+		assertThat(query(LEGACY, "select count(*)::text from publications")).containsExactly("0");
+	}
+
+	// H2 테스트가 검증하지 못하는 부분: 실제 PostgreSQL에서 같은 키의 동시 INSERT가 예외 없이 한쪽만 성공한다.
+	@Test
+	void v5ConcurrentInsertWithOnConflictDoNothingKeepsOnlyOneRow() throws Exception {
+		legacyDatabase(LEGACY);
+		flyway(LEGACY).migrate();
+		exec(LEGACY, """
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status)
+			values ('%s', '%s', 't', '{}', 'CREATE', 'PENDING', 'DRAFT', 'CONFIRMED')""".formatted(ITEM_A, TASK));
+		String insert = publication(ITEM_A, "GITHUB", "CREATE", KEY_A, "RESERVED") + " on conflict do nothing";
+
+		try (Connection first = connect(LEGACY); Connection second = connect(LEGACY)) {
+			first.setAutoCommit(false);
+			second.setAutoCommit(false);
+			assertThat(first.createStatement().executeUpdate(insert)).isEqualTo(1);
+			// 두 번째 연결은 첫 연결이 끝날 때까지 기다린다.
+			var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+			try {
+				var waiting = pool.submit(() -> second.createStatement().executeUpdate(insert));
+				Thread.sleep(500);
+				assertThat(waiting.isDone()).isFalse();
+				first.commit();
+				assertThat(waiting.get(10, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(0);
+				second.commit();
+			} finally {
+				pool.shutdownNow();
+			}
+		}
+		assertThat(query(LEGACY, "select count(*)::text from publications")).containsExactly("1");
+	}
+
+	// 실제 PostgreSQL에서 PublicationLedger가 같은 키를 동시에 예약해도 한쪽만 RESERVED를 받는다.
+	@Test
+	void ledgerReservesTheSameKeyOnlyOnceUnderConcurrencyOnPostgres() throws Exception {
+		legacyDatabase(LEGACY);
+		flyway(LEGACY).migrate();
+		exec(LEGACY, """
+			insert into task_items (task_item_id, task_id, title, content_json, action, review_status, publish_status, ticket_status, publish_target)
+			values ('%s', '%s', 't', '{}', 'CREATE', 'PENDING', 'DRAFT', 'CONFIRMED', 'GITHUB'),
+			       ('%s', '%s', 't', '{}', 'CREATE', 'PENDING', 'DRAFT', 'FAILED', 'GITHUB')""".formatted(ITEM_A, TASK, ITEM_B, TASK));
+		exec(LEGACY, publication(ITEM_B, "GITHUB", "CREATE", "v1:" + ITEM_B + ":GITHUB:CREATE", "FAILED"));
+		try (ConfigurableApplicationContext context = boot(LEGACY, true, "validate")) {
+			var ledger = context.getBean(com.mcpcapstone.meettoticket.analysis.PublicationLedger.class);
+			var tx = context.getBean(org.springframework.transaction.support.TransactionTemplate.class);
+			var pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+			try {
+				for (String item : List.of(ITEM_A, ITEM_B)) {
+					var barrier = new java.util.concurrent.CyclicBarrier(8);
+					var futures = new ArrayList<java.util.concurrent.Future<com.mcpcapstone.meettoticket.analysis.PublicationLedger.Reservation>>();
+					for (int i = 0; i < 8; i++)
+						futures.add(pool.submit(() -> {
+							barrier.await();
+							return tx.execute(status -> ledger.reserve(java.util.UUID.fromString(item),
+								com.mcpcapstone.meettoticket.analysis.PublishTarget.GITHUB,
+								com.mcpcapstone.meettoticket.analysis.PublishOperation.CREATE, java.util.UUID.randomUUID()));
+						}));
+					var results = new ArrayList<String>();
+					for (var f : futures) results.add(f.get().name());
+					assertThat(results).containsOnlyOnce("RESERVED").filteredOn(r -> !r.equals("RESERVED")).containsOnly("IN_PROGRESS");
+				}
+			} finally {
+				pool.shutdownNow();
+			}
+		}
+		assertThat(query(LEGACY, "select task_item_id::text || ':' || status || ':' || attempt_count from publications order by task_item_id"))
+			.containsExactly(ITEM_A + ":RESERVED:1", ITEM_B + ":RESERVED:2");
 	}
 }

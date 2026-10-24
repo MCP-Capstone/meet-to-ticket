@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections import Counter
 from typing import Any
 
@@ -19,7 +21,10 @@ _VERIFY_REQUIRED = {
     "NOTION": ("NOTION_VERIFY_REQUIRED", "이전 Notion 발행 결과를 알 수 없어 중복 페이지를 막기 위해 다시 만들지 않았습니다. Notion의 '회의 후속 티켓' 폴더에서 페이지가 있는지 확인한 뒤 결과를 남기세요"),
     "SLACK": ("SLACK_VERIFY_REQUIRED", "이전 Slack 공지 결과를 알 수 없어 중복 게시를 막기 위해 다시 보내지 않았습니다. Slack 채널에서 공지가 올라갔는지 확인한 뒤 결과를 남기세요"),
 }
-_RETRYABLE = {"GITHUB_RATE_LIMIT", "GITHUB_ERROR", "MCP_UNAVAILABLE", "PUBLISH_FAILED", "NOTION_RATE_LIMIT", "NOTION_ERROR"}
+_RETRYABLE = {"GITHUB_RATE_LIMIT", "GITHUB_ERROR", "MCP_UNAVAILABLE", "PUBLISH_FAILED", "NOTION_RATE_LIMIT", "NOTION_ERROR",
+              "PUBLISH_DEADLINE"}
+# 묶음 마감에 걸려 쓰기 요청을 보내지 않은 티켓 (#302). 다시 시도할 수 있다. 쓰기를 보낸 뒤 걸리면 RESULT_UNKNOWN이다
+PUBLISH_DEADLINE = "PUBLISH_DEADLINE"
 
 
 def _ticket(source: PublishTicket) -> dict[str, Any]:
@@ -112,13 +117,32 @@ async def _comment_already_sent(publisher: Any, source: PublishTicket, number: i
     return legacy if legacy and legacy.get("where") == "comment" else None
 
 
+def body_footer(source: PublishTicket, ticket: dict[str, Any]) -> str:
+    """신규 이슈 본문 끝줄(publisher.build_issue_body)의 앞부분. 회의 ID와 work_key가 함께 들어 있어 제목이 바뀌어도 남는다."""
+    return f"회의: {source.meeting_id} \u00b7 work_key: {ticket.get('work_key') or '-'} \u00b7 회의 후속조치 Agent가 작성"
+
+
 async def _existing_issue(publisher: Any, source: PublishTicket, ticket: dict[str, Any]) -> dict[str, Any] | None:
-    """같은 work_key로 이미 만들어진 열린 이슈를 찾는다. 제목까지 같아야 같은 티켓으로 본다."""
+    """같은 work_key로 이미 만들어진 열린 이슈를 찾는다.
+
+    제목이 현재 제목과 같으면 같은 티켓으로 본다. 제목이 수정됐다면 이슈 본문 끝줄의 회의 ID와 work_key가 모두
+    같은 이슈만 같은 티켓으로 본다(#320). 같은 work_key라도 회의 ID가 다르면 연결하지 않는다.
+    """
     work_key = ticket.get("work_key")
     out = await publisher.search_issues(owner=source.project.github_owner, repo=source.project.github_repo,
                                         query=f'"{work_key}"', state="open", limit=10)
-    for issue in out.get("issues") or []:
-        if issue.get("state") == "open" and (issue.get("title") or "").strip() == source.title.strip():
+    candidates = [i for i in out.get("issues") or [] if i.get("state") == "open"]
+    for issue in candidates:
+        if (issue.get("title") or "").strip() == source.title.strip():
+            return issue
+    footer = body_footer(source, ticket)
+    for issue in candidates:
+        if not issue.get("number"):
+            continue
+        found = await publisher.find_marker(owner=source.project.github_owner, repo=source.project.github_repo,
+                                            number=issue["number"], marker=footer)
+        # 댓글에 같은 문구가 있어도 본문에 있어야 이 티켓이 만든 이슈다
+        if found.get("found") and found.get("where") == "body":
             return issue
     return None
 
@@ -171,7 +195,9 @@ async def publish_one(source: PublishTicket, publisher: Any) -> PublishItemResul
             if not channel_id:
                 raise ToolCallError("INVALID_ARGUMENT", "Slack 공지에는 프로젝트 slack_channel_id가 필요합니다")
             notice = ticket.get("slack") or {}
-            text = (notice.get("text") or ticket.get("description") or "").strip()
+            # 담당자가 저장한 description이 Slack의 단일 발행 본문이다. 이전 초안에는
+            # description이 없을 수 있으므로 그때만 기존 slack.text를 호환용으로 사용한다.
+            text = (ticket.get("description") or notice.get("text") or "").strip()
             if not text:
                 raise ToolCallError("INVALID_ARGUMENT", "Slack 공지 문구가 비어 있습니다")
             reviewer_names = {r.get("name") for r in notice.get("reviewers") or []}
@@ -292,11 +318,69 @@ def _comment_failure(source: PublishTicket, message: str, *, code: str = "COMMEN
                              error_code=code, error_message=message[:1000], retryable=retryable)
 
 
-async def publish_batch(request: PublishBatchRequest, publisher: Any) -> PublishBatchResult:
-    """프로젝트 실패가 다른 프로젝트 티켓을 막지 않도록 항목 단위로 끝까지 실행한다."""
-    items = [await publish_one(ticket, publisher) for ticket in request.tickets]
+def _batch_result(batch_id: str, items: list[PublishItemResult]) -> PublishBatchResult:
     counts = Counter(item.status for item in items)
     status = "FAILED" if counts and counts["FAILED"] + counts["UNKNOWN"] == len(items) else (
         "PARTIAL_FAILED" if counts["FAILED"] or counts["UNKNOWN"] else "SUCCEEDED"
     )
-    return PublishBatchResult(batch_id=request.batch_id, status=status, summary=dict(counts), items=items)
+    return PublishBatchResult(batch_id=batch_id, status=status, summary=dict(counts), items=items)
+
+
+def unsent_batch(request: PublishBatchRequest, code: str, message: str) -> PublishBatchResult:
+    """외부에 아무것도 보내지 않고 끝난 묶음. 모든 티켓을 다시 시도할 수 있는 실패로 보고한다."""
+    return _batch_result(request.batch_id, [
+        _failure(ticket.ticket_id, _ticket(ticket)["handling"]["type"], ToolCallError(code, message))
+        for ticket in request.tickets
+    ])
+
+
+_WRITE_METHODS = {"create_issue", "add_comment", "update_issue", "post_message", "create_page"}
+
+
+class _WriteTracker:
+    """publisher를 감싸 쓰기 요청을 보내기 시작했는지 기록한다. 마감으로 끊긴 티켓을 결과 모름과 미전송으로 가른다."""
+
+    def __init__(self, publisher: Any):
+        self._publisher = publisher
+        self.wrote = False
+
+    def __getattr__(self, name: str) -> Any:
+        method = getattr(self._publisher, name)
+        if name not in _WRITE_METHODS:
+            return method
+
+        async def write(**args: Any) -> Any:
+            self.wrote = True
+            return await method(**args)
+        return write
+
+
+async def publish_batch(request: PublishBatchRequest, publisher: Any, *, deadline: float | None = None) -> PublishBatchResult:
+    """프로젝트 실패가 다른 프로젝트 티켓을 막지 않도록 항목 단위로 끝까지 실행한다.
+
+    deadline(time.monotonic 기준)이 있으면 묶음이 그 안에 끝난다 (#302). 마감에 걸린 티켓은 쓰기 요청을 보냈으면
+    결과 모름(RESULT_UNKNOWN), 보내지 않았으면(시작 전, 쓰기 전 확인 조회 중) 다시 시도할 수 있는 실패(PUBLISH_DEADLINE)다.
+    """
+    items: list[PublishItemResult] = []
+    for ticket in request.tickets:
+        if deadline is None:
+            items.append(await publish_one(ticket, publisher))
+            continue
+        kind = _ticket(ticket)["handling"]["type"]
+        left = deadline - time.monotonic()
+        if left <= 0:
+            items.append(_failure(ticket.ticket_id, kind, ToolCallError(
+                PUBLISH_DEADLINE, "발행 마감 시간이 지나 보내지 않았습니다. 다시 시도할 수 있습니다.")))
+            continue
+        tracked = _WriteTracker(publisher)
+        try:
+            items.append(await asyncio.wait_for(publish_one(ticket, tracked), timeout=left))
+        except asyncio.TimeoutError:
+            if tracked.wrote:
+                log.warning("발행 마감 시간 안에 %s의 결과를 받지 못해 결과 모름으로 남김", ticket.ticket_id)
+                error = ToolCallError("RESULT_UNKNOWN", "발행 마감 시간 안에 결과를 받지 못했습니다. 대상에 반영됐는지 확인한 뒤 다시 시도하세요.",
+                                      ambiguous=True)
+            else:
+                error = ToolCallError(PUBLISH_DEADLINE, "발행 마감 시간이 지나 보내지 않았습니다. 다시 시도할 수 있습니다.")
+            items.append(_failure(ticket.ticket_id, kind, error))
+    return _batch_result(request.batch_id, items)

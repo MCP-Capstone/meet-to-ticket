@@ -30,6 +30,7 @@ public class AnalysisStore {
     private final ProjectService access;
     private final JsonCodec json;
     private final AgentResultValidator validator;
+    private final TicketHistoryRecorder recorder;
 
     @Transactional
     public AgentContracts.StartRequest create(Long meetingId, Long userId, String mode) {
@@ -129,7 +130,8 @@ public class AnalysisStore {
                 var saved = new TaskItem(t, item, json.write(item.contentJson()));
                 saved.assignTo(AssigneeResolver.resolve(
                         item.contentJson(), projectMembers, t.getMeeting().getCreatedBy()).orElse(null));
-                items.save(saved);
+                // 저장해 돌려받은 영속 객체로 AGENT 리비전과 상태 이력의 시작을 남긴다.
+                recorder.created(items.save(saved));
             }
         }
         t.update(
@@ -205,6 +207,8 @@ public class AnalysisStore {
                 t.getProgressJson() == null ? null : json.read(t.getProgressJson()));
     }
 
+    // review_status, publish_status는 deprecated 컬럼(#264)이지만 분석 결과 조회 응답(reviewStatus, publishStatus)이 아직 읽는다.
+    @SuppressWarnings("deprecation")
     private AgentContracts.Item itemView(TaskItem i) {
         return new AgentContracts.Item(
                 i.getId(),
