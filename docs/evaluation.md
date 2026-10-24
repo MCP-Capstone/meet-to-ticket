@@ -238,7 +238,7 @@ phase1-end 코드는 검수 Agent가 있는 Phase 1 흐름이다. 검수 Agent�
    # .env의 RAG_ENABLED를 true로 바꾸고 mcp-server, rag-mcp를 띄운 뒤
    python -m eval.run_eval --agent-dir ../../phase1-end-checkout/agent --label phase1-end --runs 3 --group dedupe
    ```
-4. `results/v2.1/phase1-end/scores.json`을 `agent/eval/baselines/v2.1/phase1-end.json`으로 복사해 커밋한다. 원본 결과 폴더(`results/`)와 캐시는 커밋하지 않는다.
+4. `results/v2.1/phase1-end/scores.json`을 `agent/eval/baselines/v2.1/phase1-end.json`으로 복사해 커밋한다. 저장소 규칙(가운뎃점 금지)을 지키려고 상세 기록의 티켓 제목에 있던 가운뎃점 4곳만 `/`로 바꿨고, 점수와 건수는 그대로다. 원본 결과 폴더(`results/`)와 캐시는 커밋하지 않는다.
 
 측정 전 확인
 
