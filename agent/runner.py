@@ -113,15 +113,39 @@ def initial_state(req: RunRequest, trace_id: str | None = None, deadline_seconds
     }
 
 
-def _mcp_client(name: str, url: str) -> Any:
+def _mcp_client(name: str, url: str, settings: Settings | None = None) -> Any:
+    """settings를 주면 연결·응답 대기 시간 상한을 건다. 주지 않으면 상한이 없다 (전체 재색인처럼 오래 걸리는 작업).
+
+    응답 대기 상한은 ClientSession의 read_timeout_seconds로만 걸린다. mcp 클라이언트는 응답 스트림 읽기 시간 초과
+    예외를 삼키므로 httpx 시간 초과만으로는 도구 호출이 끝나지 않는다 (#299).
+    """
+    from datetime import timedelta
+
     from langchain_mcp_adapters.client import MultiServerMCPClient
 
-    return MultiServerMCPClient({name: {"transport": "streamable_http", "url": url}})
+    connection: dict[str, Any] = {"transport": "streamable_http", "url": url}
+    if settings is not None:
+        connection["timeout"] = settings.mcp_http_timeout_seconds
+        if settings.mcp_call_timeout_seconds > 0:
+            connection["session_kwargs"] = {"read_timeout_seconds": timedelta(seconds=settings.mcp_call_timeout_seconds)}
+    return MultiServerMCPClient({name: connection})
+
+
+async def _bounded(awaitable: Any, seconds: float | None) -> Any:
+    """seconds가 None이면 상한 없이 기다린다. 0 이하면 바로 시간 초과다 (마감이 이미 지남)."""
+    if seconds is None:
+        return await awaitable
+    return await asyncio.wait_for(awaitable, timeout=max(seconds, 0))
+
+
+def _call_limit(settings: Settings) -> float | None:
+    return settings.mcp_call_timeout_seconds if settings.mcp_call_timeout_seconds > 0 else None
 
 
 async def github_tools(settings: Settings) -> dict[str, Any]:
-    """business-mcp의 도구 (create_issue, search_issues 등). 연결이 안 되면 예외."""
-    tools = await _mcp_client("github", settings.mcp_server_url).get_tools(server_name="github")
+    """business-mcp의 도구 (create_issue, search_issues 등). 연결이 안 되거나 응답이 없으면 예외."""
+    client = _mcp_client("github", settings.mcp_server_url, settings)
+    tools = await _bounded(client.get_tools(server_name="github"), _call_limit(settings))
     return {t.name: t for t in tools}
 
 
@@ -141,9 +165,10 @@ async def make_issue_tools(
     """
     if not settings.rag_enabled:
         return None, "disabled"
-    client = _mcp_client("rag", settings.rag_mcp_url)
+    client = _mcp_client("rag", settings.rag_mcp_url, settings)
     try:
-        rag = {t.name: t for t in await client.get_tools(server_name="rag")}
+        # 응답 없이 멈춘 rag-mcp가 분석·발행을 붙잡지 않게 상한을 둔다 (연결 거부는 바로 실패한다)
+        rag = {t.name: t for t in await _bounded(client.get_tools(server_name="rag"), _call_limit(settings))}
     except Exception as exc:  # noqa: BLE001
         log.warning("rag-mcp 연결 실패 (%s), 중복 확인 없이 진행: %s", settings.rag_mcp_url, exc)
         return None, "unavailable"
@@ -196,17 +221,28 @@ async def run_publish_batch(
     """확인된 여러 프로젝트 티켓을 발행한다.
 
     프로젝트별로 재대조가 색인을 한 번 증분 동기화한다. 재대조·색인 실패는 기존 처리 유형과 GitHub 발행을 막지 않는다.
+    묶음 전체는 PUBLISH_DEADLINE_SECONDS 안에 끝낸다: 재대조가 마감에 걸리면 재대조 없이 발행하고, 발행이 마감에 걸리면
+    남은 티켓은 보내지 않는다 (publish_batch). 발행 후 색인은 결과를 바꾸지 않으므로 마감 뒤에는 하지 않는다.
     """
-    from batch_publish import _ticket, publish_batch
+    from batch_publish import _ticket, publish_batch, unsent_batch
     from recheck import recheck
+
+    deadline = time.monotonic() + settings.publish_deadline_seconds if settings.publish_deadline_seconds > 0 else None
+
+    def remaining() -> float | None:
+        return None if deadline is None else deadline - time.monotonic()
 
     github: dict[str, Any] | None = None
     if publisher is None:
         if settings.dry_run:
             publisher = DryRunPublisher()
         else:
-            github = await github_tools(settings)
-            publisher = make_mcp_publisher(github)
+            try:
+                github = await github_tools(settings)
+                publisher = make_mcp_publisher(github)
+            except Exception as exc:  # noqa: BLE001 - 도구 목록만 조회했으므로 외부에 쓴 것이 없다
+                log.warning("발행 묶음 %s: business-mcp 도구를 가져오지 못해 보내지 않음: %s", request.batch_id, exc)
+                return unsent_batch(request, MCP_UNAVAILABLE, f"발행 MCP에 연결하지 못해 보내지 않았습니다: {str(exc) or type(exc).__name__}")
     needs_recheck = any(t.publish_target == "GITHUB" and not t.retry_comment_only for t in request.tickets)
     if settings.rag_enabled and needs_recheck and llm is None:
         from llm import OpenAILLM
@@ -221,11 +257,13 @@ async def run_publish_batch(
             continue
         by_repo.setdefault((ticket.project.github_owner, ticket.project.github_repo), []).append(index)
     indexed: dict[tuple[str, str], IssueTools] = {}
-    if settings.rag_enabled:
+
+    async def recheck_all() -> None:
         for key, positions in by_repo.items():
             tools, _ = await make_issue_tools(settings, key[0], key[1], github)
             if tools is None or llm is None:
                 continue
+            indexed[key] = tools
             checked = await recheck([_ticket(prepared[pos]) for pos in positions], issue_tools=tools, llm=llm, settings=settings)
             for pos, value in zip(positions, checked["tickets"]):
                 handling = value.get("handling") or {}
@@ -233,16 +271,32 @@ async def run_publish_batch(
                     "processing_type": handling.get("type", prepared[pos].processing_type),
                     "target_issue_number": handling.get("issue_number", prepared[pos].target_issue_number),
                 })
-            indexed[key] = tools
 
-    result = await publish_batch(request.model_copy(update={"tickets": prepared}), publisher)
-    # 발행/댓글/갱신 직후 최신 본문·댓글을 다시 색인한다. 실패는 결과 성공을 바꾸지 않는다.
+    if settings.rag_enabled and by_repo:
+        try:
+            await _bounded(recheck_all(), remaining())
+        except asyncio.TimeoutError:
+            # 끝내지 못한 저장소의 티켓은 저장된 처리 유형으로 발행한다 (재대조 실패와 같다)
+            log.warning("발행 묶음 %s: 마감 안에 재대조를 끝내지 못해 남은 티켓은 재대조 없이 발행", request.batch_id)
+
+    result = await publish_batch(request.model_copy(update={"tickets": prepared}), publisher, deadline=deadline)
+    # 발행/댓글/갱신 직후 최신 본문·댓글을 다시 색인한다. 실패는 결과 성공을 바꾸지 않으며, 마감을 넘기지 않는다.
     source = {ticket.ticket_id: ticket for ticket in prepared}
-    for item in result.items:
-        ticket = source[item.ticket_id]
-        tools = indexed.get((ticket.project.github_owner, ticket.project.github_repo))
-        if tools and item.github_issue_number and item.status in {"PUBLISHED", "LINKED", "UPDATED"}:
-            await tools.index(item.github_issue_number)
+
+    async def index_published() -> None:
+        for item in result.items:
+            ticket = source[item.ticket_id]
+            tools = indexed.get((ticket.project.github_owner, ticket.project.github_repo))
+            if tools and item.github_issue_number and item.status in {"PUBLISHED", "LINKED", "UPDATED"}:
+                await tools.index(item.github_issue_number)
+
+    if indexed:
+        try:
+            left = remaining()
+            limit = settings.rag_sync_timeout_seconds if left is None else min(left, settings.rag_sync_timeout_seconds)
+            await _bounded(index_published(), limit)
+        except asyncio.TimeoutError:
+            log.warning("발행 묶음 %s: 발행 후 색인을 시간 안에 끝내지 못함 (다음 실행의 색인 갱신이 반영한다)", request.batch_id)
     return result
 
 

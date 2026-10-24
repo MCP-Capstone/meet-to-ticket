@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections import Counter
 from typing import Any
 
@@ -19,7 +21,10 @@ _VERIFY_REQUIRED = {
     "NOTION": ("NOTION_VERIFY_REQUIRED", "이전 Notion 발행 결과를 알 수 없어 중복 페이지를 막기 위해 다시 만들지 않았습니다. Notion의 '회의 후속 티켓' 폴더에서 페이지가 있는지 확인한 뒤 결과를 남기세요"),
     "SLACK": ("SLACK_VERIFY_REQUIRED", "이전 Slack 공지 결과를 알 수 없어 중복 게시를 막기 위해 다시 보내지 않았습니다. Slack 채널에서 공지가 올라갔는지 확인한 뒤 결과를 남기세요"),
 }
-_RETRYABLE = {"GITHUB_RATE_LIMIT", "GITHUB_ERROR", "MCP_UNAVAILABLE", "PUBLISH_FAILED", "NOTION_RATE_LIMIT", "NOTION_ERROR"}
+_RETRYABLE = {"GITHUB_RATE_LIMIT", "GITHUB_ERROR", "MCP_UNAVAILABLE", "PUBLISH_FAILED", "NOTION_RATE_LIMIT", "NOTION_ERROR",
+              "PUBLISH_DEADLINE"}
+# 묶음 마감 (#302). 시작 전 티켓은 보내지 않았으므로 다시 시도할 수 있고, 처리 중이던 티켓은 쓰기가 나갔을 수 있어 결과 모름이다
+PUBLISH_DEADLINE = "PUBLISH_DEADLINE"
 
 
 def _ticket(source: PublishTicket) -> dict[str, Any]:
@@ -292,11 +297,44 @@ def _comment_failure(source: PublishTicket, message: str, *, code: str = "COMMEN
                              error_code=code, error_message=message[:1000], retryable=retryable)
 
 
-async def publish_batch(request: PublishBatchRequest, publisher: Any) -> PublishBatchResult:
-    """프로젝트 실패가 다른 프로젝트 티켓을 막지 않도록 항목 단위로 끝까지 실행한다."""
-    items = [await publish_one(ticket, publisher) for ticket in request.tickets]
+def _batch_result(batch_id: str, items: list[PublishItemResult]) -> PublishBatchResult:
     counts = Counter(item.status for item in items)
     status = "FAILED" if counts and counts["FAILED"] + counts["UNKNOWN"] == len(items) else (
         "PARTIAL_FAILED" if counts["FAILED"] or counts["UNKNOWN"] else "SUCCEEDED"
     )
-    return PublishBatchResult(batch_id=request.batch_id, status=status, summary=dict(counts), items=items)
+    return PublishBatchResult(batch_id=batch_id, status=status, summary=dict(counts), items=items)
+
+
+def unsent_batch(request: PublishBatchRequest, code: str, message: str) -> PublishBatchResult:
+    """외부에 아무것도 보내지 않고 끝난 묶음. 모든 티켓을 다시 시도할 수 있는 실패로 보고한다."""
+    return _batch_result(request.batch_id, [
+        _failure(ticket.ticket_id, _ticket(ticket)["handling"]["type"], ToolCallError(code, message))
+        for ticket in request.tickets
+    ])
+
+
+async def publish_batch(request: PublishBatchRequest, publisher: Any, *, deadline: float | None = None) -> PublishBatchResult:
+    """프로젝트 실패가 다른 프로젝트 티켓을 막지 않도록 항목 단위로 끝까지 실행한다.
+
+    deadline(time.monotonic 기준)이 있으면 묶음이 그 안에 끝난다 (#302). 마감이 지나면 남은 티켓은 보내지 않아
+    다시 시도할 수 있는 실패로, 처리 중이던 티켓은 쓰기가 이미 나갔을 수 있어 결과 모름으로 보고한다.
+    """
+    items: list[PublishItemResult] = []
+    for ticket in request.tickets:
+        if deadline is None:
+            items.append(await publish_one(ticket, publisher))
+            continue
+        kind = _ticket(ticket)["handling"]["type"]
+        left = deadline - time.monotonic()
+        if left <= 0:
+            items.append(_failure(ticket.ticket_id, kind, ToolCallError(
+                PUBLISH_DEADLINE, "발행 마감 시간이 지나 보내지 않았습니다. 다시 시도할 수 있습니다.")))
+            continue
+        try:
+            items.append(await asyncio.wait_for(publish_one(ticket, publisher), timeout=left))
+        except asyncio.TimeoutError:
+            log.warning("발행 마감 시간 안에 %s의 결과를 받지 못해 결과 모름으로 남김", ticket.ticket_id)
+            items.append(_failure(ticket.ticket_id, kind, ToolCallError(
+                PUBLISH_DEADLINE, "발행 마감 시간 안에 결과를 받지 못했습니다. 대상에 반영됐는지 확인한 뒤 다시 시도하세요.",
+                ambiguous=True)))
+    return _batch_result(request.batch_id, items)
