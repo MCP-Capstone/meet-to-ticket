@@ -14,6 +14,7 @@ public interface PublishGateway {
     Optional<Result> submit(Request request);
 
 	// 콜백이 유실돼도 완료 결과만 가져온다. 이 경로로 발행을 재실행하지 않는다.
+	// Agent가 묶음을 모르면(재시작 등) PublishBatchLostException, Agent에 닿지 않으면 AgentException.
 	default Optional<Result> status(String batchId) { return Optional.empty(); }
 
     String mode();

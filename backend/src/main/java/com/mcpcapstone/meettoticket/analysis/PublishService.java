@@ -1,6 +1,7 @@
 package com.mcpcapstone.meettoticket.analysis;
 
 import com.mcpcapstone.meettoticket.agent.AgentException;
+import com.mcpcapstone.meettoticket.agent.PublishBatchLostException;
 import com.mcpcapstone.meettoticket.agent.PublishGateway;
 import com.mcpcapstone.meettoticket.common.JsonCodec;
 import com.mcpcapstone.meettoticket.common.error.*;
@@ -167,13 +168,24 @@ public class PublishService {
 
     // Agent 결과 보고가 오지 않아도 실행 중인 묶음을 조회해 끝낸다.
     // 스케줄러 스레드를 오래 잡지 않도록 한 주기에 조회하는 묶음 수를 제한하고, Agent에 닿지 않으면 그 주기는 바로 멈춘다.
+    // Agent가 묶음을 모르면(재시작으로 기록을 잃음) 결과 대기 기한까지 기다리지 않고 결과 모름으로 끝낸다 (#302).
+    // 막 접수한 묶음은 Agent가 아직 등록하기 전일 수 있어 lostGrace가 지난 묶음만 끝낸다.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public void reconcileRunning() {
-        List<UUID> running = batches.findIdsByStatusCreatedBefore(PublishBatchStatus.RUNNING, OffsetDateTime.now());
+    public void reconcileRunning(Duration lostGrace) {
+        OffsetDateTime now = OffsetDateTime.now();
+        List<UUID> running = batches.findIdsByStatusCreatedBefore(PublishBatchStatus.RUNNING, now);
+        Set<UUID> settled = new HashSet<>(batches.findIdsByStatusCreatedBefore(PublishBatchStatus.RUNNING, now.minus(lostGrace)));
+        PublishGateway.Result lost = new PublishGateway.Result(
+                null, "FAILED", null, List.of(), "RESULT_LOST",
+                "Agent가 다시 시작돼 발행 결과를 잃었습니다. 대상에 반영됐는지 확인한 뒤 다시 시도하세요.");
         for (UUID id : running.stream().limit(MAX_RECONCILE_PER_CYCLE).toList()) {
             try {
                 gateway.status(id.toString()).ifPresent(result ->
                         tx.executeWithoutResult(status -> applyResult(id, result)));
+            } catch (PublishBatchLostException e) {
+                if (!settled.contains(id)) continue;
+                log.warn("Agent가 일괄 발행 {}를 알지 못해 결과 모름으로 끝냄", id);
+                tx.executeWithoutResult(status -> applyResult(id, lost));
             } catch (AgentException e) {
                 // 묶음마다 타임아웃을 기다리면 주기가 묶음 수만큼 늘어난다. Agent가 응답하지 않으면 다음 주기에 다시 조회한다.
                 log.warn("Agent 결과 조회 실패로 이번 주기의 일괄 발행 조회를 멈춤, 다음 주기에 다시 조회: {}", e.getMessage());
