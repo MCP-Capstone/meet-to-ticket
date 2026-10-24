@@ -36,6 +36,7 @@ public class PublishService {
     private final JsonCodec json;
     private final TransactionTemplate tx;
     private final PublicationTicketMapper publicationMapper;
+    private final TicketHistoryRecorder recorder;
 
     // 확인한 티켓을 발행 중으로 바꿔 한 묶음으로 보낸다. 중복 클릭은 이미 발행 중이어서 담기지 않는다.
     // Agent 호출은 트랜잭션 밖에서 해 DB 연결을 붙잡지 않는다.
@@ -127,7 +128,9 @@ public class PublishService {
         List<PublishGateway.Ticket> tickets = new ArrayList<>();
         for (TaskItem i : picked) {
             tickets.add(toTicket(i));
+            TicketStatus from = i.getTicketStatus();
             i.startPublishing(batch);
+            recorder.statusChanged(i, from, userId, TicketHistoryRecorder.REASON_PUBLISH_REQUESTED);
         }
         return new Prepared(batch.getId(), new PublishGateway.Request(batch.getId().toString(), tickets));
     }
@@ -153,7 +156,11 @@ public class PublishService {
 
     private void abort(UUID batchId, String message) {
         tx.executeWithoutResult(status -> {
-            items.findByBatch(batchId).forEach(TaskItem::cancelPublishing);
+            items.findByBatch(batchId).forEach(i -> {
+                TicketStatus from = i.getTicketStatus();
+                i.cancelPublishing();
+                recorder.statusChanged(i, from, null, TicketHistoryRecorder.REASON_PUBLISH_NOT_ACCEPTED);
+            });
             batches.findForUpdate(batchId).ifPresent(b -> b.finish(PublishBatchStatus.FAILED, message));
         });
     }
@@ -205,13 +212,18 @@ public class PublishService {
         for (PublishGateway.Item r : result.items() == null ? List.<PublishGateway.Item>of() : result.items()) {
             TaskItem ticket = waiting.remove(r.ticketId());
             if (ticket == null) continue; // 이 묶음의 발행 중 티켓이 아니면 반영하지 않는다
+            TicketStatus from = ticket.getTicketStatus();
+            boolean commentRetry = ticket.isCommentRetry();
             record(ticket, r);
+            recordHistory(ticket, from, batch.getUser().getId(), commentRetry);
         }
         // 보고에 없는 티켓은 발행됐는지 알 수 없다. 실패로 두되 결과 모름으로 구분한다.
         // 기한 초과, 묶음 전체 실패처럼 일시적인 경우가 대부분이라 확인 후 다시 시도할 수 있게 둔다(재대조 또는 MANUAL_CHECK가 중복을 막는다).
 		for (TaskItem ticket : waiting.values()) {
+			TicketStatus from = ticket.getTicketStatus();
 			if (ticket.isCommentRetry()) {
 				recordCommentFailure(ticket, "알림 댓글 결과를 받지 못했습니다. 다시 보내면 기존 댓글 표식을 먼저 확인합니다.");
+				recordHistory(ticket, from, batch.getUser().getId(), true);
 				continue;
 			}
             ticket.recordPublishResult(
@@ -219,6 +231,7 @@ public class PublishService {
                     result.errorCode() != null ? result.errorCode() : "RESULT_MISSING",
                     result.errorMessage() != null ? result.errorMessage() : "발행 결과를 받지 못했습니다.",
                     true, true);
+			recordHistory(ticket, from, batch.getUser().getId(), false);
 		}
 
         List<TaskItem> all = items.findByBatch(batchId);
@@ -266,6 +279,16 @@ public class PublishService {
                     r.errorCode() != null ? r.errorCode() : "PUBLISH_FAILED", r.errorMessage(), retryable(r), false);
         }
     }
+
+	// 발행 결과를 티켓에 반영한 직후 상태 이력을 남기고, 발행이 확정(PUBLISHED, LINKED, UPDATED)됐으면 PUBLISHED 리비전을 남긴다.
+	// SKIPPED(발행 생략)와 실패는 리비전을 남기지 않는다. 알림 댓글 재전송은 이미 확정된 발행의 후속이라 리비전을 다시 남기지 않는다.
+	private void recordHistory(TaskItem ticket, TicketStatus from, Long publisherUserId, boolean commentRetry) {
+		String code = ticket.getPublishErrorCode();
+		recorder.statusChanged(ticket, from, null, code != null ? code : TicketHistoryRecorder.REASON_PUBLISH_RESULT);
+		TicketStatus now = ticket.getTicketStatus();
+		if (!commentRetry && (now == TicketStatus.PUBLISHED || now == TicketStatus.LINKED || now == TicketStatus.UPDATED))
+			recorder.published(ticket, publisherUserId);
+	}
 
 	private void recordCommentFailure(TaskItem ticket, String message) {
 		ticket.recordPublishResult(TicketStatus.UPDATED, ProcessingType.UPDATE,

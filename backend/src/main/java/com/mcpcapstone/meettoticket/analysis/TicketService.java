@@ -30,6 +30,7 @@ public class TicketService {
     private final ProjectMemberRepository members;
     private final MyTicketService view;
     private final JsonCodec json;
+    private final TicketHistoryRecorder recorder;
 
     // 상태 전이. 이 표 밖의 전이는 409다.
     private enum Action {
@@ -68,7 +69,9 @@ public class TicketService {
         if (item.getTicketStatus() != Action.REVISE.from) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
         // 확인 결과는 실패 상태에서만 남길 수 있다. 먼저 되돌리면 확인할 길 없이 대상만 잠기므로 막는다 (#280).
         if (PublishResolution.of(item) == PublishResolution.MANUAL_CHECK) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+        TicketStatus from = item.getTicketStatus();
         item.reviseFailed();
+        recorder.statusChanged(item, from, userId, Action.REVISE.name());
         return view.view(item);
     }
 
@@ -81,7 +84,11 @@ public class TicketService {
             throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
         // url은 반영됐을 때만 쓰므로 그때만 검사한다.
         String url = request.applied() ? resultUrl(request.url(), item.getPublishTarget()) : null;
+        TicketStatus from = item.getTicketStatus();
         item.resolveUnknownOutcome(request.applied(), url);
+        // 반영 확인이면 발행됨으로 끝난다. 반영되지 않음 확인은 상태가 그대로라 남기지 않는다.
+        if (item.getTicketStatus() == TicketStatus.PUBLISHED) recorder.published(item, userId);
+        recorder.statusChanged(item, from, userId, TicketHistoryRecorder.REASON_OUTCOME_VERIFIED);
         return view.view(item);
     }
 
@@ -110,7 +117,10 @@ public class TicketService {
     private MyTicketService.Ticket move(UUID id, Long userId, Action action) {
         TaskItem item = ownedBy(id, userId);
         if (item.getTicketStatus() != action.from) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+        // 확정(저장) 시점에 최종 편집본을 USER_EDIT 리비전으로 남긴다. 카드 수정(PATCH)마다 쌓지 않는다.
+        if (action == Action.CONFIRM) recorder.userEdited(item, userId);
         item.moveTo(action.to);
+        recorder.statusChanged(item, action.from, userId, action.name());
         return view.view(item);
     }
 
