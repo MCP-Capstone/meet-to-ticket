@@ -21,6 +21,11 @@ public class PublishBatchExpiry {
     @Value("${app.publish.result-timeout:30m}")
     private Duration timeout;
 
+	@Scheduled(fixedDelayString = "${app.publish.poll-interval-ms:5000}")
+	public void reconcile() {
+		publish.reconcileRunning();
+	}
+
     @Scheduled(fixedDelayString = "${app.publish.expire-interval-ms:60000}")
     public void expire() {
         try {

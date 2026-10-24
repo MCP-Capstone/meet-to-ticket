@@ -194,14 +194,34 @@ async def test_unexpected_error_after_request_is_reported_as_unknown():
 
 
 @pytest.mark.anyio
-async def test_dry_run_publisher_handles_link_and_update():
+async def test_dry_run_publisher_marks_all_github_writes_as_skipped():
     from publisher import DryRunPublisher
 
     out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[
         ticket("a", "CREATE"), ticket("b", "LINK", 7), ticket("c", "UPDATE", 8),
     ]), DryRunPublisher())
 
-    assert [item.status for item in out.items] == ["PUBLISHED", "LINKED", "UPDATED"]
+    assert [item.status for item in out.items] == ["SKIPPED", "SKIPPED", "SKIPPED"]
+    assert all(item.github_issue_number is None and item.github_issue_url is None for item in out.items)
+    assert out.status == "SUCCEEDED"
+
+
+@pytest.mark.anyio
+async def test_dry_run_publisher_skips_notion_and_slack_without_error():
+    from publisher import DryRunPublisher
+
+    notion = ticket("notion", "CREATE")
+    notion.project = Project(github_owner="o", github_repo="r", notion_page_url="https://www.notion.so/root")
+    notion.publish_target = "NOTION"
+    slack = ticket("slack", "CREATE")
+    slack.project = Project(github_owner="o", github_repo="r", slack_channel_id="C123")
+    slack.publish_target = "SLACK"
+    slack.content_json = {"slack": {"text": "회의 결과", "reviewers": []}}
+
+    out = await publish_batch(PublishBatchRequest(batch_id="batch-1", tickets=[notion, slack]), DryRunPublisher())
+
+    assert [item.status for item in out.items] == ["SKIPPED", "SKIPPED"]
+    assert all(item.notion_page_url is None and item.message_url is None for item in out.items)
     assert out.status == "SUCCEEDED"
 
 

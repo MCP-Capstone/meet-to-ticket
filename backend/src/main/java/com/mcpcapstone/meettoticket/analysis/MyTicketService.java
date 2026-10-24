@@ -40,12 +40,16 @@ public class MyTicketService {
         JsonNode content = json.read(i.getContentJson());
         JsonNode due = content.path("due");
         var assignee = i.getAssignee();
+		boolean showFailure = i.getTicketStatus() == TicketStatus.FAILED
+				|| (i.getTicketStatus() == TicketStatus.UPDATED && i.getPublishErrorCode() != null);
         return new Ticket(
                 i.getId(),
                 i.getTitle(),
                 i.getTicketStatus(),
                 i.getProcessingType(),
                 i.getPublishTarget(),
+				i.getGithubIssueNumber(),
+				i.getGithubIssueUrl(),
                 dedupe(content.path("dedupe"), i, meeting.getProject()),
                 meeting.getProject().getId(),
                 meeting.getProject().getName(),
@@ -56,7 +60,7 @@ public class MyTicketService {
                 content.path("description").asText(null),
                 new Due(blankToNull(due.path("text").asText(null)), date(due.path("date").asText(null)), blankToNull(due.path("time").asText(null))),
                 assignee == null ? null : new Assignee(assignee.getId(), assignee.getName()),
-                i.getTicketStatus() == TicketStatus.FAILED ? failure(i, meeting.getProject()) : null,
+				showFailure ? failure(i, meeting.getProject()) : null,
                 i.mustRecheckOnPublish());
     }
 
@@ -126,6 +130,8 @@ public class MyTicketService {
             @Schema(description = "티켓 상태", requiredMode = Schema.RequiredMode.REQUIRED, example = "PENDING_REVIEW") TicketStatus status,
             @Schema(description = "처리 유형. 신규 발행 CREATE, 기존 이슈 연결 LINK, 갱신 UPDATE", requiredMode = Schema.RequiredMode.REQUIRED, example = "CREATE") ProcessingType processingType,
             @Schema(description = "발행 대상. GitHub 이외는 처리 유형이 항상 CREATE", requiredMode = Schema.RequiredMode.REQUIRED, example = "GITHUB") PublishTarget publishTarget,
+			@Schema(description = "실제 발행한 GitHub 이슈 번호. 다른 대상은 null", nullable = true) Integer githubIssueNumber,
+			@Schema(description = "발행 대상에 따른 GitHub/Notion/Slack 결과 URL", nullable = true) String githubIssueUrl,
             @Schema(description = "기존 이슈 중복 판단 결과 (읽기 전용)", requiredMode = Schema.RequiredMode.REQUIRED) Dedupe dedupe,
             @Schema(description = "프로젝트 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1") Long projectId,
             @Schema(description = "프로젝트 이름", requiredMode = Schema.RequiredMode.REQUIRED, example = "CSV 내보내기") String projectName,
@@ -136,7 +142,7 @@ public class MyTicketService {
             @Schema(description = "티켓 본문(작업 내용). 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "CSV 내보내기에서 결과가 비면 오류가 난다.") String description,
             @Schema(description = "기한", requiredMode = Schema.RequiredMode.REQUIRED) Due due,
             @Schema(description = "담당 멤버. 담당 지정 필요 상태면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) Assignee assignee,
-            @Schema(description = "발행 실패 사유. 실패 상태가 아니면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) PublishFailure publishFailure,
+			@Schema(description = "발행 실패 또는 갱신 알림 댓글 실패 사유. 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) PublishFailure publishFailure,
             @Schema(description = "발행 대상을 바꿀 수 없는지. 결과를 모르는 발행이 남아 있으면 true이고, 그 대상에서 결론을 낼 때까지 발행 대상 변경은 409 PUBLISH_TARGET_LOCKED다. 본문 수정은 할 수 있다", requiredMode = Schema.RequiredMode.REQUIRED, example = "false") boolean publishTargetLocked) {}
 
     public record PublishFailure(

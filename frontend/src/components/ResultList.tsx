@@ -1,4 +1,5 @@
 import type { Meeting, PublishStatus, TaskItem, TaskItemList } from '../api'
+import { safePublishUrl, toolName } from '../batchPublish'
 
 interface Props {
   meeting: Meeting
@@ -54,10 +55,10 @@ export function ResultList({ meeting, participants, result }: Props) {
   return (
     <>
       {result.executionMode === 'MOCK' && (
-        <p className="notice">모의 실행 결과입니다. Agent를 호출하지 않았고 실제 GitHub 이슈는 만들지 않았습니다.</p>
+        <p className="notice">모의 실행 결과입니다. Agent를 호출하지 않았고 실제 외부 발행은 하지 않았습니다.</p>
       )}
-      {result.status === 'PARTIALLY_FAILED' && <p className="error">일부 항목의 GitHub 이슈 발행에 실패했습니다.</p>}
-      {result.status === 'FAILED' && <p className="error">승인된 항목의 GitHub 이슈 발행에 모두 실패했습니다.</p>}
+      {result.status === 'PARTIALLY_FAILED' && <p className="error">일부 항목의 발행에 실패했습니다.</p>}
+      {result.status === 'FAILED' && <p className="error">승인된 항목의 발행에 모두 실패했습니다.</p>}
 
       <section className="card summary">
         <div>
@@ -119,6 +120,8 @@ export function ResultList({ meeting, participants, result }: Props) {
               const statusClass = linked ? 'linked' : item.publishStatus.toLowerCase()
               const note = linked ? (item.reason ?? item.contentJson?.dedupe?.reason ?? null) : noteText(item)
               const corrections = correctionCount(item)
+              const target = item.publishTarget ?? 'GITHUB'
+              const url = safePublishUrl(item.githubIssueUrl, target)
               const background = backgroundText(item)
               const warnings = item.contentJson?.warnings ?? []
               const reviewNotes = item.contentJson?.review?.notes ?? []
@@ -136,9 +139,9 @@ export function ResultList({ meeting, participants, result }: Props) {
                     </span>
                     <span>담당 {assigneeText(item)}</span>
                     <span>마감 {dueText(item)}</span>
-                    {item.githubIssueUrl && (
-                      <a href={item.githubIssueUrl} target="_blank" rel="noreferrer">
-                        #{item.githubIssueNumber} {linked ? '기존 이슈 보기 ↗' : 'GitHub에서 보기 ↗'}
+                    {url && (
+                      <a href={url} target="_blank" rel="noreferrer">
+                        {target === 'GITHUB' && item.githubIssueNumber ? `#${item.githubIssueNumber} ` : ''}{toolName[target]}에서 보기 ↗
                       </a>
                     )}
                   </div>

@@ -141,6 +141,18 @@ public class PublishService {
         });
     }
 
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	public void reconcileRunning() {
+		for (UUID id : batches.findIdsByStatusCreatedBefore(PublishBatchStatus.RUNNING, OffsetDateTime.now())) {
+			try {
+				gateway.status(id.toString()).ifPresent(result ->
+						tx.executeWithoutResult(status -> applyResult(id, result)));
+			} catch (RuntimeException e) {
+				log.warn("일괄 발행 {} 결과 조회 실패, 다음 주기에 다시 조회: {}", id, e.getMessage());
+			}
+		}
+	}
+
     // 접수 확인에 실패했거나 Agent가 보고하지 못한 묶음은 기한이 지나면 결과 모름으로 끝낸다.
     // 그대로 두면 티켓이 발행 중에 묶여 다시 발행할 수 없다. 기한 뒤에 온 보고는 이미 끝난 묶음이라 무시된다.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -201,6 +213,8 @@ public class PublishService {
             case "LINKED" -> ticket.recordPublishResult(TicketStatus.LINKED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), false, false);
             // 본문은 갱신됐지만 알림 댓글만 실패한 경우처럼 errorCode가 함께 올 수 있다. 갱신됨으로 두고 사유를 남긴다.
             case "UPDATED" -> ticket.recordPublishResult(TicketStatus.UPDATED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), retryable(r), false);
+			case "SKIPPED" -> ticket.recordPublishResult(TicketStatus.SKIPPED, executed, null, null,
+					null, r.errorMessage() != null ? r.errorMessage() : "발행하지 않음", false, false);
             case "UNKNOWN" -> ticket.recordPublishResult(TicketStatus.FAILED, executed, r.githubIssueNumber(), url,
                     r.errorCode() != null ? r.errorCode() : "RESULT_UNKNOWN", r.errorMessage(), retryable(r), true);
             default -> ticket.recordPublishResult(TicketStatus.FAILED, executed, null, null,
@@ -237,6 +251,7 @@ public class PublishService {
                 count(list, TicketStatus.PUBLISHED),
                 count(list, TicketStatus.LINKED),
                 count(list, TicketStatus.UPDATED),
+				count(list, TicketStatus.SKIPPED),
                 count(list, TicketStatus.FAILED),
                 count(list, TicketStatus.PUBLISHING));
     }
@@ -281,6 +296,7 @@ public class PublishService {
             @Schema(description = "발행됨", requiredMode = Schema.RequiredMode.REQUIRED, example = "1") int published,
             @Schema(description = "기존 이슈에 연결됨", requiredMode = Schema.RequiredMode.REQUIRED, example = "1") int linked,
             @Schema(description = "기존 이슈 갱신됨", requiredMode = Schema.RequiredMode.REQUIRED, example = "0") int updated,
+			@Schema(description = "외부 발행 생략", requiredMode = Schema.RequiredMode.REQUIRED, example = "0") int skipped,
             @Schema(description = "실패", requiredMode = Schema.RequiredMode.REQUIRED, example = "1") int failed,
             @Schema(description = "결과를 기다리는 중", requiredMode = Schema.RequiredMode.REQUIRED, example = "0") int publishing) {}
 

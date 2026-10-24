@@ -146,7 +146,7 @@ async def test_dry_run_publisher_accepts_notion_target():
     publisher = DryRunPublisher()
     out = await run([ticket()], publisher)
 
-    assert out.items[0].status == "PUBLISHED" and out.items[0].notion_page_url is None
+    assert out.items[0].status == "SKIPPED" and out.items[0].notion_page_url is None
     assert publisher.calls[0]["root_page_url_or_id"] == ROOT
 
 

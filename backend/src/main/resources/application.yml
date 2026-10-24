@@ -66,6 +66,7 @@ agent:
   poll-interval-ms: ${AGENT_POLL_INTERVAL_MS:2000}
   connect-timeout: 3s
   read-timeout: 5s
+  connection-read-timeout: 45s
   task-timeout: ${AGENT_TASK_TIMEOUT:10m}
   mock-scenario: ${AGENT_MOCK_SCENARIO:draft}
 

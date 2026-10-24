@@ -115,6 +115,20 @@ class PublishBatchTest {
 		return ticket(p, member, title, TicketStatus.CONFIRMED, "{\"description\":\"본문\",\"dedupe\":null}");
 	}
 
+	@Test
+	void 결과_콜백이_없어도_조회로_배치를_종료하며_발행은_재실행하지_않는다() throws Exception {
+		TaskItem ticket = confirmed(project, "콜백 복구");
+		UUID id = publish(null);
+		var item = new PublishGateway.Item(ticket.getId().toString(), "CREATE", "PUBLISHED",
+				19, "https://github.com/owner/repo/issues/19", null, List.of(), null, null, false, null, null, null);
+		when(gateway.status(id.toString())).thenReturn(Optional.of(
+				new PublishGateway.Result(id.toString(), "SUCCEEDED", Map.of(), List.of(item), null, null)));
+		publishService.reconcileRunning();
+		assertThat(batches.findById(id).orElseThrow().getStatus()).isEqualTo(PublishBatchStatus.SUCCEEDED);
+		assertThat(items.findById(ticket.getId()).orElseThrow().getTicketStatus()).isEqualTo(TicketStatus.PUBLISHED);
+		verify(gateway, times(1)).submit(any());
+	}
+
 	private UUID publish(Long projectId) throws Exception {
 		var req = post("/api/tickets/publish").session(session);
 		if (projectId != null) req.param("projectId", String.valueOf(projectId));
@@ -307,6 +321,25 @@ class PublishBatchTest {
 				{"batchId":"%s","status":"FAILED","items":[{"ticketId":"%s","processingType":"CREATE","status":"FAILED","errorCode":"X"}]}"""
 				.formatted(batch, a.getId()));
 		assertThat(stateOf(a)).isEqualTo(TicketStatus.PUBLISHED);
+	}
+
+	@Test
+	void 발행을_생략한_결과는_성공이나_실패가_아닌_생략으로_저장한다() throws Exception {
+		TaskItem item = confirmed(project, "발행 생략");
+		UUID batch = publish(null);
+
+		report(batch, """
+				{"batchId":"%s","status":"SUCCEEDED","summary":{"SKIPPED":1},"items":[
+				 {"ticketId":"%s","processingType":"CREATE","status":"SKIPPED",
+				  "errorMessage":"발행하지 않음: 외부 시스템에 변경을 만들지 않았습니다.","retryable":false}]}"""
+				.formatted(batch, item.getId()));
+
+		assertThat(stateOf(item)).isEqualTo(TicketStatus.SKIPPED);
+		assertThat(items.findById(item.getId()).orElseThrow().getGithubIssueUrl()).isNull();
+		mvc.perform(get("/api/publish-batches/{id}", batch).session(session))
+				.andExpect(jsonPath("$.status").value("SUCCEEDED"))
+				.andExpect(jsonPath("$.summary.skipped").value(1))
+				.andExpect(jsonPath("$.summary.published").value(0));
 	}
 
 	@Test

@@ -13,6 +13,9 @@ public interface PublishGateway {
     // 접수에 실패하면 AgentException. 실행 모드가 MOCK이면 접수와 함께 모의 결과를 바로 돌려준다.
     Optional<Result> submit(Request request);
 
+	// 콜백이 유실돼도 완료 결과만 가져온다. 이 경로로 발행을 재실행하지 않는다.
+	default Optional<Result> status(String batchId) { return Optional.empty(); }
+
     String mode();
 
     record Request(String batchId, List<Ticket> tickets) {}

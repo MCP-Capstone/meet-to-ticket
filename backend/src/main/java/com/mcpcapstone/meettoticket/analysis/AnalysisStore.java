@@ -217,7 +217,7 @@ public class AnalysisStore {
                 i.getPublishStatus(),
                 i.getGithubIssueNumber(),
                 i.getGithubIssueUrl(),
-                i.getErrorMessage());
+				i.getErrorMessage(), i.getPublishTarget().name());
     }
 
     private AgentContracts.Summary summary(List<AgentContracts.Item> list) {

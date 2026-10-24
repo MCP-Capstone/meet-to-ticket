@@ -313,6 +313,13 @@ class PublishReviseTest {
 	}
 
 	@Test
+	void 실제_Notion_app_도메인_링크를_저장하고_카드에_돌려준다() throws Exception {
+		TaskItem t = unknownOn(PublishTarget.NOTION);
+		resolve(t, "{\"applied\":true,\"url\":\"https://app.notion.com/p/page-1\"}")
+				.andExpect(status().isOk()).andExpect(jsonPath("$.githubIssueUrl").value("https://app.notion.com/p/page-1"));
+	}
+
+	@Test
 	void 반영됨_링크는_그_대상의_https_링크만_받고_잘못된_입력은_400이다() throws Exception {
 		TaskItem notion = unknownOn(PublishTarget.NOTION);
 		resolve(notion, "{}").andExpect(status().isBadRequest());
