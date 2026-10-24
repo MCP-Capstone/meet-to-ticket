@@ -118,6 +118,9 @@ def _mcp_client(name: str, url: str, settings: Settings | None = None) -> Any:
 
     응답 대기 상한은 ClientSession의 read_timeout_seconds로만 걸린다. mcp 클라이언트는 응답 스트림 읽기 시간 초과
     예외를 삼키므로 httpx 시간 초과만으로는 도구 호출이 끝나지 않는다 (#299).
+    sse_read_timeout도 같은 값으로 둔다. 연결을 닫을 때 보내는 세션 종료 요청(DELETE)이 이 값을 읽기 상한으로 써서,
+    멈춘 서버에서는 기본값 300초만큼 정리가 늘어진다. 더 짧게 두면 정상적으로 느린 호출이 스트림이 끊긴 채 기다리다
+    실패하므로 응답 대기 상한과 같게 둔다 (#318 리뷰).
     """
     from datetime import timedelta
 
@@ -127,6 +130,7 @@ def _mcp_client(name: str, url: str, settings: Settings | None = None) -> Any:
     if settings is not None:
         connection["timeout"] = settings.mcp_http_timeout_seconds
         if settings.mcp_call_timeout_seconds > 0:
+            connection["sse_read_timeout"] = settings.mcp_call_timeout_seconds
             connection["session_kwargs"] = {"read_timeout_seconds": timedelta(seconds=settings.mcp_call_timeout_seconds)}
     return MultiServerMCPClient({name: connection})
 
@@ -221,8 +225,9 @@ async def run_publish_batch(
     """확인된 여러 프로젝트 티켓을 발행한다.
 
     프로젝트별로 재대조가 색인을 한 번 증분 동기화한다. 재대조·색인 실패는 기존 처리 유형과 GitHub 발행을 막지 않는다.
-    묶음 전체는 PUBLISH_DEADLINE_SECONDS 안에 끝낸다: 재대조가 마감에 걸리면 재대조 없이 발행하고, 발행이 마감에 걸리면
-    남은 티켓은 보내지 않는다 (publish_batch). 발행 후 색인은 결과를 바꾸지 않으므로 마감 뒤에는 하지 않는다.
+    묶음 전체는 PUBLISH_DEADLINE_SECONDS 안에 끝낸다: 재대조는 남은 마감의 절반 안에서만 하고 넘으면 재대조 없이 발행하며,
+    발행이 마감에 걸리면 남은 티켓은 보내지 않는다 (publish_batch). 발행 후 색인은 결과를 바꾸지 않으므로 마감 뒤에는 하지 않는다.
+    MCP 서버가 멈춘 경우에는 연결 정리(세션 종료 요청)에 MCP_CALL_TIMEOUT_SECONDS만큼 더 걸릴 수 있다.
     """
     from batch_publish import _ticket, publish_batch, unsent_batch
     from recheck import recheck
@@ -274,7 +279,9 @@ async def run_publish_batch(
 
     if settings.rag_enabled and by_repo:
         try:
-            await _bounded(recheck_all(), remaining())
+            # 남은 마감의 절반만 쓴다. 재대조를 포기하고도 발행할 시간이 남아야 한다 (#318 리뷰)
+            left = remaining()
+            await _bounded(recheck_all(), None if left is None else left / 2)
         except asyncio.TimeoutError:
             # 끝내지 못한 저장소의 티켓은 저장된 처리 유형으로 발행한다 (재대조 실패와 같다)
             log.warning("발행 묶음 %s: 마감 안에 재대조를 끝내지 못해 남은 티켓은 재대조 없이 발행", request.batch_id)

@@ -23,7 +23,7 @@ _VERIFY_REQUIRED = {
 }
 _RETRYABLE = {"GITHUB_RATE_LIMIT", "GITHUB_ERROR", "MCP_UNAVAILABLE", "PUBLISH_FAILED", "NOTION_RATE_LIMIT", "NOTION_ERROR",
               "PUBLISH_DEADLINE"}
-# 묶음 마감 (#302). 시작 전 티켓은 보내지 않았으므로 다시 시도할 수 있고, 처리 중이던 티켓은 쓰기가 나갔을 수 있어 결과 모름이다
+# 묶음 마감에 걸려 쓰기 요청을 보내지 않은 티켓 (#302). 다시 시도할 수 있다. 쓰기를 보낸 뒤 걸리면 RESULT_UNKNOWN이다
 PUBLISH_DEADLINE = "PUBLISH_DEADLINE"
 
 
@@ -315,11 +315,32 @@ def unsent_batch(request: PublishBatchRequest, code: str, message: str) -> Publi
     ])
 
 
+_WRITE_METHODS = {"create_issue", "add_comment", "update_issue", "post_message", "create_page"}
+
+
+class _WriteTracker:
+    """publisher를 감싸 쓰기 요청을 보내기 시작했는지 기록한다. 마감으로 끊긴 티켓을 결과 모름과 미전송으로 가른다."""
+
+    def __init__(self, publisher: Any):
+        self._publisher = publisher
+        self.wrote = False
+
+    def __getattr__(self, name: str) -> Any:
+        method = getattr(self._publisher, name)
+        if name not in _WRITE_METHODS:
+            return method
+
+        async def write(**args: Any) -> Any:
+            self.wrote = True
+            return await method(**args)
+        return write
+
+
 async def publish_batch(request: PublishBatchRequest, publisher: Any, *, deadline: float | None = None) -> PublishBatchResult:
     """프로젝트 실패가 다른 프로젝트 티켓을 막지 않도록 항목 단위로 끝까지 실행한다.
 
-    deadline(time.monotonic 기준)이 있으면 묶음이 그 안에 끝난다 (#302). 마감이 지나면 남은 티켓은 보내지 않아
-    다시 시도할 수 있는 실패로, 처리 중이던 티켓은 쓰기가 이미 나갔을 수 있어 결과 모름으로 보고한다.
+    deadline(time.monotonic 기준)이 있으면 묶음이 그 안에 끝난다 (#302). 마감에 걸린 티켓은 쓰기 요청을 보냈으면
+    결과 모름(RESULT_UNKNOWN), 보내지 않았으면(시작 전, 쓰기 전 확인 조회 중) 다시 시도할 수 있는 실패(PUBLISH_DEADLINE)다.
     """
     items: list[PublishItemResult] = []
     for ticket in request.tickets:
@@ -332,11 +353,15 @@ async def publish_batch(request: PublishBatchRequest, publisher: Any, *, deadlin
             items.append(_failure(ticket.ticket_id, kind, ToolCallError(
                 PUBLISH_DEADLINE, "발행 마감 시간이 지나 보내지 않았습니다. 다시 시도할 수 있습니다.")))
             continue
+        tracked = _WriteTracker(publisher)
         try:
-            items.append(await asyncio.wait_for(publish_one(ticket, publisher), timeout=left))
+            items.append(await asyncio.wait_for(publish_one(ticket, tracked), timeout=left))
         except asyncio.TimeoutError:
-            log.warning("발행 마감 시간 안에 %s의 결과를 받지 못해 결과 모름으로 남김", ticket.ticket_id)
-            items.append(_failure(ticket.ticket_id, kind, ToolCallError(
-                PUBLISH_DEADLINE, "발행 마감 시간 안에 결과를 받지 못했습니다. 대상에 반영됐는지 확인한 뒤 다시 시도하세요.",
-                ambiguous=True)))
+            if tracked.wrote:
+                log.warning("발행 마감 시간 안에 %s의 결과를 받지 못해 결과 모름으로 남김", ticket.ticket_id)
+                error = ToolCallError("RESULT_UNKNOWN", "발행 마감 시간 안에 결과를 받지 못했습니다. 대상에 반영됐는지 확인한 뒤 다시 시도하세요.",
+                                      ambiguous=True)
+            else:
+                error = ToolCallError(PUBLISH_DEADLINE, "발행 마감 시간이 지나 보내지 않았습니다. 다시 시도할 수 있습니다.")
+            items.append(_failure(ticket.ticket_id, kind, error))
     return _batch_result(request.batch_id, items)
