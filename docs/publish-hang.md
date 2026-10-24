@@ -40,21 +40,21 @@
 
 | 단계 | 수정 전 (#299) | 수정 후 (#302) | 위치 |
 |---|---|---|---|
-| Agent → MCP 요청 하나 (도구 호출, 도구 목록 조회) | 상한 없음 | `MCP_CALL_TIMEOUT_SECONDS`(기본 90초)를 `ClientSession` `read_timeout_seconds`로 건다. 연결·전송은 `MCP_HTTP_TIMEOUT_SECONDS`(기본 10초) | `agent/runner.py` `_mcp_client` |
+| Agent → MCP 요청 하나 (도구 호출, 도구 목록 조회) | 상한 없음 | `MCP_CALL_TIMEOUT_SECONDS`(기본 90초)를 `ClientSession` `read_timeout_seconds`와 `sse_read_timeout`으로 건다. `sse_read_timeout`은 연결을 닫을 때의 세션 종료 요청(DELETE) 상한이기도 해서, 두지 않으면 멈춘 서버에서 정리가 300초 늘어진다. 연결·전송은 `MCP_HTTP_TIMEOUT_SECONDS`(기본 10초). 분석 경로(맥락 조회, 중복 판단, 권한·연결 확인)에도 같이 걸린다 | `agent/runner.py` `_mcp_client` |
 | Agent → RAG MCP 도구 목록 조회 | 상한 없음 | 위 응답 대기 상한 안에 끝나고, 넘으면 재대조 없이 진행 | `agent/runner.py` `make_issue_tools` |
-| Agent 발행 묶음 전체 | 상한 없음 | `PUBLISH_DEADLINE_SECONDS`(기본 600초). 재대조가 마감에 걸리면 재대조 없이 발행, 발행이 마감에 걸리면 처리 중이던 티켓은 결과 모름, 시작 전 티켓은 보내지 않은 재시도 가능 실패(`PUBLISH_DEADLINE`) | `agent/runner.py` `run_publish_batch`, `agent/batch_publish.py` `publish_batch` |
+| Agent 발행 묶음 전체 | 상한 없음 | `PUBLISH_DEADLINE_SECONDS`(기본 600초). 재대조는 남은 마감의 절반 안에서만 하고 넘으면 재대조 없이 발행. 발행이 마감에 걸리면 쓰기 요청을 보낸 티켓은 결과 모름(`RESULT_UNKNOWN`), 보내지 않은 티켓(시작 전, 쓰기 전 확인 조회 중)은 재시도 가능 실패(`PUBLISH_DEADLINE`). MCP 서버가 멈춘 경우 연결 정리에 최대 90초가 더 걸린다 | `agent/runner.py` `run_publish_batch`, `agent/batch_publish.py` `publish_batch` |
 | 발행 후 색인 | 상한 없음 | `RAG_SYNC_TIMEOUT_SECONDS`와 남은 마감 중 짧은 쪽. 넘어도 발행 결과는 그대로 | `agent/runner.py` `run_publish_batch` |
 | 발행 MCP 도구 목록을 못 가져옴 | 묶음 FAILED, 항목 없음 → Backend가 모든 티켓을 결과 모름(`RESULT_MISSING`)으로 처리 | 아무것도 보내지 않았으므로 모든 티켓을 재시도 가능 실패(`MCP_UNAVAILABLE`)로 보고 | `agent/runner.py`, `agent/batch_publish.py` `unsent_batch` |
-| Agent 재시작 (묶음 404) | "아직 결과 없음"으로 보고 결과 대기 기한(30분)까지 RUNNING | 접수 뒤 유예 시간(`PUBLISH_LOST_GRACE`, 기본 1분)이 지난 묶음은 다음 조회 주기(5초)에 `RESULT_LOST` 결과 모름으로 끝냄 | `LivePublishGateway.status`, `PublishService.reconcileRunning` |
+| Agent 재시작 (묶음 404) | "아직 결과 없음"으로 보고 결과 대기 기한(30분)까지 RUNNING | 접수 뒤 유예 시간(`PUBLISH_LOST_GRACE`, 기본 1분)이 지난 묶음은 다음 조회 주기(5초)에 `RESULT_LOST` 결과 모름으로 끝냄. Agent가 워커 1개로 돈다는 전제다 (워커를 늘리면 다른 워커의 404로 정상 묶음이 끝난다) | `LivePublishGateway.status`, `PublishService.reconcileRunning` |
 | Backend 결과 대기 기한 | 30분 | 15분 (Agent 마감 10분보다 길게 두는 마지막 안전망) | `application.yml` `app.publish.result-timeout` |
-| 화면 결과 폴링 | 스피너만 표시 | 경과 시간 표시, 2분이 지나면 "화면을 닫아도 발행은 계속되며 늦어도 15분 안에 정리된다"는 안내 | `PublishBatchResult.tsx`, `batchPublish.ts` |
+| 화면 결과 폴링 | 스피너만 표시 | 경과 시간 표시, 2분이 지나면 "화면을 닫아도 발행은 계속되며 늦어도 약 16분 뒤에는 정리된다"는 안내 (경과 시간은 묶음 생성 시각 기준) | `PublishBatchResult.tsx`, `batchPublish.ts` |
 
 #302 전후 비교 (계산값, Agent 재시작은 Docker 측정값 포함)
 
 | 시나리오 | 수정 전 | 수정 후 |
 |---|---|---|
 | 발행 중 Agent 재시작 | 결과 대기 기한까지, 최대 31분 | 유예 시간 1분 + 조회 주기 5초. Docker 측정 **60초** (`pause agent` → 발행 → `kill agent` → `up agent`, `DRY_RUN=true`. 묶음 FAILED, 티켓 `RESULT_LOST` 결과 모름·재시도 가능) |
-| MCP 서버 무응답 | 끝나지 않음 (Backend 기한 30분 뒤 결과 모름) | 도구 호출 하나 최대 90초, 묶음 최대 600초 |
+| MCP 서버 무응답 | 끝나지 않음 (Backend 기한 30분 뒤 결과 모름) | 도구 호출 하나 최대 90초, 묶음 최대 600초 + 연결 정리 90초. MCP_DOCKER_PLACEHOLDER |
 | rag-mcp 무응답 | 끝나지 않음 (Backend 기한 30분 뒤 결과 모름, 발행 후 색인이면 실제로 발행된 티켓도 결과 모름) | 도구 목록 조회 최대 90초 뒤 재대조 없이 발행, 발행 후 색인은 최대 30초 |
 
 ## 재현 테스트
@@ -66,8 +66,11 @@ Agent (`cd agent && .venv/bin/python -m pytest -q tests/test_publish_hang.py tes
 | 테스트 | 확인하는 동작 |
 |---|---|
 | `test_hung_external_write_ends_as_unknown_within_limit` | 외부 쓰기가 응답하지 않아도 도구 호출 상한이나 묶음 마감 안에 결과 모름으로 끝난다. 이슈 생성 요청은 이미 외부로 나갔다 (실제 MCP HTTP) |
+| `test_frozen_mcp_server_ends_within_limits_including_session_close` | MCP 서버 프로세스가 통째로 멈춰도(SIGSTOP) 연결 정리까지 상한 안에 끝난다. `sse_read_timeout`이 없으면 300초가 더 걸린다 (실제 MCP HTTP) |
 | `test_mcp_client_applies_configured_timeouts` | MCP 연결·응답 대기 상한을 설정값으로 건다. 전체 재색인은 상한을 두지 않는다 |
-| `test_publish_deadline_leaves_inflight_unknown_and_unsent_retryable` | 마감에 걸리면 처리 중이던 티켓은 결과 모름, 시작 전 티켓은 재시도 가능 실패다 |
+| `test_publish_deadline_leaves_inflight_unknown_and_unsent_retryable` | 마감에 걸리면 쓰기를 보낸 티켓은 결과 모름(`RESULT_UNKNOWN`), 시작 전 티켓은 재시도 가능 실패(`PUBLISH_DEADLINE`)다 |
+| `test_deadline_during_pre_write_lookup_is_unsent_not_unknown` | 쓰기 전 확인 조회 중 마감에 걸리면 보내지 않은 것이므로 재시도 가능 실패다 |
+| `test_recheck_stuck_at_deadline_still_leaves_time_to_publish` | 재대조가 멈춰도 남은 마감의 절반에서 끊고 발행한다 |
 | `test_unreachable_business_mcp_reports_every_ticket_unsent` | 발행 MCP 도구를 못 가져오면 모든 티켓을 재시도 가능 실패로 보고한다 |
 | `test_hung_rag_tool_listing_is_bounded` | 응답 없는 rag-mcp의 도구 목록 조회가 상한 안에 끝나고 재대조 없이 진행한다 |
 | `test_hung_index_after_publish_does_not_hold_result` | 발행 후 색인이 멈춰도 발행 결과를 시간 안에 돌려준다 |
@@ -85,7 +88,7 @@ Backend (`cd backend && ./gradlew test --tests '*PublishBatchTest' --tests '*Liv
 | `Agent가_결과를_주지_않으면_결과_대기_기한_뒤_결과_모름으로_끝낸다` | 처리 중이라는데 결과가 오지 않으면 기한 뒤 `RESULT_TIMEOUT` 결과 모름으로 끝낸다 |
 | `콜백_실패_후_GET으로_완료_결과만_복구한다` | 404를 "아직 결과 없음"과 구분해 `PublishBatchLostException`으로 알린다 |
 
-Frontend (`cd frontend && node --test tests/batchPublish.test.mjs tests/publishFailure.test.mjs`): 경과 시간 표시, 2분 뒤 안내, `RESULT_LOST`·`PUBLISH_DEADLINE` 안내 문구와 재시도 가능 여부.
+Frontend (`cd frontend && node --test tests/batchPublish.test.mjs tests/publishFailure.test.mjs`): 경과 시간(묶음 생성 시각 기준) 표시, 2분 뒤 안내, `RESULT_LOST`·`PUBLISH_DEADLINE` 안내 문구와 재시도 가능 여부.
 
 ## Docker 시나리오
 
