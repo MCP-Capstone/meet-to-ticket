@@ -115,6 +115,40 @@ def test_parse_due_numeric_year_rollover():
 
 
 @pytest.mark.parametrize(
+    "raw,meeting,expected",
+    [
+        # 월 없는 N일: 회의일(당일 포함) 이후 가장 가까운 N일
+        ("20일까지", date(2026, 10, 18), ("2026-10-20", None)),
+        ("22일", date(2026, 10, 22), ("2026-10-22", None)),
+        ("26일 17시까지", date(2026, 10, 22), ("2026-10-26", "17:00")),
+        ("5일까지", date(2026, 10, 29), ("2026-11-05", None)),
+        ("31일", date(2026, 11, 5), ("2026-12-31", None)),
+        ("3일까지", date(2026, 12, 20), ("2027-01-03", None)),
+        # 기간, 과거, 소수는 날짜가 아니다
+        ("3일 안에", date(2026, 10, 22), (None, None)),
+        ("2일간", date(2026, 10, 22), (None, None)),
+        ("1일차", date(2026, 10, 22), (None, None)),
+        ("3일 후", date(2026, 10, 22), (None, None)),
+        ("지난 20일", date(2026, 10, 22), (None, None)),
+        # 주 단위 요일: 회의일(2026-10-22, 목)이 속한 주의 월요일 기준
+        ("다음 주 수요일까지", date(2026, 10, 22), ("2026-10-28", None)),
+        ("이번 주 금요일", date(2026, 10, 22), ("2026-10-23", None)),
+        ("다다음주 월요일", date(2026, 10, 22), ("2026-11-02", None)),
+        # 요일만: 회의일 다음 날부터 가장 가까운 그 요일 (같은 요일이면 다음 주)
+        ("금요일까지", date(2026, 10, 22), ("2026-10-23", None)),
+        ("목요일까지", date(2026, 10, 22), ("2026-10-29", None)),
+        # 모레, 내일모레
+        ("모레", date(2026, 10, 22), ("2026-10-24", None)),
+        ("내일모레 오후 3시", date(2026, 10, 22), ("2026-10-24", "15:00")),
+    ],
+)
+def test_parse_due_relative_day_and_weekday(raw, meeting, expected):
+    due = parse_due(raw, meeting)
+    assert (due.date, due.time) == expected
+    assert due.text == raw
+
+
+@pytest.mark.parametrize(
     "raw,kind,keys",
     [
         ("신규 티켓", "new", []),
