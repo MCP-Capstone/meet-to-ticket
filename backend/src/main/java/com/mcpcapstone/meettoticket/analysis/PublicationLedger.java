@@ -5,9 +5,11 @@ import com.mcpcapstone.meettoticket.agent.PublishGateway;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.Set;
@@ -25,7 +27,8 @@ public class PublicationLedger {
         RESERVED,
         ALREADY_CONFIRMED, // 같은 키가 이미 확정됐다. 다시 쓰면 외부에 두 번 반영된다
         IN_PROGRESS, // 같은 키의 다른 요청이 진행 중이다 (RESERVED, SENT)
-        VERIFICATION_REQUIRED // 결과 모름이고 재대조할 수 없는 대상이다. 확인 결과(resolve-outcome)를 먼저 남겨야 한다
+        VERIFICATION_REQUIRED, // 결과 모름이고 재대조할 수 없는 대상이다. 확인 결과(resolve-outcome)를 먼저 남겨야 한다
+        TOO_SOON // GitHub 신규 이슈의 결과 모름 뒤 기다리는 시간이 지나지 않았다. 재대조가 이전 시도의 이슈를 아직 찾지 못할 수 있다
     }
 
     private static final Set<PublicationStatus> IN_FLIGHT = Set.of(PublicationStatus.RESERVED, PublicationStatus.SENT);
@@ -41,6 +44,11 @@ public class PublicationLedger {
 
     private final PublicationRepository publications;
 
+    // GitHub 신규 이슈의 결과 모름 재시도는 마지막 시도 뒤 이 시간이 지나야 보낸다 (#336).
+    // Agent 재대조가 기존 이슈를 GitHub 검색으로 찾는데, 검색 색인은 새 이슈를 몇 초에서 1분 넘게 늦게 반영한다.
+    @Value("${app.publish.github-recheck-delay:3m}")
+    private Duration githubRecheckDelay;
+
     // Agent에 보내기 전에 호출한다. RESERVED를 돌려받은 쪽만 외부 쓰기를 진행한다.
     // 키가 없으면 새로 예약하고, 있으면 끝난 행(FAILED, 재대조할 수 있는 대상의 UNCERTAIN)만 조건부 UPDATE로 다시 예약한다.
     // 동시에 같은 키를 예약하면 INSERT 충돌이나 UPDATE 조건 불일치로 한쪽만 RESERVED를 받는다.
@@ -50,6 +58,8 @@ public class PublicationLedger {
         Set<PublicationStatus> reopenable = target.recheckable()
                 ? Set.of(PublicationStatus.FAILED, PublicationStatus.UNCERTAIN)
                 : Set.of(PublicationStatus.FAILED);
+        if (target == PublishTarget.GITHUB && operation == PublishOperation.CREATE && tooSoon(target, key))
+            return Reservation.TOO_SOON;
         // 판단과 갱신 사이에 다른 요청이 행을 지우거나 상태를 바꿀 수 있어 몇 번 다시 시도한다.
         for (int attempt = 0; attempt < 3; attempt++) {
             OffsetDateTime now = OffsetDateTime.now();
@@ -66,6 +76,14 @@ public class PublicationLedger {
             }
         }
         return Reservation.IN_PROGRESS;
+    }
+
+    // 결과 모름인 기록의 마지막 시도(접수 표시가 없으면 예약 시각)에서 기다리는 시간이 지나지 않았는지
+    private boolean tooSoon(PublishTarget target, String key) {
+        return publications.findByTargetAndIdempotencyKey(target, key)
+                .filter(p -> p.getStatus() == PublicationStatus.UNCERTAIN)
+                .map(p -> (p.getSentAt() != null ? p.getSentAt() : p.getReservedAt()).plus(githubRecheckDelay).isAfter(OffsetDateTime.now()))
+                .orElse(false);
     }
 
     // Agent가 묶음을 접수했다(접수 확인에 실패해 접수 여부를 모르는 경우 포함). 보고가 이미 도착한 행은 바꾸지 않는다.

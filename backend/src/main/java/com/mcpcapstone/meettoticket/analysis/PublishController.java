@@ -36,6 +36,8 @@ public class PublishController {
                     examples = @ExampleObject(value = ApiExamples.ERROR_UNAUTHORIZED)))
     @ApiResponse(responseCode = "409", description = "발행 대상 없음, 회의 검토 미완료, 이미 발행 중, 확인 대상 변경 또는 지원하지 않는 발행 도구", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_NO_CONFIRMED_TICKETS)))
+    @ApiResponse(responseCode = "429", description = "GitHub 신규 이슈가 결과 모름이고 마지막 시도 뒤 기다리는 시간(PUBLISH_GITHUB_RECHECK_DELAY, 기본 3분)이 지나지 않음 (PUBLISH_RETRY_TOO_SOON)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_PUBLISH_RETRY_TOO_SOON)))
     @ApiResponse(responseCode = "502", description = "Agent가 접수하지 않음. 티켓은 확인 상태로 남는다 (AGENT_ACCEPTANCE_FAILED)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_AGENT_ACCEPTANCE_FAILED)))
     @PostMapping("/api/tickets/publish")
@@ -73,6 +75,8 @@ public class PublishController {
                     examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_NOT_FOUND)))
     @ApiResponse(responseCode = "409", description = "실패 상태가 아니거나, 이미 다시 시도 중이거나, 확인 결과를 먼저 남겨야 하는 실패 (TICKET_STATUS_CONFLICT)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_TICKET_STATUS_CONFLICT)))
+    @ApiResponse(responseCode = "429", description = "GitHub 신규 이슈가 결과 모름이고 마지막 시도 뒤 기다리는 시간(PUBLISH_GITHUB_RECHECK_DELAY, 기본 3분)이 지나지 않음 (PUBLISH_RETRY_TOO_SOON)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(value = ApiExamples.ERROR_PUBLISH_RETRY_TOO_SOON)))
     @ApiResponse(responseCode = "502", description = "Agent가 접수하지 않음. 티켓은 실패 상태로 남는다 (AGENT_ACCEPTANCE_FAILED)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_AGENT_ACCEPTANCE_FAILED)))
     @PostMapping("/api/tickets/{ticketId}/retry")

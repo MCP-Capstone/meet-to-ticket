@@ -261,7 +261,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
             </div>
             <p className="muted">내용을 고치려면 먼저 확인 결과를 남겨 주세요. 반영되지 않음을 고르면 수정할 수 있습니다.</p>
           </> : ticket.publishFailure.outcomeUnknown && <>
-            <p className="notice">{toolName[ticket.publishTarget]}에 이미 반영됐을 수 있습니다. 확인 후 다시 시도하세요. 다시 시도하면 이미 만든 이슈가 있는지 먼저 확인합니다.</p>
+            <p className="notice">{toolName[ticket.publishTarget]}에 이미 반영됐을 수 있습니다. 확인 후 다시 시도하세요. 다시 시도하면 이미 만든 이슈가 있는지 먼저 확인합니다. 새 이슈는 확인할 수 있도록 몇 분 뒤에 다시 시도할 수 있습니다.</p>
             {checkUrl && <a href={checkUrl} target="_blank" rel="noreferrer">{toolName[ticket.publishTarget]}에서 확인하기</a>}
             <label className="check"><input type="checkbox" checked={checked} disabled={busy || pending} onChange={(e) => setChecked(e.target.checked)} />{toolName[ticket.publishTarget]}에서 반영 여부를 확인했습니다</label>
           </>}
