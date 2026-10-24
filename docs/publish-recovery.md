@@ -6,7 +6,7 @@
 
 실패 티켓이 다시 시도할 수 없는 실패(retryable=false이고 결과 모름도 아님)면 API는 409 PUBLISH_RETRY_NOT_ALLOWED를 반환하고 화면은 재시도 버튼을 비활성화한다. 원인이나 프로젝트 설정을 해결한 뒤 수정/재승인 경로를 사용한다.
 
-결과 모름(RESULT_UNKNOWN, RESULT_TIMEOUT, RESULT_MISSING, 묶음 전체 실패로 보고에서 빠진 티켓)은 재시도 가능으로 본다(`TaskItem.canRetryPublish`). GitHub는 담당자가 반영 여부를 확인했다고 체크한 뒤 다시 시도하면 Agent가 이미 반영된 이슈, 댓글, 섹션을 먼저 재대조한다. 이 수정 전에 retryable=false로 저장된 결과 모름 행도 같은 기준으로 다시 시도할 수 있다.
+결과 모름(RESULT_UNKNOWN, RESULT_TIMEOUT, RESULT_MISSING, RESULT_LOST, 묶음 전체 실패로 보고에서 빠진 티켓)은 재시도 가능으로 본다(`TaskItem.canRetryPublish`). GitHub는 담당자가 반영 여부를 확인했다고 체크한 뒤 다시 시도하면 Agent가 이미 반영된 이슈, 댓글, 섹션을 먼저 재대조한다. 이 수정 전에 retryable=false로 저장된 결과 모름 행도 같은 기준으로 다시 시도할 수 있다.
 
 Notion/Slack의 결과 모름은 기존과 같이 수동 확인 결과를 먼저 남겨야 한다(MANUAL_CHECK). 단순 수정으로 이 확인 절차를 우회하지 않는다.
 

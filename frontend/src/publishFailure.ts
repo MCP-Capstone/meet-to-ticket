@@ -12,6 +12,8 @@ const guides: Record<string, string> = {
   RESULT_TIMEOUT: '기한 안에 발행 결과를 받지 못했습니다.',
   RESULT_UNKNOWN: '요청은 보냈지만 결과를 받지 못했습니다.',
   RESULT_MISSING: '발행 결과를 받지 못했습니다.',
+  RESULT_LOST: '발행 중에 서비스가 다시 시작돼 결과를 잃었습니다. 대상에 반영됐는지 확인한 뒤 다시 시도하세요.',
+  PUBLISH_DEADLINE: '발행 마감 시간이 지나 보내지 않았습니다. 바로 다시 시도할 수 있습니다.',
   COMMENT_FAILED: '이슈 본문은 갱신됐지만 알림 댓글을 확인하지 못했습니다. 알림 댓글만 다시 보낼 수 있습니다.',
   NOTION_VERIFY_REQUIRED: '지난 Notion 발행 결과를 몰라 중복 페이지를 막으려고 다시 만들지 않았습니다. Notion에서 확인한 결과를 알려 주세요.',
   SLACK_VERIFY_REQUIRED: '지난 Slack 공지 결과를 몰라 중복 게시를 막으려고 다시 보내지 않았습니다. Slack 채널에서 확인한 결과를 알려 주세요.',

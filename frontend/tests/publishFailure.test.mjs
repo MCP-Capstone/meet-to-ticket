@@ -38,3 +38,9 @@ test('GitHub 결과 모름(기한 초과, 결과 누락, 묶음 실패)은 백�
 test('댓글 표식 확인 미완료는 댓글 재전송 대상이 아니다', () => {
   assert.equal(canRetryComment({ status: 'UPDATED', publishTarget: 'GITHUB', publishFailure: failure('MARKER_CHECK_INCOMPLETE') }), false)
 })
+
+test('Agent 재시작과 발행 마감 실패를 안내한다 (#302)', () => {
+  assert.match(failureGuide(failure('RESULT_LOST')), /다시 시작돼 결과를 잃었습니다/)
+  assert.match(failureGuide(failure('PUBLISH_DEADLINE')), /보내지 않았습니다. 바로 다시 시도/)
+  for (const code of ['RESULT_LOST', 'PUBLISH_DEADLINE']) assert.equal(canRetryFailure(failure(code, { retryable: true })), true)
+})

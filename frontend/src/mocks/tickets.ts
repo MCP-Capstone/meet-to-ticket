@@ -159,7 +159,7 @@ export function resolveMockTicketOutcome(user: User, ticketId: string, body: Tic
     // 백엔드처럼 결과 모름 자체의 실패만 '반영되지 않음' 사유로 바꾸고, 설정 오류 사유는 남긴다.
     // outcomeUnknown은 지난 결과 모름까지 포함하므로 판정에 쓰지 않고 오류 코드로 본다.
     const failure = ticket.publishFailure
-    ticket.publishFailure = ['RESULT_UNKNOWN', 'RESULT_TIMEOUT', 'RESULT_MISSING', 'NOTION_VERIFY_REQUIRED', 'SLACK_VERIFY_REQUIRED'].includes(failure.errorCode ?? '')
+    ticket.publishFailure = ['RESULT_UNKNOWN', 'RESULT_TIMEOUT', 'RESULT_MISSING', 'RESULT_LOST', 'NOTION_VERIFY_REQUIRED', 'SLACK_VERIFY_REQUIRED'].includes(failure.errorCode ?? '')
       ? { errorCode: 'VERIFIED_NOT_APPLIED', errorMessage: '대상 도구에 반영되지 않은 것을 확인했습니다. 다시 시도하세요.', failureCategory: 'OTHER', retryable: true, outcomeUnknown: false, resolution: 'RETRY', checkUrl: null }
       : { ...failure, outcomeUnknown: false, resolution: 'RETRY', checkUrl: null }
   }

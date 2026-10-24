@@ -33,7 +33,7 @@ public class LivePublishGateway implements PublishGateway {
 				return Optional.empty();
 			return Optional.of(result);
 		} catch (RestClientResponseException e) {
-			if (e.getStatusCode().value() == 404) return Optional.empty();
+			if (e.getStatusCode().value() == 404) throw new PublishBatchLostException(batchId);
 			throw new AgentException(true);
 		} catch (RestClientException e) {
 			throw new AgentException(true);

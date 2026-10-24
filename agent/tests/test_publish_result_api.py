@@ -15,10 +15,10 @@ def test_publish_status_only_reads_existing_result(monkeypatch):
 
 
 def test_restarted_agent_cannot_tell_lost_batch_from_unknown_batch(monkeypatch):
-    """#302에서 바꿀 현재 동작 (#299): 발행 묶음 기록은 프로세스 메모리에만 있다.
+    """발행 묶음 기록은 프로세스 메모리에만 있어, 재시작하면 처리 중이던 묶음도 처음 보는 batchId와 같은 404가 된다.
 
-    재시작하면 처리 중이던 묶음도 처음 보는 batchId와 같은 404가 되고, Backend는 이를 결과 없음으로 보고
-    결과 대기 기한(기본 30분)까지 기다린다 (backend PublishBatchTest).
+    Backend는 접수 유예 시간이 지난 묶음의 404를 "Agent가 묶음을 잃음"으로 보고 바로 결과 모름(RESULT_LOST)으로
+    끝낸다 (#302, backend PublishBatchTest). #299에서는 결과 대기 기한(30분)까지 기다렸다.
     """
     import main
 
