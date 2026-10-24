@@ -15,9 +15,9 @@ from integrations.github import api as github, tools as github_tools
 from integrations.notion import api as notion, tools as notion_tools
 from integrations.slack import api as slack, tools as slack_tools
 
-state = {"mode": "ok", "writes": [], "body": "원래 본문", "comments": []}
-# hang 모드에서 쓰기 응답을 붙잡아 두는 신호. 다음 fixture_mode 호출이 풀어 주고, 풀리지 않아도 이 시간 뒤에는 끝난다
-release = threading.Event()
+# release: hang 모드에서 쓰기 응답을 붙잡아 두는 신호. fixture_mode가 set한 채로 새 신호로 바꾸므로,
+# 늦게 wait에 들어간 요청도 바로 풀린다. 풀리지 않아도 HANG_MAX_SECONDS 뒤에는 끝난다
+state = {"mode": "ok", "writes": [], "body": "원래 본문", "comments": [], "release": threading.Event()}
 HANG_MAX_SECONDS = 30
 
 
@@ -26,7 +26,8 @@ def handler(request):
     payload = json.loads(request.content) if request.content else {}
     if method in {"POST", "PATCH"}:
         state["writes"].append({"method": method, "path": path, "payload": payload})
-        if state["mode"] == "hang":
+        mode, release = state["mode"], state["release"]
+        if mode == "hang":
             # 외부 서비스가 요청을 받고 응답하지 않는 상황 (#299). 응답은 끝내 오지 않은 것으로 끝낸다
             release.wait(HANG_MAX_SECONDS)
             raise httpx.ReadTimeout("no response after write", request=request)
@@ -82,16 +83,15 @@ slack_tools.register(mcp)
 
 @mcp.tool()
 def fixture_mode(mode: str) -> dict:
-    # 이전 hang 모드에서 붙잡힌 요청을 먼저 풀어 준다
-    release.set()
-    release.clear()
-    state.update(mode=mode, writes=[], body="원래 본문", comments=[])
+    # 이전 hang 모드에서 붙잡힌 요청을 풀어 준다. 이전 신호는 set인 채로 두어 늦게 도착한 요청도 기다리지 않는다
+    state["release"].set()
+    state.update(mode=mode, writes=[], body="원래 본문", comments=[], release=threading.Event())
     return {"mode": mode}
 
 
 @mcp.tool()
 def fixture_snapshot() -> dict:
-    return state
+    return {key: value for key, value in state.items() if key != "release"}
 
 
 if __name__ == "__main__":
