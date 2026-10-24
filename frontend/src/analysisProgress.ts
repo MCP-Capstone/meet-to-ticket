@@ -3,7 +3,7 @@ import type { AnalysisProgress, AnalysisTask, ProgressStep } from './api/types'
 export const progressSteps: { step: ProgressStep; label: string; doing: string }[] = [
   { step: 'CONTEXT', label: '맥락 파악', doing: '프로젝트의 맥락을 파악하고 있습니다' },
   { step: 'EXTRACTING', label: '티켓 추출', doing: '회의록에서 티켓 초안을 작성하고 있습니다' },
-  { step: 'DEDUPING', label: '중복 검수', doing: '기존 이슈와 겹치는 업무를 확인하고 있습니다' },
+  { step: 'DEDUPING', label: '기존 이슈 확인', doing: '기존 이슈와 겹치는 업무를 확인하고 있습니다' },
   { step: 'DISPATCHING', label: '담당자에게 전송', doing: '담당자에게 전달할 초안을 정리하고 있습니다' },
 ]
 
