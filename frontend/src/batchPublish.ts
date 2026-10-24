@@ -40,16 +40,23 @@ export function safeIssueUrl(url: string | null) {
   return safePublishUrl(url, 'GITHUB')
 }
 
-// 발행 결과를 이만큼 기다리면 오래 걸린다고 안내한다. 결과는 Agent 마감(10분)과 Backend 결과 대기 기한(15분) 안에 정리된다 (#302).
+// 발행 결과를 이만큼 기다리면 오래 걸린다고 안내한다 (#302).
 export const SLOW_PUBLISH_SECONDS = 120
+
+// 묶음 생성 시각(서버)을 쓰고, 없거나 해석할 수 없으면 화면을 연 시각을 쓴다.
+export function batchStartedAt(createdAt: string | null | undefined, fallback: number) {
+  const parsed = createdAt ? Date.parse(createdAt) : NaN
+  return Number.isFinite(parsed) ? parsed : fallback
+}
 
 export function formatElapsed(seconds: number) {
   const sec = Math.max(0, Math.floor(seconds))
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
 }
 
+// "약 16분"은 Backend 결과 대기 기한(PUBLISH_RESULT_TIMEOUT 기본 15분) + 기한 정리 주기(1분)다. 기본값을 바꾸면 함께 고친다.
 export function slowPublishNotice(elapsedSeconds: number) {
   return elapsedSeconds >= SLOW_PUBLISH_SECONDS
-    ? '평소보다 오래 걸리고 있습니다. 이 화면을 닫아도 발행은 계속되며, 늦어도 15분 안에 결과가 정리됩니다. 결과는 내 티켓에서도 확인할 수 있습니다.'
+    ? '평소보다 오래 걸리고 있습니다. 이 화면을 닫아도 발행은 계속되며, 늦어도 약 16분 뒤에는 결과가 정리됩니다. 결과는 내 티켓에서도 확인할 수 있습니다.'
     : null
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiRequestError } from '../api'
 import type { PublishBatchResult as BatchResult } from '../api'
-import { formatElapsed, safePublishUrl, slowPublishNotice, toolName } from '../batchPublish'
+import { batchStartedAt, formatElapsed, safePublishUrl, slowPublishNotice, toolName } from '../batchPublish'
 import { failureGuide } from '../publishFailure'
 import { Spinner } from './Spinner'
 
@@ -32,15 +32,15 @@ export function PublishBatchResult({ batchId, onDone, onClose }: Props) {
     return () => { cancelled = true; window.clearTimeout(timer) }
   }, [batchId, attempt, onDone])
   const running = !result || result.status === 'RUNNING'
-  // 결과를 기다린 시간. 오래 걸리면 화면을 닫아도 된다고 안내한다 (#302)
-  const [startedAt] = useState(() => Date.now())
-  const [now, setNow] = useState(startedAt)
+  // 결과를 기다린 시간. 묶음 생성 시각부터 세고, 오래 걸리면 화면을 닫아도 된다고 안내한다 (#302)
+  const [openedAt] = useState(() => Date.now())
+  const [now, setNow] = useState(openedAt)
   useEffect(() => {
     if (!running) return
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [running])
-  const elapsed = (now - startedAt) / 1000
+  const elapsed = (now - batchStartedAt(result?.createdAt, openedAt)) / 1000
   const slowNotice = running ? slowPublishNotice(elapsed) : null
   return <section className="card publish-result" aria-label="발행 결과">
     <div className="card-header"><h2>발행 결과</h2><button type="button" className="secondary" onClick={onClose}>결과 닫기</button></div>

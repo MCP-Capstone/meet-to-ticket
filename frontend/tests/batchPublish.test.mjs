@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 const source = await readFile(new URL('../src/batchPublish.ts', import.meta.url), 'utf8')
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { meetingGroups, publishSelection, safeIssueUrl, safePublishUrl, formatElapsed, slowPublishNotice, SLOW_PUBLISH_SECONDS } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { meetingGroups, publishSelection, safeIssueUrl, safePublishUrl, formatElapsed, slowPublishNotice, SLOW_PUBLISH_SECONDS, batchStartedAt } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 const ticket = (status, overrides = {}) => ({ status, projectId: 1, meetingId: 1, publishTarget: 'GITHUB', ...overrides })
 test('프로젝트와 회의 ID로 구분하고 같은 제목이어도 합치지 않는다', () => {
   assert.deepEqual(meetingGroups([ticket('CONFIRMED'), ticket('REJECTED'), ticket('CONFIRMED', { meetingId: 2 }), ticket('CONFIRMED', { projectId: 2 })]).map((g) => g.tickets.length), [2, 1, 1])
@@ -91,4 +91,9 @@ test('발행 결과 대기 시간을 분:초로 보여 주고 오래 걸리면 �
   assert.equal(formatElapsed(83.9), '1:23')
   assert.equal(slowPublishNotice(SLOW_PUBLISH_SECONDS - 1), null)
   assert.match(slowPublishNotice(SLOW_PUBLISH_SECONDS), /화면을 닫아도 발행은 계속/)
+})
+
+test('경과 시간은 묶음 생성 시각부터 세고, 없으면 화면을 연 시각을 쓴다 (#318 리뷰)', () => {
+  assert.equal(batchStartedAt('2026-10-24T11:00:00Z', 5), Date.parse('2026-10-24T11:00:00Z'))
+  for (const value of [null, undefined, '', 'not-a-date']) assert.equal(batchStartedAt(value, 5), 5)
 })
