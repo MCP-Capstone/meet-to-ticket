@@ -7,6 +7,8 @@ import com.mcpcapstone.meettoticket.common.error.*;
 import com.mcpcapstone.meettoticket.meeting.MeetingRepository;
 import com.mcpcapstone.meettoticket.queue.AnalysisDispatchRepository;
 import com.mcpcapstone.meettoticket.reindex.ProjectReindexGateway;
+import com.mcpcapstone.meettoticket.reindex.ProjectReindexRepository;
+import com.mcpcapstone.meettoticket.reindex.ProjectReindexService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +32,8 @@ public class ProjectDeletionService {
     private final AnalysisTaskRepository tasks;
     private final TaskItemRepository items;
     private final AnalysisDispatchRepository dispatches;
+    private final ProjectReindexRepository reindexes;
+    private final ProjectReindexService reindexService;
     private final ProjectReindexGateway index;
 
     @Transactional
@@ -43,6 +47,9 @@ public class ProjectDeletionService {
         // 처리 중인 작업을 지우면 Agent가 보내는 진행 보고와 결과를 받을 곳이 사라진다.
         if (tasks.existsByMeetingProjectIdAndStatusIn(projectId, List.of(TaskStatus.QUEUED, TaskStatus.RUNNING)))
             throw new BusinessException(ErrorCode.PROJECT_ANALYSIS_IN_PROGRESS);
+        // 재색인 중에는 Agent가 색인 삭제를 거절해 색인이 남는다.
+        if (reindexService.isRunning(projectId))
+            throw new BusinessException(ErrorCode.PROJECT_REINDEX_IN_PROGRESS);
 
         // 외래 키를 따라 아래에서 위로 지운다.
         int itemCount = items.deleteByProjectId(projectId);
@@ -50,6 +57,7 @@ public class ProjectDeletionService {
         int taskCount = tasks.deleteByProjectId(projectId);
         int meetingCount = meetings.deleteByProjectId(projectId);
         members.deleteByProjectId(projectId);
+        reindexes.deleteByProjectId(projectId);
         projects.deleteById(projectId);
         dropIndexAfterCommit(project.getGithubOwner(), project.getGithubRepo());
         log.info("프로젝트 {} 삭제: 회의 {}건, 분석 작업 {}건, 티켓 {}건", projectId, meetingCount, taskCount, itemCount);
