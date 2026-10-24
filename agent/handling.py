@@ -99,7 +99,9 @@ def change_section(ticket: dict[str, Any], *, meeting_date: str, meeting_title: 
     before, after = d.get("before"), d.get("after")
     lines = [f"## 회의 변경 사항 ({meeting_date or '날짜 없음'})", ""]
     if before or after:
-        lines.append(f"- 변경: {before or '(기존 내용)'} → {after or ticket.get('action_text') or '-'}")
+        lines += ["### 변경 전", before or "(기존 이슈 본문을 확인하세요)", "", "### 변경 후",
+                  after or ticket.get('action_text') or "-", ""]
+    lines += ["### 유지할 내용", "기존 이슈 본문의 이번 변경과 무관한 요구사항과 진행 이력은 유지합니다.", ""]
     lines.append(f"- 할 일 (회의록 원문): {ticket.get('action_text') or '-'}")
     lines.append(f"- 회의: {_meeting(meeting_date, meeting_title)}")
     quotes = _quotes(ticket)

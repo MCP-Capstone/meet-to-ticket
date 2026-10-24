@@ -14,6 +14,10 @@ from state import MCP_UNAVAILABLE, PUBLISH_FAILED, TARGET_NOTION
 TAG = re.compile(r"\[([A-Z][A-Z0-9_]+)\]")
 
 
+def _meeting_label(meeting_date: str, meeting_title: str) -> str:
+    return " · ".join(item for item in (meeting_title, meeting_date) if item) or "-"
+
+
 class ToolCallError(Exception):
     def __init__(self, code: str, message: str, ambiguous: bool = False):
         super().__init__(message)
@@ -245,9 +249,17 @@ def related_lines(ticket: dict[str, Any]) -> tuple[list[str], list[str]]:
     return related, parent
 
 
-def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str) -> str:
+def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str, *, meeting_title: str = "",
+                     meeting_date: str | None = None) -> str:
     """이슈 본문 (기획_v16 REQ-009). MCP는 이 본문을 그대로 올린다. 값이 없는 칸은 담당·기한을 빼고 생략한다."""
-    lines: list[str] = ["## 작업 내용", ticket.get("description") or ticket.get("action_text", ""), ""]
+    ticket_background = ticket.get("background") or background
+    lines: list[str] = []
+    if ticket_background:
+        lines += ["## 배경", ticket_background, ""]
+    lines += ["## 작업 범위"]
+    scope = ticket.get("work_scope") or []
+    lines += [f"- {item}" for item in scope] or ["- 회의록에 정한 작업 범위"]
+    lines += ["", "## 작업 내용", ticket.get("description") or ticket.get("action_text", ""), ""]
 
     tasks = ticket.get("tasks") or []
     if tasks:
@@ -259,9 +271,15 @@ def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str) -
 
     quotes = ticket.get("evidence_quotes") or []
     if quotes:
-        lines += ["## 근거"]
+        meeting = _meeting_label(meeting_date or "", meeting_title) if meeting_title or meeting_date else meeting_id
+        lines += ["## 회의 근거", f"- 회의: {meeting}"]
         for q in quotes:
             lines += [f"> {q}", ""]
+    references = [r for r in ticket.get("references") or [] if isinstance(r, dict) and r.get("title") and r.get("url")]
+    if references:
+        lines += ["## 참고 자료"]
+        lines += [f"- [{ref['title']}]({ref['url']})" for ref in references]
+        lines += [""]
 
     names = ticket.get("assignee_names") or []
     logins = ticket.get("assignees") or []
@@ -291,9 +309,6 @@ def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str) -
     if ticket.get("fallback") and notes:
         lines += ["## 검수 메모", "자동 검수에서 아래 지적이 남아 회의록 원문 기준 기본 초안으로 작성했습니다.",
                   *[f"- {n}" for n in notes], ""]
-
-    if background:
-        lines += ["<details>", "<summary>회의 배경</summary>", "", _shorten(background, 700), "", "</details>", ""]
 
     lines += ["---", f"회의: {meeting_id} · work_key: {ticket.get('work_key') or '-'} · 회의 후속조치 Agent가 작성"]
     return "\n".join(lines).strip() + "\n"
@@ -337,32 +352,40 @@ def build_slack_notice(meeting_title: str, meeting_date: str | None, decisions: 
     검토 요청은 "@이름"으로 쓴다. 게시할 때 Slack 연결이 확인된 담당자만 post_message의 mentions로
     넘겨 멘션이 되고, 나머지는 이름 텍스트로 남는다 (#151).
     """
-    head = f"*[회의 결과] {meeting_title or '회의'}*" + (f" ({meeting_date})" if meeting_date else "")
+    head = f"*[회의 요약] {meeting_title or '회의'}*" + (f" · {meeting_date}" if meeting_date else "")
     lines = [head, ""]
+    lines += ["*요약*", "이번 회의에서 아래 결정 사항과 후속 작업을 정리했습니다.", ""]
     if decisions:
         lines += ["*결정 사항*", *[f"• {d}" for d in decisions], ""]
-    github = [t for t in tickets if t.get("publish_target") != TARGET_NOTION]
-    notion = len(tickets) - len(github)
-    lines += ["*후속 작업*", f"• 새 작업 {len(tickets) - linked}건 (GitHub 이슈 {len(github) - linked}, Notion 페이지 {notion})"]
-    if linked:
-        lines.append(f"• 기존 이슈 연결 {linked}건")
+    github = [ticket for ticket in tickets if ticket.get("publish_target") != TARGET_NOTION]
     member_count = {name.strip(): 0 for name in members}
     for name in members:
         member_count[name.strip()] += 1
     counts: dict[str, int] = {}
-    unassigned = 0
-    for t in github:
-        names = {n.strip() for n in t.get("assignee_names") or []}
-        name = next(iter(names)) if len(names) == 1 else None
-        if name is None or member_count.get(name) != 1:
-            unassigned += 1  # 여러 명, 미정, 멤버가 아님, 동명이인 → 업로더가 대표 담당을 지정한다 (REQ-011)
-            continue
-        counts[name] = counts.get(name, 0) + 1
-    if counts or unassigned or notion:
-        lines += ["", "*검토 요청*", *[f"• @{name} {n}건" for name, n in counts.items()]]
-        if unassigned:
-            lines.append(f"• 담당 지정 필요 {unassigned}건")
-        if notion:
-            lines.append(f"• Notion 페이지 {notion}건 (업로더 확인)")
-    lines += ["", "각자 내 티켓에서 확인한 뒤 발행해 주세요."]
+    for ticket in github:
+        names = {name.strip() for name in ticket.get("assignee_names") or [] if name.strip()}
+        owner = next(iter(names)) if len(names) == 1 and member_count.get(next(iter(names))) == 1 else None
+        if owner:
+            counts[owner] = counts.get(owner, 0) + 1
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    needs_owner: list[dict[str, Any]] = []
+    for ticket in tickets:
+        names = {name.strip() for name in ticket.get("assignee_names") or [] if name.strip()}
+        owner = next(iter(names)) if len(names) == 1 and member_count.get(next(iter(names))) == 1 else None
+        (grouped.setdefault(owner, []) if owner else needs_owner).append(ticket)
+    if grouped or needs_owner:
+        lines += ["", "*후속 작업*"]
+        for owner, assigned in grouped.items():
+            lines.append(f"• @{owner}")
+            for ticket in assigned:
+                due = Due(**(ticket.get("due") or {"text": ""})).display()
+                suffix = f" / {due}" if due != "없음" else ""
+                lines.append(f"  - {ticket.get('title') or ticket.get('action_text') or '-'}{suffix}")
+        if needs_owner:
+            lines.append("• 담당 확인 필요")
+            lines += [f"  - {ticket.get('title') or ticket.get('action_text') or '-'}" for ticket in needs_owner]
+    questions = list(dict.fromkeys(q for t in tickets for q in t.get("open_questions") or [] if q))
+    if questions:
+        lines += ["", "*확인 필요 사항*", *[f"• {question}" for question in questions]]
+    lines += ["", "발행 전 각 담당자가 내 티켓에서 내용을 확인해 주세요."]
     return {"text": "\n".join(lines), "reviewers": [{"name": k, "tickets": v} for k, v in counts.items()]}

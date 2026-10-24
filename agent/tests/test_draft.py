@@ -89,11 +89,26 @@ def test_draft_warnings_do_not_pile_up():
     assert t["evidence_quotes"] == ["할 일"]
 
 
+def test_draft_references_are_limited_to_loaded_context_documents():
+    t = new_ticket(ExtractedTodo(work_key="k", action="할 일"), [], None, "llm")
+    d = draft(reference_titles=["API 운영 기준", "존재하지 않는 문서", "API 운영 기준"])
+    AgentNodes._apply_draft(
+        t, d, [], "할 일", [],
+        context_docs=[
+            {"title": "API 운영 기준", "url": "https://www.notion.so/api-guide"},
+            {"title": "URL 없는 문서"},
+        ],
+    )
+    assert t["references"] == [{"title": "API 운영 기준", "url": "https://www.notion.so/api-guide"}]
+
+
 async def test_result_has_issue_body(settings):
     nodes = AgentNodes(FakeLLM(), FakePublisher(), FakeReporter(), settings)
     state, _ = await run_review(nodes, make_state())
     result = nodes.build_result(state)
     item = result["items"][0]
     t = state["tickets"][0]
-    assert item["content_json"]["issue_body"] == build_issue_body(t, state["meeting_id"], state["background"])
-    assert item["content_json"]["issue_body"].startswith("## 작업 내용\n")
+    assert item["content_json"]["issue_body"] == build_issue_body(
+        t, state["meeting_id"], state["background"], meeting_title=state["meeting_title"],
+        meeting_date=state["meeting_date"])
+    assert item["content_json"]["issue_body"].startswith("## 배경\n")

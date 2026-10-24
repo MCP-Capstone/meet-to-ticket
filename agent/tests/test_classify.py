@@ -36,7 +36,7 @@ async def test_todos_are_classified_with_reason(draft_settings):
     assert notion["notion_page"]["markdown"].startswith("## 작업 내용\n")
     github = items["10m1-a1"].content_json
     assert github["publish_target"] == "GITHUB" and github["target_reason"] == "코드 변경이 필요한 구현"
-    assert github["issue_body"].startswith("## 작업 내용\n") and github["notion_page"] is None
+    assert github["issue_body"].startswith("## 배경\n") and github["notion_page"] is None
 
 
 async def test_one_slack_notice_per_meeting(draft_settings):
@@ -52,11 +52,11 @@ async def test_one_slack_notice_per_meeting(draft_settings):
     text = notice.content_json["slack"]["text"]
     assert text == notice.content_json["description"]
     assert "*결정 사항*" in text and "• 1차 릴리스에서는 조직 관리자만 CSV 내보내기를 사용할 수 있다." in text
-    assert "• 새 작업 8건 (GitHub 이슈 7, Notion 페이지 1)" in text
-    # 담당자 1명인 티켓은 @이름으로 검토 요청, 여러 명인 티켓은 담당 지정 필요
+    assert "*후속 작업*" in text
+    # 담당자 1명인 티켓은 @이름으로 후속 작업을 확인하고, 여러 명인 티켓은 담당 확인 필요로 남긴다.
     reviewers = notice.content_json["slack"]["reviewers"]
-    assert reviewers and all(f"• @{r['name']} {r['tickets']}건" in text for r in reviewers)
-    assert "• 담당 지정 필요 1건" in text
+    assert reviewers and all(f"• @{r['name']}" in text for r in reviewers)
+    assert "• 담당 확인 필요" in text
     # 받는 사람은 업로더다 (백엔드가 정함). 공지 자체에는 담당자가 없다
     assert notice.content_json["assignees"]["names"] == []
 
@@ -110,10 +110,10 @@ def test_slack_notice_counts_linked_and_skips_empty_sections():
                {"assignee_names": [], "publish_target": "NOTION"}]
     notice = build_slack_notice("CSV 점검", "2026-10-22", [], tickets, linked=1, members=["박서연"])
     text = notice["text"]
-    assert text.startswith("*[회의 결과] CSV 점검* (2026-10-22)")
-    assert "결정 사항" not in text
-    assert "• 새 작업 2건 (GitHub 이슈 1, Notion 페이지 1)" in text and "• 기존 이슈 연결 1건" in text
-    assert "• @박서연 2건" in text and "담당 지정 필요" not in text
+    assert text.startswith("*[회의 요약] CSV 점검* · 2026-10-22")
+    assert "*결정 사항*" not in text
+    assert "*후속 작업*" in text
+    assert "• @박서연" in text and "담당 확인 필요" in text
     assert notice["reviewers"] == [{"name": "박서연", "tickets": 2}]
 
 
@@ -128,9 +128,8 @@ def test_slack_notice_review_requests_match_ticket_recipients():
     ]
     notice = build_slack_notice("회의", None, [], tickets, linked=0, members=["박서연", "김민준", "김민준"])
     text = notice["text"]
-    assert "• @박서연 2건" in text and "@김민준" not in text and "@외부인" not in text
-    assert "• 담당 지정 필요 2건" in text
-    assert "• Notion 페이지 1건 (업로더 확인)" in text
+    assert "• @박서연" in text and "@김민준" not in text and "@외부인" not in text
+    assert "• 담당 확인 필요" in text
     assert notice["reviewers"] == [{"name": "박서연", "tickets": 2}]
 
 

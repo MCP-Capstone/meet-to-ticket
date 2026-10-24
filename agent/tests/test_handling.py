@@ -53,7 +53,9 @@ def test_link_comment_format():
 def test_change_section_shows_before_and_after():
     text = change_section(TICKET, meeting_date="2026-10-23", meeting_title="CSV 점검")
     assert text.startswith("## 회의 변경 사항 (2026-10-23)\n")
-    assert "- 변경: 동기 처리 → 비동기 처리" in text
+    assert "### 변경 전\n동기 처리" in text
+    assert "### 변경 후\n비동기 처리" in text
+    assert "### 유지할 내용" in text
     assert "  > 민규: 동기로 하면 타임아웃 나요" in text
 
 
