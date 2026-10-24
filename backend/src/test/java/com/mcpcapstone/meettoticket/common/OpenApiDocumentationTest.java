@@ -28,7 +28,7 @@ class OpenApiDocumentationTest {
     @Test
     void 공개_API와_세션인증을_문서화하고_내부_서버_API를_섞지_않는다() throws Exception {
         JsonNode doc = document();
-        assertThat(doc.path("paths").size()).isEqualTo(33);
+        assertThat(doc.path("paths").size()).isEqualTo(34);
         assertThat(doc.at("/paths/~1api~1tickets~1{ticketId}~1retry-comment/post/operationId").asText()).isEqualTo("retryUpdateComment");
         for (var entry : doc.path("paths").properties()) {
             assertThat(entry.getKey()).startsWith("/api/");

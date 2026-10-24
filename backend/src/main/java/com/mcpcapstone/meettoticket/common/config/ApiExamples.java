@@ -95,6 +95,32 @@ public final class ApiExamples {
             }
             """;
 
+    public static final String ERROR_TICKET_HISTORY_FORBIDDEN = """
+            {
+              "code": "TICKET_HISTORY_FORBIDDEN",
+              "message": "티켓 담당자나 회의록을 올린 사람만 이력을 볼 수 있습니다."
+            }""";
+
+    public static final String TICKET_HISTORY = """
+            {"ticketId":"3c510e28-c776-43ce-85cc-6c90693d31f5",
+             "revisions":[
+               {"rev":1,"kind":"AGENT","snapshot":{"title":"CSV 빈 결과 오류 수정","assignee_member_id":11,"assignee_name":"박종민","publish_target":"GITHUB","processing_type":"CREATE",
+                "content":{"description":"CSV 내보내기에서 결과가 비면 오류가 난다.","due":{"text":"내일 오후 6시","date":"2026-10-23","time":"18:00"}}},
+                "schemaVersion":1,"promptVersion":null,"model":null,"actor":null,"createdAt":"2026-10-22T10:31:00+09:00"},
+               {"rev":2,"kind":"USER_EDIT","snapshot":{"title":"CSV 빈 결과 오류 수정","assignee_member_id":11,"assignee_name":"박종민","publish_target":"GITHUB","processing_type":"CREATE",
+                "content":{"description":"CSV 내보내기에서 결과가 비면 500 오류가 난다.","due":{"text":"금요일까지","date":"2026-10-23","time":"18:00"}}},
+                "schemaVersion":1,"promptVersion":null,"model":null,"actor":{"userId":3,"name":"박종민"},"createdAt":"2026-10-22T11:02:00+09:00"},
+               {"rev":3,"kind":"PUBLISHED","snapshot":{"title":"CSV 빈 결과 오류 수정","assignee_member_id":11,"assignee_name":"박종민","publish_target":"GITHUB","processing_type":"CREATE",
+                "content":{"description":"CSV 내보내기에서 결과가 비면 500 오류가 난다.","due":{"text":"금요일까지","date":"2026-10-23","time":"18:00"}},
+                "result":{"status":"PUBLISHED","processing_type":"CREATE","github_issue_number":42,"url":"https://github.com/MCP-Capstone/mcp-capstone/issues/42","error_code":null}},
+                "schemaVersion":1,"promptVersion":null,"model":null,"actor":{"userId":3,"name":"박종민"},"createdAt":"2026-10-22T11:05:00+09:00"}],
+             "statusHistory":[
+               {"from":null,"to":"PENDING_REVIEW","actor":null,"reason":"AGENT_RESULT","createdAt":"2026-10-22T10:31:00+09:00"},
+               {"from":"PENDING_REVIEW","to":"CONFIRMED","actor":{"userId":3,"name":"박종민"},"reason":"CONFIRM","createdAt":"2026-10-22T11:02:00+09:00"},
+               {"from":"CONFIRMED","to":"PUBLISHING","actor":{"userId":3,"name":"박종민"},"reason":"PUBLISH_REQUESTED","createdAt":"2026-10-22T11:04:00+09:00"},
+               {"from":"PUBLISHING","to":"PUBLISHED","actor":null,"reason":"PUBLISH_RESULT","createdAt":"2026-10-22T11:05:00+09:00"}],
+             "approval":{"actor":{"userId":3,"name":"박종민"},"approvedAt":"2026-10-22T11:02:00+09:00"}}""";
+
     public static final String ERROR_TICKET_NOT_FOUND = """
             {
               "code": "TICKET_NOT_FOUND",
