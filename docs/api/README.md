@@ -72,6 +72,7 @@ Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤
 
 티켓에는 발행 대상 `publishTarget`(GITHUB, SLACK, NOTION, 기본 GITHUB)과 처리 유형 `processingType`(CREATE, LINK, UPDATE)이 있다. 처리 유형의 첫 값은 Agent 중복 판단의 제안(`contentJson.dedupe.handling.type`)이다.
 `PATCH /api/tickets/{ticketId}/publication`으로 담당자가 바꾼다. GitHub 이외 대상은 항상 CREATE이고(연결/갱신을 같이 보내면 400 `PROCESSING_TYPE_TARGET_MISMATCH`), LINK와 UPDATE는 중복 판단이 찾은 열린 기존 이슈가 있을 때만 된다(아니면 400 `EXISTING_ISSUE_REQUIRED`).
+티켓 응답(`GET /api/tickets/me`, 전송 결과의 `tickets[].ticket`, 티켓 동작 응답)에는 `status`(10개 내부 상태)에 더해 `displayStatus`가 있다. 사용자 노출 4상태 `REVIEW_PENDING`(검토 대기), `PUBLISHING`(발행 중), `PUBLISHED`(발행됨), `NEEDS_ATTENTION`(실패/확인 필요)을 `status`에서 파생한 값이다. 거절(`REJECTED`)은 4상태에 속하지 않아 null이다. 발행 생략(`SKIPPED`)과 알림 댓글이 실패한 `UPDATED`는 발행됨이 아니라 `NEEDS_ATTENTION`이다. 대응표는 [리비전과 상태 이력](../revisions-and-history.md). 발행 묶음 결과(`GET /api/publish-batches/{batchId}`)의 티켓 항목에는 아직 없다.
 티켓 응답의 `dedupe`는 카드 표시용 읽기 전용 값이다: `judged`(false면 "중복 판단 안 됨"), `relation`, `issue`(번호, 제목, 상태, 링크), `overlap`(신규 발행인데 같은 작업이나 관련 이슈가 있으면 "겹칠 수 있음"), `reason`, `before`/`after`(갱신의 변경 전후), `changedByRecheck`.
 
 담당자는 카드에서 본문, 담당 멤버(같은 프로젝트 멤버), 기한을 고치고 확인/거절한다(REQ-014, #167). 수정은 검토 대기 상태에서만 되고 보낸 항목만 바뀐다. 담당 멤버를 바꾸면 그 멤버의 내 티켓으로 옮겨 간다. 기획 4.2 표 밖의 전이와 발행 이후 상태의 수정은 409 `TICKET_STATUS_CONFLICT`, 담당자가 아니면 403 `TICKET_ASSIGNEE_REQUIRED`, 티켓이 없으면 404 `TICKET_NOT_FOUND`이다. 수정한 내용은 `contentJson`의 `description`, `due`, `assignees`에 반영하며, 발행 본문(`issue_body`)은 다시 만들지 않는다.
