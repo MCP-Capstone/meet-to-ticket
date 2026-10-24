@@ -149,6 +149,7 @@ def new_ticket(todo: ExtractedTodo, members: list[ProjectMember], meeting_date: 
         "assignees": assignees.logins,
         "unresolved_assignees": assignees.unresolved,
         "unmatched_assignees": assignees.unmatched,
+        "ambiguous_assignees": assignees.ambiguous,
         "due": {"text": due.text, "date": due.date, "time": due.time},
         "expected": {"raw": expected.raw, "kind": expected.kind, "keys": expected.keys},
         "title": "",
@@ -653,8 +654,9 @@ class AgentNodes:
     def unconfirmed_reason(t: dict[str, Any]) -> str | None:
         """GitHub에 쓰기 전 담당자 확정 여부. 사람이 확정하지 않은 항목은 PUBLISH_ON_RUN이어도 쓰지 않는다.
 
-        담당자가 없거나 이름이 어떤 프로젝트 멤버와도 맞지 않으면 미확정이다: 제품 흐름에서 이런 티켓은
-        ASSIGNEE_REQUIRED(담당 지정 필요)이고, 담당자가 지정해야 확인(CONFIRMED)과 발행으로 넘어간다.
+        담당자가 정확히 한 멤버로 정해지지 않으면 미확정이다 (없음, 멤버 불일치, 동명이인, 여러 명):
+        백엔드 AssigneeResolver도 이런 티켓을 ASSIGNEE_REQUIRED(담당 지정 필요)로 두고, 담당자가 한 명을 지정해야
+        확인(CONFIRMED)과 발행으로 넘어간다.
         이름이 멤버와 맞고 GitHub 계정만 없는 경우는 담당자가 정해진 것이라 막지 않는다 (본문에 계정 미매핑으로 남는다).
         """
         # unmatched_assignees가 없는 티켓(이전 체크포인트)은 계정 없음과 구분할 수 없어 보수적으로 unresolved를 쓴다
@@ -662,7 +664,14 @@ class AgentNodes:
         if unmatched is None:
             unmatched = t.get("unresolved_assignees") or []
         if unmatched:
-            return "담당자 미확정: " + ", ".join(unmatched) + " (자동 발행하지 않음)"
+            return "담당자 미확정: " + ", ".join(unmatched) + " (프로젝트 멤버와 이름이 맞지 않아 자동 발행하지 않음)"
+        if t.get("ambiguous_assignees"):
+            return ("담당자 미확정: " + ", ".join(t["ambiguous_assignees"])
+                    + " (같은 이름의 멤버가 여러 명이라 자동 발행하지 않음)")
+        if len(t.get("assignee_names") or []) > 1:
+            # 티켓 담당자는 한 명이다. 여러 명이면 사람이 한 명을 고른 뒤 발행한다
+            return ("담당자 미확정: " + ", ".join(t["assignee_names"])
+                    + " (담당자가 여러 명이라 자동 발행하지 않음. 한 명만 지정해야 함)")
         if not t.get("assignee_names") and not t.get("assignees"):
             return "담당자 미확정: 지정된 담당자가 없어 자동 발행하지 않음"
         return None
@@ -722,6 +731,10 @@ class AgentNodes:
             t["publish_status"] = "SUCCEEDED"
             t["github_issue_number"] = res.get("number")
             t["github_issue_url"] = res.get("url")
+            # 막히지 않고 여기까지 온 미매핑 이름은 멤버이지만 GitHub 계정이 없는 담당자다 (#292)
+            no_account = t.get("unresolved_assignees") or []
+            if no_account:
+                t["warnings"].append(f"GitHub 계정이 없어 담당자로 지정하지 못함: {', '.join(no_account)}")
             dropped = res.get("dropped_assignees") or []
             if dropped:
                 t["warnings"].append(f"GitHub에서 담당자 지정이 안 됨: {', '.join(dropped)}")
@@ -779,6 +792,8 @@ class AgentNodes:
                         "names": t["assignee_names"],
                         "github": t["assignees"],
                         "unresolved": t["unresolved_assignees"],
+                        "unmatched": t.get("unmatched_assignees", []),
+                        "ambiguous": t.get("ambiguous_assignees", []),
                     },
                     "due": t["due"],
                     "expected": t["expected"],

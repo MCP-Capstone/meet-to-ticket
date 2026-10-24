@@ -2,7 +2,7 @@
 
 import pytest
 
-from conftest import FakeLLM, FakePublisher, FakeReporter, make_request
+from conftest import PUBLISHED_10MIN, FakeLLM, FakePublisher, FakeReporter, make_request
 
 pytest.importorskip("langgraph")
 
@@ -29,7 +29,7 @@ async def test_runner_with_fakes(settings):
     llm = FakeLLM(review_plan={"10m1-a1": [[(7, "제목 모호")]]})
     result = await run(make_request(), settings, llm=llm, publisher=FakePublisher(), reporter=FakeReporter())
     assert result.status == "SUCCEEDED"
-    assert result.summary["published"] == 6
+    assert result.summary["published"] == len(PUBLISHED_10MIN)
 
 
 def test_api(settings):
