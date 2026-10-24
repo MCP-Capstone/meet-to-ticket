@@ -129,6 +129,39 @@ class PublishBatchTest {
 		verify(gateway, times(1)).submit(any());
 	}
 
+	// 실행 중인 묶음을 n개 만든다. 발행 한 번이 확인된 티켓 전부를 가져가므로 티켓 하나씩 발행한다.
+	private void startBatches(int n) throws Exception {
+		for (int i = 0; i < n; i++) {
+			confirmed(project, "조회 대상 " + i);
+			publish(null);
+		}
+	}
+
+	@Test
+	void Agent에_닿지_않으면_그_주기의_결과_조회를_바로_멈춘다() throws Exception {
+		startBatches(2);
+		when(gateway.status(any())).thenThrow(new AgentException(true));
+		publishService.reconcileRunning();
+		// 묶음마다 타임아웃을 기다리지 않도록 첫 실패에서 멈춘다.
+		verify(gateway, times(1)).status(any());
+	}
+
+	@Test
+	void 한_묶음의_반영_오류는_다른_묶음의_조회를_막지_않는다() throws Exception {
+		startBatches(2);
+		when(gateway.status(any())).thenThrow(new IllegalStateException("반영 실패"));
+		publishService.reconcileRunning();
+		verify(gateway, atLeast(2)).status(any());
+	}
+
+	@Test
+	void 한_주기에_조회하는_묶음_수를_제한한다() throws Exception {
+		startBatches(12);
+		when(gateway.status(any())).thenReturn(Optional.empty());
+		publishService.reconcileRunning();
+		verify(gateway, times(10)).status(any());
+	}
+
 	private UUID publish(Long projectId) throws Exception {
 		var req = post("/api/tickets/publish").session(session);
 		if (projectId != null) req.param("projectId", String.valueOf(projectId));
