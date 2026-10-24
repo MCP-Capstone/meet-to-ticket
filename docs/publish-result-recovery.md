@@ -35,4 +35,6 @@ HTTPS, 허용 도메인, 사용자 정보·비표준 포트를 검사한다. Not
 - Backend: `./gradlew test`
 - Frontend: `node --test tests/*.test.mjs`, `npm run build`, `npm run lint`
 
+마이그레이션 테스트는 별도 PostgreSQL 테스트 DB를 준비하고 `MIGRATION_TEST_DB_URL`을 지정해 실행한다. 빈 DB·기존 DB의 최종 스키마 일치와 V2→V3 적용 시 기존 티켓 보존·SKIPPED 허용을 검증한다. 개발 데이터가 있는 DB는 사용하지 않는다.
+
 제목 저장, 생략 상태·집계, 콜백 유실 후 결과 조회, 배치 ID 불일치, 반복 GET의 쓰기 미발생, 도구별 링크와 잘못된 URL을 검증한다. 테스트에서 실제 외부 서비스에 발행하지 않는다.
