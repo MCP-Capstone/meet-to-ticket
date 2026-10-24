@@ -91,8 +91,8 @@
 
 | `outcomeUnknown` | `retryable` | 의미 | 예 |
 |---|---|---|---|
-| true | 대개 true | 대상에 반영됐을 수 있음. 확인 후 재시도 | `RESULT_UNKNOWN`, `RESULT_TIMEOUT`, `RESULT_MISSING`(이 둘은 `retryable=false`로 저장됨) |
-| false | true | 대개 반영되지 않은 실패로 재시도 가능 | `GITHUB_RATE_LIMIT`, `NOTION_RATE_LIMIT`. `MCP_UNAVAILABLE`은 조건부(5절 참고) |
+| true | 대개 true | 대상에 반영됐을 수 있음. 확인 후 재시도 | `RESULT_UNKNOWN`, `RESULT_TIMEOUT`, `RESULT_MISSING`(이 둘은 `retryable=false`로 저장됨), `RESULT_LOST`(Agent 재시작), 처리 중 마감에 걸린 `PUBLISH_DEADLINE` |
+| false | true | 대개 반영되지 않은 실패로 재시도 가능 | `GITHUB_RATE_LIMIT`, `NOTION_RATE_LIMIT`, 마감이 지나 보내지 않은 `PUBLISH_DEADLINE`. `MCP_UNAVAILABLE`은 조건부(5절 참고) |
 | false | false | 재시도해도 소용없거나 대상에 이미 있을 수 있음. 안전한 재시도가 아니다 | 권한/설정 오류(`GITHUB_FORBIDDEN`, `NOTION_ROOT_MISSING`), 예외: `NOTION_VERIFY_REQUIRED`, `SLACK_VERIFY_REQUIRED`, `MARKER_CHECK_INCOMPLETE`는 대상에 이미 반영됐을 수 있는데도 `outcomeUnknown=false`. 앞의 둘은 `MANUAL_CHECK`로 확인 결과를 남겨야 하고, 확인 결과가 `applied=false`이면 `VERIFIED_NOT_APPLIED`(`outcomeUnknown=false`, `retryable=true`)가 된다 |
 
 ### 3.3 현재 구현과 차이
@@ -108,9 +108,11 @@
 
 ### 4.1 현재 구현
 
-- 원인: 쓰기 요청을 보낸 뒤 예외가 난 경우(Agent 내부 `UNKNOWN` 상태), Agent 보고에 빠진 티켓, 기한 안에 보고가 오지 않은 묶음.
-- 저장: 티켓은 `FAILED` + `outcomeUnknown=true`로 저장된다 (`RESULT_UNKNOWN`, `RESULT_MISSING`, `RESULT_TIMEOUT` 등의 오류 코드).
-- 기한 정리: 접수 확인에 실패했거나 Agent가 보고하지 못한 묶음은 기한(`app.publish.result-timeout`, 기본 30분)이 지나면 `PublishBatchExpiry`가 1분(`app.publish.expire-interval-ms`, 기본 60000) 주기로 `RESULT_TIMEOUT` 실패로 끝낸다. 그 전까지 티켓은 발행 중에 머문다.
+- 원인: 쓰기 요청을 보낸 뒤 예외가 난 경우(Agent 내부 `UNKNOWN` 상태), Agent 발행 마감에 걸린 처리 중 티켓, Agent 보고에 빠진 티켓, Agent가 재시작돼 잃은 묶음, 기한 안에 보고가 오지 않은 묶음.
+- 저장: 티켓은 `FAILED` + `outcomeUnknown=true`로 저장된다 (`RESULT_UNKNOWN`, `RESULT_MISSING`, `RESULT_TIMEOUT`, `RESULT_LOST`, `PUBLISH_DEADLINE` 등의 오류 코드).
+- 시간 상한 (#302): Agent는 MCP 요청 하나를 `MCP_CALL_TIMEOUT_SECONDS`(기본 90초), 묶음 전체를 `PUBLISH_DEADLINE_SECONDS`(기본 600초) 안에 끝낸다. 마감에 걸리면 처리 중이던 티켓은 결과 모름, 시작 전 티켓은 보내지 않은 재시도 가능 실패(`PUBLISH_DEADLINE`)다.
+- 잃은 묶음: Agent는 묶음 기록을 메모리에만 두므로 재시작하면 처리 중이던 묶음도 `GET /publish/{batchId}`가 404다. Backend는 접수 뒤 유예 시간(`app.publish.lost-grace`, 기본 1분)이 지난 묶음의 404를 잃은 묶음으로 보고 다음 결과 조회 주기(5초)에 `RESULT_LOST` 결과 모름으로 끝낸다.
+- 기한 정리: 접수 확인에 실패했거나 Agent가 보고하지 못한 묶음은 기한(`app.publish.result-timeout`, 기본 15분)이 지나면 `PublishBatchExpiry`가 1분(`app.publish.expire-interval-ms`, 기본 60000) 주기로 `RESULT_TIMEOUT` 실패로 끝낸다. Agent 마감보다 길게 두는 마지막 안전망이며, 그 전까지 티켓은 발행 중에 머문다.
 - 화면(GitHub 등 `RETRY`): 결과 불명 안내와 확인 체크박스를 표시한다. 재시도 가능(`retryable=true`이거나 결과 불명)하고 확인한 경우만 "다시 시도"가 활성화된다. `RESULT_TIMEOUT`/`RESULT_MISSING` 같은 결과 불명도 담당자가 확인한 뒤 다시 시도할 수 있고, 지난 결과 불명 표시가 유지돼 Agent가 재대조한다 (2.3 참고, #291). 수정 후 재승인 경로를 택해도 결과 불명 표시는 남아 재대조를 강제한다.
 - 화면(Notion/Slack, `MANUAL_CHECK`): 다시 시도 대신 "이미 반영됨"/"반영되지 않음" 버튼과 선택 링크 입력을 보여 준다. 각각 확인 창을 거쳐 `resolve-outcome`을 호출한다. 결과 화면(`PublishBatchResult.tsx`)에는 "{도구명}에 반영됐을 수 있습니다. 다시 시도하기 전에 확인하세요."라는 다른 문구가 있다.
 - 자동 회수(자동으로 반영 여부를 확인해 상태를 바로잡는 것)와 "발행 확인 중" 표시, 5분 뒤 수동 확인 전환은 코드에 없다. 코드가 하는 재대조는 사용자가 다시 시도할 때 대상별로 돌아간다 (2.3 참고).
