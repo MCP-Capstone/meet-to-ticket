@@ -125,6 +125,68 @@ class PublishRetryTest {
 	}
 
 	@Test
+	void GitHub_결과_모름은_저장된_retryable이_false여도_확인_후_재시도하고_재대조를_요청한다() throws Exception {
+		// 이 수정 전 expireStale/applyResult가 retryable=false로 저장한 RESULT_TIMEOUT, RESULT_MISSING 행도 다시 시도할 수 있어야 한다.
+		for (String code : List.of("RESULT_TIMEOUT", "RESULT_MISSING")) {
+			TaskItem t = failed();
+			t.recordPublishResult(TicketStatus.FAILED, null, null, null, code, "결과 모름", false, true);
+			items.save(t);
+			mvc.perform(get("/api/tickets/me").session(session))
+					.andExpect(jsonPath("$.tickets[?(@.ticketId == '%s')].publishFailure.retryable".formatted(t.getId())).value(org.hamcrest.Matchers.hasItem(true)));
+			retry(t);
+		}
+		var captor = ArgumentCaptor.forClass(PublishGateway.Request.class);
+		verify(gateway, times(2)).submit(captor.capture());
+		assertThat(captor.getAllValues()).allSatisfy(r -> assertThat(r.tickets().getFirst().previousOutcomeUnknown()).isTrue());
+	}
+
+	@Test
+	void 묶음_전체_실패로_보고에서_빠진_티켓은_결과_모름으로_다시_시도할_수_있다() throws Exception {
+		TaskItem t = failed();
+		UUID batch = retry(t);
+		report(batch, """
+				{"batchId":"%s","status":"FAILED","summary":{},"items":[],"errorCode":"INTERNAL_ERROR","errorMessage":"MCP 연결 실패"}""".formatted(batch));
+		var kept = reload(t);
+		assertThat(kept.getTicketStatus()).isEqualTo(TicketStatus.FAILED);
+		assertThat(kept.getPublishErrorCode()).isEqualTo("INTERNAL_ERROR");
+		assertThat(kept.isPublishOutcomeUnknown()).isTrue();
+		assertThat(kept.canRetryPublish()).isTrue();
+		mvc.perform(get("/api/publish-batches/{id}", batch).session(session))
+				.andExpect(jsonPath("$.tickets[0].retryable").value(true))
+				.andExpect(jsonPath("$.tickets[0].outcomeUnknown").value(true));
+		retry(kept);
+	}
+
+	@Test
+	void 재대조할_수_없는_대상의_결과_모름은_재시도_대신_확인_결과를_요구한다() throws Exception {
+		TaskItem t = failed();
+		t.changePublication(PublishTarget.NOTION, ProcessingType.CREATE);
+		t.recordPublishResult(TicketStatus.FAILED, null, null, null, "RESULT_TIMEOUT", "결과 모름", true, true);
+		items.save(t);
+		mvc.perform(post("/api/tickets/{id}/retry", t.getId()).session(session))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TICKET_STATUS_CONFLICT"));
+		verify(gateway, never()).submit(any());
+	}
+
+	@Test
+	void 댓글_표식_확인이_끝나지_않으면_재전송을_막고_직접_확인을_남긴다() throws Exception {
+		TaskItem t = commentFailed();
+		UUID batch = retryComment(t);
+		report(batch, """
+				{"batchId":"%s","status":"SUCCEEDED","items":[{"ticketId":"%s","processingType":"UPDATE","status":"UPDATED",
+				 "errorCode":"MARKER_CHECK_INCOMPLETE","errorMessage":"댓글이 많아 확인하지 못했습니다","retryable":false}]}""".formatted(batch, t.getId()));
+		var kept = reload(t);
+		assertThat(kept.getTicketStatus()).isEqualTo(TicketStatus.UPDATED);
+		assertThat(kept.getPublishErrorCode()).isEqualTo("MARKER_CHECK_INCOMPLETE");
+		assertThat(kept.getGithubIssueNumber()).isEqualTo(73);
+		assertThat(kept.isCommentRetry()).isFalse();
+		mvc.perform(post("/api/tickets/{id}/retry-comment", t.getId()).session(session)).andExpect(status().isConflict());
+		mvc.perform(get("/api/tickets/me").session(session))
+				.andExpect(jsonPath("$.tickets[?(@.ticketId == '%s')].publishFailure.retryable".formatted(t.getId())).value(org.hamcrest.Matchers.hasItem(false)));
+		verify(gateway, times(1)).submit(any());
+	}
+
+	@Test
 	void 댓글만_재전송하고_실제_갱신한_이슈_번호를_전달한다() throws Exception {
 		TaskItem t = commentFailed();
 		// 저장된 초안의 dedupe=null이어도 CREATE로 재발행하면 안 된다.

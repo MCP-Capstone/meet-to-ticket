@@ -31,3 +31,10 @@ test('갱신 완료하고 댓글만 실패한 GitHub 티켓에만 댓글 재전�
   assert.equal(canRetryComment({ ...ticket, publishTarget: 'NOTION' }), false)
   assert.equal(canRetryComment({ ...ticket, publishFailure: null }), false)
 })
+test('GitHub 결과 모름(기한 초과, 결과 누락, 묶음 실패)은 백엔드가 retryable로 내려주어 확인 후 다시 시도할 수 있다', () => {
+  for (const code of ['RESULT_TIMEOUT', 'RESULT_MISSING', 'INTERNAL_ERROR']) assert.equal(canRetryFailure(failure(code, { retryable: true })), true)
+  assert.equal(canRetryFailure(failure('RESULT_TIMEOUT', { retryable: true, resolution: 'MANUAL_CHECK' })), false)
+})
+test('댓글 표식 확인 미완료는 댓글 재전송 대상이 아니다', () => {
+  assert.equal(canRetryComment({ status: 'UPDATED', publishTarget: 'GITHUB', publishFailure: failure('MARKER_CHECK_INCOMPLETE') }), false)
+})

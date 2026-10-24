@@ -56,6 +56,20 @@ def parse_tool_result(raw: Any) -> dict[str, Any]:
     raise ToolCallError(PUBLISH_FAILED, f"알 수 없는 도구 결과 형식: {type(raw)}")
 
 
+_CONNECT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+
+def _connect_failed(exc: BaseException) -> bool:
+    """요청을 보내기 전 연결 단계에서 실패했는지.
+
+    langchain-mcp-adapters(0.3.x)는 연결 실패를 ExceptionGroup으로 감싸 올리므로 안쪽까지 본다.
+    그룹 안의 예외가 모두 연결 실패일 때만 미전송으로 본다.
+    """
+    if isinstance(exc, BaseExceptionGroup):
+        return bool(exc.exceptions) and all(_connect_failed(e) for e in exc.exceptions)
+    return isinstance(exc, _CONNECT_ERRORS)
+
+
 def error_from_exception(exc: Exception, default_code: str = PUBLISH_FAILED, *, write_started: bool = False) -> ToolCallError:
     if isinstance(exc, ToolCallError):
         return exc
@@ -65,8 +79,8 @@ def error_from_exception(exc: Exception, default_code: str = PUBLISH_FAILED, *, 
         return ToolCallError(tag.group(1), text, ambiguous=tag.group(1) == "RESULT_UNKNOWN")
     # 메시지에 'connection'이 있다는 것만으로 미전송이라고 판단하지 않는다.
     # httpx의 연결/풀 확보 실패만 요청 전 실패임을 알 수 있다. 읽기/쓰기/EOF는 결과 불명이다.
-    if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)):
-        return ToolCallError(MCP_UNAVAILABLE, text)
+    if _connect_failed(exc):
+        return ToolCallError(MCP_UNAVAILABLE, text or type(exc).__name__)
     if write_started:
         return ToolCallError(default_code, text or type(exc).__name__, ambiguous=True)
     lowered = text.lower()

@@ -115,7 +115,7 @@ export function retryMockTicket(user: User, ticketId: string) {
   const { tickets, ticket } = owned(user, ticketId)
   if (ticket.status !== 'FAILED') throw fail(409, 'TICKET_STATUS_CONFLICT', '실패한 티켓만 다시 시도할 수 있습니다.')
   if (ticket.publishFailure?.resolution === 'MANUAL_CHECK') throw fail(409, 'TICKET_STATUS_CONFLICT', '확인 결과를 먼저 남겨 주세요.')
-  if (!ticket.publishFailure?.retryable) throw fail(409, 'PUBLISH_RETRY_NOT_ALLOWED', '오류 원인을 해결한 뒤 수정·재승인해 주세요.')
+  if (!ticket.publishFailure?.retryable) throw fail(409, 'PUBLISH_RETRY_NOT_ALLOWED', '오류 원인을 해결한 뒤 수정/재승인해 주세요.')
   return queueMockRetry(user, tickets, ticket)
 }
 

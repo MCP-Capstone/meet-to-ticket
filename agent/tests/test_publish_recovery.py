@@ -60,6 +60,24 @@ async def test_proven_before_send_errors_remain_retryable_failed(target, error):
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("target", ["GITHUB", "NOTION", "SLACK"])
+async def test_connect_error_wrapped_in_exception_group_is_retryable_failed(target):
+    # langchain-mcp-adapters 0.3.x는 business-mcp 연결 실패를 ExceptionGroup으로 감싸 올린다.
+    error = ExceptionGroup("unhandled errors in a TaskGroup",
+                           [ExceptionGroup("inner", [httpx.ConnectError("All connection attempts failed")])])
+    tool = ThrowTool(error)
+    result = await publish_one(source(target), McpPublisher(tool, post_message_tool=tool, create_page_tool=tool))
+    assert result.status == "FAILED" and result.error_code == "MCP_UNAVAILABLE" and result.retryable
+
+
+@pytest.mark.anyio
+async def test_exception_group_with_post_send_error_stays_unknown():
+    error = ExceptionGroup("mixed", [httpx.ConnectError("refused"), httpx.ReadError("connection closed")])
+    result = await publish_one(source(), McpPublisher(ThrowTool(error)))
+    assert result.status == "UNKNOWN"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("target", ["GITHUB", "NOTION", "SLACK"])
 async def test_missing_tool_never_sent_is_safe_to_retry(target):
     result = await publish_one(source(target), McpPublisher(None))
     assert result.status == "FAILED" and result.error_code == "MCP_UNAVAILABLE"
@@ -72,13 +90,21 @@ async def test_tagged_permission_rejection_is_not_unknown():
 
 
 class CommentPublisher:
-    def __init__(self, *, found=False, truncated=False, lose_response=False):
+    def __init__(self, *, found=False, truncated=False, lose_response=False, legacy_comments=()):
         self.found, self.truncated, self.lose_response = found, truncated, lose_response
+        self.legacy_comments = list(legacy_comments)  # #291 이전 갱신이 남긴 표식 없는 알림 댓글
         self.writes = []
+        self.markers = []
 
     async def find_marker(self, **args):
-        assert "meettoticket:update-comment meeting=1 work_key=WK-1" in args["marker"]
-        return {"found": self.found, "truncated": self.truncated, "url": "https://github.com/o/r/issues/7#issuecomment-1"}
+        self.markers.append(args["marker"])
+        if "meettoticket:update-comment" in args["marker"]:
+            assert "meettoticket:update-comment meeting=1 work_key=WK-1" in args["marker"]
+            found = self.found
+        else:
+            found = any(args["marker"] in body for body in self.legacy_comments)
+        return {"found": found, "where": "comment" if found else None, "truncated": self.truncated and not found,
+                "url": "https://github.com/o/r/issues/7#issuecomment-1" if found else None}
 
     async def add_comment(self, **args):
         self.writes.append(args)
@@ -104,12 +130,44 @@ async def test_comment_retry_lost_response_then_retry_does_not_duplicate():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("found,truncated,writes,error", [(False, False, 1, None), (True, False, 0, None),
-                                                          (False, True, 0, "COMMENT_FAILED")])
+                                                          (False, True, 0, "MARKER_CHECK_INCOMPLETE")])
 async def test_comment_retry_checks_marker_before_only_comment_write(found, truncated, writes, error):
     publisher = CommentPublisher(found=found, truncated=truncated)
     result = await publish_one(source(comment_only=True), publisher)
     assert result.status == "UPDATED" and result.error_code == error
     assert len(publisher.writes) == writes
+
+
+@pytest.mark.anyio
+async def test_comment_retry_incomplete_marker_check_is_not_retryable():
+    # 댓글이 1000개를 넘어 끝까지 확인하지 못하면 다시 보내도 같은 결과다. 무한 재시도 대신 GitHub 직접 확인으로 넘긴다.
+    publisher = CommentPublisher(truncated=True)
+    for _ in range(2):
+        result = await publish_one(source(comment_only=True), publisher)
+        assert result.status == "UPDATED" and result.error_code == "MARKER_CHECK_INCOMPLETE" and not result.retryable
+    assert publisher.writes == []
+
+
+@pytest.mark.anyio
+async def test_comment_retry_finds_legacy_note_without_marker():
+    # #291 이전 갱신의 알림 댓글은 표식이 없다. 같은 회의 알림 문구가 이미 있으면 다시 올리지 않는다.
+    from handling import change_note
+
+    legacy = change_note(meeting_date="", meeting_title="회의")
+    publisher = CommentPublisher(legacy_comments=[legacy])
+    result = await publish_one(source(comment_only=True), publisher)
+    assert result.status == "UPDATED" and result.error_code is None and result.comment_url
+    assert publisher.writes == [] and len(publisher.markers) == 2
+
+
+@pytest.mark.anyio
+async def test_comment_retry_legacy_note_of_other_meeting_still_sends():
+    from handling import change_note
+
+    publisher = CommentPublisher(legacy_comments=[change_note(meeting_date="", meeting_title="다른 회의")])
+    result = await publish_one(source(comment_only=True), publisher)
+    assert result.status == "UPDATED" and result.error_code is None
+    assert len(publisher.writes) == 1
 
 
 @pytest.mark.anyio

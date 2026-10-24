@@ -58,8 +58,8 @@
 
 공통:
 
-- 재시도 API(`PublishService.retry`)는 담당자와 `FAILED` 상태를 검사하고, `MANUAL_CHECK`이면 409로 막는다. `retryable=false`도 `409 PUBLISH_RETRY_NOT_ALLOWED`로 거절하고 화면 버튼을 비활성화한다. 원인·설정을 해결한 뒤 수정→재승인 경로를 이용한다 (#291).
-- 기존 Issue 갱신(`UPDATE`)에서 알림 댓글만 실패하면 `UPDATED + COMMENT_FAILED`를 유지한다. 담당자는 전용 `POST /api/tickets/{ticketId}/retry-comment`로 댓글만 다시 보낼 수 있다. 실제 갱신한 이슈 번호를 사용하며 LLM·재대조·본문 PATCH를 실행하지 않는다. `meettoticket:update-comment` 표식을 먼저 확인하고, 댓글 조회가 불완전하면 전송하지 않는다. 응답 유실에도 본문 성공은 유지한다 (#291).
+- 재시도 API(`PublishService.retry`)는 담당자와 `FAILED` 상태를 검사하고, `MANUAL_CHECK`이면 409로 막는다. 재시도할 수 없는 실패(`retryable=false`이고 결과 모름도 아님)는 `409 PUBLISH_RETRY_NOT_ALLOWED`로 거절하고 화면 버튼을 비활성화한다. 원인/설정을 해결한 뒤 수정→재승인 경로를 이용한다. GitHub 결과 모름(`RESULT_TIMEOUT`, `RESULT_MISSING`, 묶음 전체 실패)은 담당자 확인 후 다시 시도할 수 있고 Agent가 재대조한다 (#291).
+- 기존 Issue 갱신(`UPDATE`)에서 알림 댓글만 실패하면 `UPDATED + COMMENT_FAILED`를 유지한다. 담당자는 전용 `POST /api/tickets/{ticketId}/retry-comment`로 댓글만 다시 보낼 수 있다. 실제 갱신한 이슈 번호를 사용하며 LLM/재대조/본문 PATCH를 실행하지 않는다. `meettoticket:update-comment` 표식을 먼저 확인하고, 없으면 표식 없는 과거 알림 문구도 찾는다. 댓글 조회가 불완전하면 전송하지 않고 `UPDATED + MARKER_CHECK_INCOMPLETE`(재전송 불가, GitHub 직접 확인)로 남긴다. 응답 유실에도 본문 성공은 유지한다 (#291).
 - 실패 티켓은 재시도 대신 "수정하려고 검토 대기로 되돌리기"(`TicketService.revise`)도 할 수 있다. 되돌리면 지난 발행 결과는 비우고, 결과 불명이었다는 사실만 `previousOutcomeUnknown`으로 남겨 다음 발행에서 재대조를 강제한다. `MANUAL_CHECK` 실패는 확인 결과를 먼저 남겨야 하므로 되돌리기도 409다.
 - 결과 불명이 남아 있으면(`mustRecheckOnPublish`) 검토 대기에서도 발행 대상을 바꿀 수 없다 (`PUBLISH_TARGET_LOCKED`, 409). 같은 업무가 두 대상에 생기는 것을 막으려는 잠금이며, 본문 수정은 할 수 있다. 그 대상에서 결론(GitHub 재시도 재대조, Notion/Slack 확인 결과)을 내면 풀린다.
 - 확실한 성공이 오면 지난 결과 불명 표시는 풀린다. 실패가 오면 이어진다.
@@ -127,9 +127,9 @@
 ## 5. 알려진 한계와 확인 필요 항목
 
 - Slack 공지 일괄 발행은 backend(`PublishService.publishable`)와 Agent(`batch_publish.py` SLACK 분기)에 구현되어 있다.
-- #291: HTTP 연결·풀 확보 실패처럼 미전송이 확인되는 경우만 `MCP_UNAVAILABLE`로 분류한다. 쓰기 요청의 읽기·쓰기·연결 종료 오류는 MCP에서 `[RESULT_UNKNOWN]`으로 전달하고 Agent가 `UNKNOWN`으로 보존한다. 단계가 불명인 Agent 쓰기 예외도 보수적으로 `UNKNOWN`이다. Slack 게시 후 링크 조회 실패, Notion 페이지 생성 후 나머지 본문 추가 실패도 단순 재발행하지 않도록 확인 대상으로 남긴다.
+- #291: HTTP 연결/풀 확보 실패처럼 미전송이 확인되는 경우만 `MCP_UNAVAILABLE`로 분류한다(langchain-mcp-adapters가 ExceptionGroup으로 감싸도 안쪽을 본다). 쓰기 요청의 읽기/쓰기/연결 종료 오류는 MCP에서 `[RESULT_UNKNOWN]`으로 전달하고 Agent가 `UNKNOWN`으로 보존한다. 단계가 불명인 Agent 쓰기 예외도 보수적으로 `UNKNOWN`이다. Slack 게시 후 링크 조회 실패는 확인 대상으로 남긴다. Notion 페이지 생성 후 나머지 본문 추가가 4xx로 거절되면 만든 페이지를 보관 처리하고 원래 오류로 실패시키며, 시간 초과/5xx/보관 실패처럼 모호하면 확인 대상으로 남긴다.
 - 재시도 제한과 알림 댓글 복구 경로는 2.3을 참고한다 (#291).
-- 댓글 표식은 이번 수정 이후의 UPDATE 알림에 포함된다. 과거 표식 없는 댓글이나 Agent 재시작·장시간 실행과 겹치는 경쟁 조건의 정확히 한 번 처리는 보장하지 않는다. DB 예약·멱등성 복구 작업(#263)은 별도 범위다.
+- 댓글 표식은 이번 수정 이후의 UPDATE 알림에 포함된다. 과거 표식 없는 댓글은 같은 회의의 알림 문구로 찾는다. Agent 재시작/장시간 실행과 겹치는 경쟁 조건의 정확히 한 번 처리는 보장하지 않는다. DB 예약/멱등성 복구 작업(#263)은 별도 범위다.
 - 해소됨: Slack 메시지 링크는 Agent가 MCP 응답의 `permalink`를 읽어 `message_url`로 저장한다 (`batch_publish.py`). Notion/Slack 결과 불명 뒤 재발행 차단과 수동 확인 해소 흐름(`resolve-outcome`)은 2.3에 있다.
 - 결과 화면 링크 허용 도메인은 `frontend/src/batchPublish.ts`의 `safePublishUrl`이 대상별로 검사한다.
 

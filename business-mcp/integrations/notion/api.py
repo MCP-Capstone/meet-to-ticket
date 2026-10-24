@@ -185,10 +185,37 @@ def create_page(client: httpx.Client, root_page_url_or_id: str, title: str, mark
     groups = blocks.batches(page_blocks)
     page = _create_page(client, folder_id, title, groups[0] if groups else [])
     # 페이지 생성 API는 children 100개까지만 받는다. 남은 본문은 생성한 페이지에 이어 붙인다.
-    try:
-        for group in groups[1:]:
-            request(client, "PATCH", f"/blocks/{page['id']}/children", json={"children": group})
-    except (ToolError, httpx.HTTPError) as exc:
-        # 페이지는 이미 존재한다. 전체 재시도로 두 번째 페이지를 만들지 않게 확인 대상으로 남긴다.
-        raise tool_error("RESULT_UNKNOWN", f"Notion 페이지 생성 후 본문 추가를 완료하지 못했습니다. {page.get('url', '')} 확인 필요: {exc}") from exc
+    for group in groups[1:]:
+        _append_or_discard(client, page, group)
     return {"status": "created", "page_id": page.get("id"), "url": page.get("url"), "folder_page_id": folder_id}
+
+
+def _append_or_discard(client: httpx.Client, page: dict[str, Any], group: list[dict[str, Any]]) -> None:
+    """만든 페이지에 남은 본문을 붙인다. 붙이지 못하면 본문이 잘린 페이지를 발행됨으로 남기지 않는다.
+
+    Notion이 4xx로 확실히 거절했거나 요청 전에 연결이 끊겼으면 만든 페이지를 보관(archive) 처리하고 원래 오류로 실패시킨다.
+    페이지가 남지 않으므로 다시 시도해도 중복되지 않는다. 시간 초과, 5xx, 요청 중 연결 끊김처럼 반영됐는지 모르거나
+    보관 처리에 실패하면 페이지가 남아 있으므로 RESULT_UNKNOWN으로 확인 대상으로 남긴다.
+    """
+    url = page.get("url", "")
+    unknown = f"Notion 페이지 생성 후 본문 추가를 완료하지 못했습니다. {url} 확인 필요"
+    try:
+        resp = request_with_outcome(client, "PATCH", f"/blocks/{page['id']}/children", json={"children": group})
+    except ToolError as exc:
+        if not str(exc).startswith("[MCP_UNAVAILABLE]"):
+            raise tool_error("RESULT_UNKNOWN", f"{unknown}: {exc}") from exc
+        definite = exc
+    else:
+        if resp.is_success:
+            return
+        try:
+            raise_for_status(resp)
+        except ToolError as exc:
+            if resp.status_code >= 500:
+                raise tool_error("RESULT_UNKNOWN", f"{unknown}: {exc}") from exc
+            definite = exc
+    try:
+        request(client, "PATCH", f"/pages/{page['id']}", json={"archived": True})
+    except (ToolError, httpx.HTTPError) as exc:
+        raise tool_error("RESULT_UNKNOWN", f"Notion 페이지 생성 후 본문 추가가 거절됐고({definite}) 본문이 잘린 페이지를 보관 처리하지 못했습니다. {url} 확인 필요: {exc}") from exc
+    raise ToolError(f"{definite} (본문이 잘린 페이지 {url}는 보관 처리했습니다)") from definite

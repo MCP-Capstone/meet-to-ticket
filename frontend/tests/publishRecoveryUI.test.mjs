@@ -26,7 +26,7 @@ const ticket = { ticketId: 't', title: '작업', status: 'FAILED', processingTyp
 const render = (overrides = {}) => renderToStaticMarkup(createElement(TicketCard, { ticket: { ...ticket, ...overrides }, busy: false,
   onCommit: async () => {}, onRefresh: async () => true, onDirtyChange: () => {}, onOpenProjectSettings: () => {} }))
 
-test('재시도 불가 실패 카드에 비활성 버튼과 수정·재승인 안내를 표시한다', () => {
+test('재시도 불가 실패 카드에 비활성 버튼과 수정/재승인 안내를 표시한다', () => {
   const html = render()
   assert.match(html, /<button[^>]*disabled=""[^>]*>다시 시도<\/button>/)
   assert.match(html, /수정.*다시 승인/)
@@ -38,4 +38,17 @@ test('UPDATED 댓글 실패만 전용 댓글 재전송을 표시하고 전체 �
   assert.match(html, /알림 댓글 다시 보내기/)
   assert.doesNotMatch(html, />다시 시도<|>수정</)
   assert.doesNotMatch(render({ status: 'UPDATED', publishFailure: null }), /알림 댓글 다시 보내기/)
+})
+
+test('댓글 표식 확인이 끝나지 않은 UPDATED는 재전송 없이 GitHub 직접 확인을 안내한다', () => {
+  const html = render({ status: 'UPDATED', processingType: 'UPDATE', publishFailure: { ...failure, errorCode: 'MARKER_CHECK_INCOMPLETE', retryable: false } })
+  assert.match(html, /GitHub에서 직접 확인/)
+  assert.match(html, /직접 남겨 주세요/)
+  assert.doesNotMatch(html, /알림 댓글 다시 보내기|>다시 시도</)
+})
+test('결과 모름 실패는 확인 체크 전까지 다시 시도를 막고, 재시도 가능으로 내려오면 버튼을 연다', () => {
+  const unknown = { ...failure, errorCode: 'RESULT_TIMEOUT', retryable: true, outcomeUnknown: true, checkUrl: 'https://github.com/o/r/issues' }
+  const html = render({ publishFailure: unknown })
+  assert.match(html, /확인 후 다시 시도/)
+  assert.match(html, /<button[^>]*disabled=""[^>]*>다시 시도<\/button>/)
 })
