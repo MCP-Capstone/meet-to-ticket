@@ -25,8 +25,13 @@ export function TicketDraft({ ticket }: { ticket: MyTicket }) {
   const current = data?.version === version ? data.value : null
   const error = failure?.version === version ? failure.message : null
 
-  if (error) return <div className="ticket-draft" role="alert"><p className="error">{error}</p><button type="button" className="link" onClick={() => { setFailure(null); setAttempt((n) => n + 1) }}>다시 불러오기</button></div>
-  if (!current) return <p className="ticket-draft inline-status" role="status"><Spinner size="sm" label="초안 불러오는 중" /> 초안을 불러오고 있습니다.</p>
+  // GitHub 본문은 Agent가 만들어 준다. 기다리는 동안이나 Agent에 닿지 못해도 저장된 본문은 바로 보여 준다.
+  if (error || !current) return <section className="ticket-draft" aria-label="저장된 본문">
+    {error
+      ? <p className="muted" role="alert">발행 형식으로는 불러오지 못했어요. 저장된 본문을 보여 드려요. <button type="button" className="link" onClick={() => { setFailure(null); setAttempt((n) => n + 1) }}>다시 불러오기</button></p>
+      : <p className="muted inline-status" role="status"><Spinner size="sm" label="초안 불러오는 중" /> 발행 형식을 불러오고 있어요.</p>}
+    {ticket.description ? <p className="ticket-body">{ticket.description}</p> : <p className="muted">저장된 본문이 없습니다.</p>}
+  </section>
 
   const body = current.publication?.body.trim() ? visibleBody(current.publication.body) : null
   const quotes = current.backlog.evidenceQuotes
