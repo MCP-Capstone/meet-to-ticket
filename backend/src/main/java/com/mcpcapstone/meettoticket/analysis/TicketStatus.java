@@ -10,5 +10,6 @@ public enum TicketStatus {
     PUBLISHED, // 발행됨
     LINKED, // 연결됨
     UPDATED, // 갱신됨
+	SKIPPED, // 외부 발행 생략됨
     FAILED // 실패
 }

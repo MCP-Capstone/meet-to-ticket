@@ -214,6 +214,7 @@ export interface TaskItemContent {
 }
 
 export interface TaskItem {
+  publishTarget?: PublishTarget | null
   itemId: string
   workKey: string | null
   title: string
@@ -253,7 +254,7 @@ export interface TaskItemList {
 
 // 기획 4.2 티켓 상태
 export type TicketStatus =
-  | 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'PUBLISHING' | 'REJECTED' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'FAILED'
+  | 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'PUBLISHING' | 'REJECTED' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'SKIPPED' | 'FAILED'
 export type ProcessingType = 'CREATE' | 'LINK' | 'UPDATE'
 export type PublishTarget = 'GITHUB' | 'SLACK' | 'NOTION'
 
@@ -330,6 +331,8 @@ export interface TicketDedupe {
   changedByRecheck: boolean
 }
 export interface MyTicket {
+  githubIssueNumber?: number | null
+  githubIssueUrl?: string | null
   ticketId: string
   title: string
   status: TicketStatus
@@ -364,6 +367,7 @@ export interface TicketOutcomeResolution {
   url?: string | null
 }
 export interface TicketEditRequest {
+  title?: string
   description?: string
   assigneeMemberId?: number
   due?: TicketDue
@@ -390,7 +394,7 @@ export interface PublishBatchResult {
   executionMode: ExecutionMode
   createdAt: string
   finishedAt: string | null
-  summary: { total: number; published: number; linked: number; updated: number; failed: number; publishing: number }
+  summary: { total: number; published: number; linked: number; updated: number; skipped: number; failed: number; publishing: number }
   tickets: PublishResultEntry[]
 }
 

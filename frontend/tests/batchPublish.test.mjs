@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 const source = await readFile(new URL('../src/batchPublish.ts', import.meta.url), 'utf8')
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
@@ -31,17 +32,18 @@ test('결과 링크는 HTTPS GitHub만 허용한다', () => {
   for (const url of [null, 'javascript:alert(1)', 'https://github.com.evil.test/x', 'https://user@github.com/x', 'http://github.com/x']) assert.equal(safeIssueUrl(url), null)
 })
 test('결과 링크는 발행 대상 도구의 HTTPS 주소만 허용한다', () => {
+  assert.equal(safePublishUrl('https://app.notion.com/p/page-1', 'NOTION'), 'https://app.notion.com/p/page-1')
   assert.equal(safePublishUrl('https://www.notion.so/team/page-1', 'NOTION'), 'https://www.notion.so/team/page-1')
   assert.equal(safePublishUrl('https://team.notion.site/page-1', 'NOTION'), 'https://team.notion.site/page-1')
   assert.equal(safePublishUrl('https://team.slack.com/archives/C1/p1', 'SLACK'), 'https://team.slack.com/archives/C1/p1')
   // 다른 도구의 주소나 비슷한 도메인은 링크로 만들지 않는다
   for (const [url, target] of [['https://github.com/o/r/issues/1', 'NOTION'], ['https://www.notion.so/p', 'SLACK'], ['https://team.slack.com/x', 'GITHUB'],
-    ['https://notion.so.evil.test/p', 'NOTION'], ['https://evilslack.com/x', 'SLACK'], ['http://team.slack.com/x', 'SLACK']]) assert.equal(safePublishUrl(url, target), null)
+    ['https://notion.so.evil.test/p', 'NOTION'], ['https://app.notion.com.evil.test/p', 'NOTION'], ['https://app.notion.com:8443/p', 'NOTION'], ['https://evilslack.com/x', 'SLACK'], ['http://team.slack.com/x', 'SLACK']]) assert.equal(safePublishUrl(url, target), null)
 })
 
 // 실제 mock 모듈로 결과 패널 없이 목록만 조회하는 경로를 검증한다.
 const { rolldown } = await import('rolldown')
-const bundle = await rolldown({ input: new URL('../src/mocks/tickets.ts', import.meta.url).pathname, platform: 'node' })
+const bundle = await rolldown({ input: fileURLToPath(new URL('../src/mocks/tickets.ts', import.meta.url)), platform: 'node' })
 const generated = await bundle.generate({ format: 'esm' })
 await bundle.close()
 const mockTickets = await import(`data:text/javascript;base64,${Buffer.from(generated.output[0].code).toString('base64')}`)

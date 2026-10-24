@@ -129,7 +129,7 @@ class PublishBatchRequest(CamelModel):
 class PublishItemResult(CamelModel):
     ticket_id: str
     processing_type: ProcessingType = Field(description="발행 직전 재대조 뒤 실제 실행한 유형")
-    status: Literal["PUBLISHED", "LINKED", "UPDATED", "POSTED", "FAILED", "UNKNOWN"]
+    status: Literal["PUBLISHED", "LINKED", "UPDATED", "POSTED", "SKIPPED", "FAILED", "UNKNOWN"]
     github_issue_number: int | None = None
     github_issue_url: str | None = None
     comment_url: str | None = Field(None, description="LINK 댓글 또는 UPDATE 알림 댓글 URL")

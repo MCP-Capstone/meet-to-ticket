@@ -24,6 +24,7 @@ const statusLabel: Record<TicketStatus, string> = {
   PUBLISHED: '발행됨',
   LINKED: '연결됨',
   UPDATED: '갱신됨',
+  SKIPPED: '발행 생략',
   FAILED: '실패',
 }
 

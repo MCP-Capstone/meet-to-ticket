@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { rolldown } from 'rolldown'
-const bundle = await rolldown({ input: new URL('../src/mocks/tickets.ts', import.meta.url).pathname, platform: 'node' })
+const bundle = await rolldown({ input: fileURLToPath(new URL('../src/mocks/tickets.ts', import.meta.url)), platform: 'node' })
 const generated = await bundle.generate({ format: 'esm' })
 await bundle.close()
 const tickets = await import(`data:text/javascript;base64,${Buffer.from(generated.output[0].code).toString('base64')}`)
@@ -27,8 +28,9 @@ test('미리보기는 저장된 상세 백로그를 조회하며 승인·발행�
   // 조회 응답을 고쳐도 저장 데이터에 영향을 주지 않는다.
   preview.backlog.tasks[0] = '응답만 변경'
   assert.notEqual(tickets.previewMockTicket(user, item.ticketId).backlog.tasks[0], '응답만 변경')
-  tickets.editMockTicket(user, item.ticketId, { description: '담당자가 저장한 본문', due: { text: null, date: '2026-10-30', time: '14:00' } })
+  tickets.editMockTicket(user, item.ticketId, { title: '담당자가 수정한 제목', description: '담당자가 저장한 본문', due: { text: null, date: '2026-10-30', time: '14:00' } })
   const edited = tickets.previewMockTicket(user, item.ticketId)
+  assert.equal(tickets.listMockTickets(user).tickets.find((ticket) => ticket.ticketId === item.ticketId).title, '담당자가 수정한 제목')
   assert.match(edited.publication.body, /담당자가 저장한 본문/)
   assert.match(edited.publication.body, /2026-10-30/)
   assert.equal(edited.status, 'PENDING_REVIEW')

@@ -129,10 +129,16 @@ public class TaskItem {
     }
 
     // 담당자가 카드에서 고친 내용을 반영한다. 담당 멤버는 바꾸지 않으면 null을 넘긴다.
-    public void edit(ProjectMember newAssignee, String contentJson) {
+	public void edit(String newTitle, ProjectMember newAssignee, String contentJson) {
+		if (newTitle != null) this.title = newTitle;
         if (newAssignee != null) this.assignee = newAssignee;
         this.contentJson = contentJson;
     }
+
+	// 기존 도메인 테스트와 호출부가 제목 변경 없이도 같은 수정 경로를 쓸 수 있게 둔다.
+	public void edit(ProjectMember newAssignee, String contentJson) {
+		edit(null, newAssignee, contentJson);
+	}
 
     // 담당자가 카드에서 발행 대상과 처리 유형을 바꾼다 (REQ-015). 규칙 검사는 TicketService가 한다.
     public void changePublication(PublishTarget target, ProcessingType type) {
