@@ -208,9 +208,12 @@ async def run_publish_batch(
         llm = OpenAILLM(settings)
 
     # 재대조는 같은 저장소 묶음마다 sync_issues 한 번을 수행한다.
+    # GitHub 티켓만 대조한다. Slack·Notion은 기존 GitHub 이슈와 연결할 수 없고 항상 신규 발행이다 (#297)
     prepared = list(request.tickets)
     by_repo: dict[tuple[str, str], list[int]] = {}
     for index, ticket in enumerate(prepared):
+        if ticket.publish_target != "GITHUB":
+            continue
         by_repo.setdefault((ticket.project.github_owner, ticket.project.github_repo), []).append(index)
     indexed: dict[tuple[str, str], IssueTools] = {}
     if settings.rag_enabled:
