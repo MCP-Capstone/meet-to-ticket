@@ -117,13 +117,32 @@ async def _comment_already_sent(publisher: Any, source: PublishTicket, number: i
     return legacy if legacy and legacy.get("where") == "comment" else None
 
 
+def body_footer(source: PublishTicket, ticket: dict[str, Any]) -> str:
+    """신규 이슈 본문 끝줄(publisher.build_issue_body)의 앞부분. 회의 ID와 work_key가 함께 들어 있어 제목이 바뀌어도 남는다."""
+    return f"회의: {source.meeting_id} \u00b7 work_key: {ticket.get('work_key') or '-'} \u00b7 회의 후속조치 Agent가 작성"
+
+
 async def _existing_issue(publisher: Any, source: PublishTicket, ticket: dict[str, Any]) -> dict[str, Any] | None:
-    """같은 work_key로 이미 만들어진 열린 이슈를 찾는다. 제목까지 같아야 같은 티켓으로 본다."""
+    """같은 work_key로 이미 만들어진 열린 이슈를 찾는다.
+
+    제목이 현재 제목과 같으면 같은 티켓으로 본다. 제목이 수정됐다면 이슈 본문 끝줄의 회의 ID와 work_key가 모두
+    같은 이슈만 같은 티켓으로 본다(#320). 같은 work_key라도 회의 ID가 다르면 연결하지 않는다.
+    """
     work_key = ticket.get("work_key")
     out = await publisher.search_issues(owner=source.project.github_owner, repo=source.project.github_repo,
                                         query=f'"{work_key}"', state="open", limit=10)
-    for issue in out.get("issues") or []:
-        if issue.get("state") == "open" and (issue.get("title") or "").strip() == source.title.strip():
+    candidates = [i for i in out.get("issues") or [] if i.get("state") == "open"]
+    for issue in candidates:
+        if (issue.get("title") or "").strip() == source.title.strip():
+            return issue
+    footer = body_footer(source, ticket)
+    for issue in candidates:
+        if not issue.get("number"):
+            continue
+        found = await publisher.find_marker(owner=source.project.github_owner, repo=source.project.github_repo,
+                                            number=issue["number"], marker=footer)
+        # 댓글에 같은 문구가 있어도 본문에 있어야 이 티켓이 만든 이슈다
+        if found.get("found") and found.get("where") == "body":
             return issue
     return None
 

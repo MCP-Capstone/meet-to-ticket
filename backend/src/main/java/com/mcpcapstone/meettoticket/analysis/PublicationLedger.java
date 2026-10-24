@@ -36,6 +36,8 @@ public class PublicationLedger {
             Set.of("NOTION_VERIFY_REQUIRED", "SLACK_VERIFY_REQUIRED", "MARKER_CHECK_INCOMPLETE");
 
     public static final String CODE_NOT_ACCEPTED = "PUBLISH_NOT_ACCEPTED";
+    // 이전 시도의 결과 모름이 풀리지 않은 채 새 시도가 반영 없이 끝났다 (발행 생략 등). 원래 실패 코드가 있으면 그것을 남긴다.
+    public static final String CODE_PREVIOUS_UNCERTAIN = "PREVIOUS_OUTCOME_UNKNOWN";
 
     private final PublicationRepository publications;
 
@@ -73,9 +75,12 @@ public class PublicationLedger {
     }
 
     // Agent가 접수하지 않은 것이 확실한 묶음의 예약을 실패로 돌려 다시 시도할 수 있게 한다.
+    // 이전 시도가 결과 모름이었던 기록은 이번 시도가 안 나갔어도 이전 결과를 모르므로 UNCERTAIN으로 되돌린다 (V6).
     @Transactional
     public void releaseBatch(UUID batchId) {
-        publications.failBatch(batchId, IN_FLIGHT, CODE_NOT_ACCEPTED, OffsetDateTime.now());
+        OffsetDateTime now = OffsetDateTime.now();
+        publications.failBatch(batchId, IN_FLIGHT, CODE_NOT_ACCEPTED, now);
+        publications.uncertainBatch(batchId, IN_FLIGHT, CODE_NOT_ACCEPTED, now);
     }
 
     // 티켓에 발행 결과를 반영한 직후 부른다. item이 null이면 Agent 보고에 빠진 티켓이다.
@@ -84,15 +89,40 @@ public class PublicationLedger {
     public void settle(TaskItem ticket, UUID batchId, PublishGateway.Item item, boolean commentOnly) {
         Optional<Long> id = publications.findIdByBatch(ticket.getId(), batchId, IN_FLIGHT);
         if (id.isEmpty()) return;
+        String code = ticket.getPublishErrorCode();
+        PublicationStatus to = commentOnly ? commentOutcome(item, code) : outcome(ticket, ticket.getTicketStatus(), code);
+        settleRow(id.get(), ticket, item, commentOnly, to);
+    }
+
+    // 결과가 티켓에는 반영됐는데 발행 기록은 진행 중으로 남은 행을 티켓 결과로 마무리한다 (복구 워커).
+    // 티켓이 그 행의 묶음 결과를 가진 경우에만 부른다. Agent 보고 항목이 없으므로 댓글 재전송은 티켓 오류 코드로 판단한다.
+    @Transactional
+    public void settleFromTicket(Long publicationId, TaskItem ticket, boolean commentOnly) {
+        String code = ticket.getPublishErrorCode();
+        PublicationStatus to = commentOnly ? commentOutcomeOf(code) : outcome(ticket, ticket.getTicketStatus(), code);
+        settleRow(publicationId, ticket, null, commentOnly, to);
+    }
+
+    private void settleRow(Long id, TaskItem ticket, PublishGateway.Item item, boolean commentOnly, PublicationStatus to) {
         TicketStatus status = ticket.getTicketStatus();
         String code = ticket.getPublishErrorCode();
         OffsetDateTime now = OffsetDateTime.now();
-        if (status == TicketStatus.SKIPPED) {
-            // 발행 생략은 외부에 쓰지 않았다. 확정으로 남기지 않고 예약을 지운다.
-            publications.discard(id.get(), IN_FLIGHT);
+        // 이전 시도의 결과 모름이 풀리지 않았으면(재예약 전 UNCERTAIN) 이번 시도가 확정 실패, 접수 취소, 발행 생략으로 끝나도
+        // 이전에 외부에 반영됐는지는 여전히 모른다. FAILED로 두면 복구 워커와 재예약이 안전한 실패로 읽고 중복 발행할 수 있다.
+        boolean unknown = publications.outcomeUnknownOf(id).orElse(false);
+        if (status == TicketStatus.SKIPPED && !commentOnly) {
+            if (unknown) {
+                finish(id, PublicationStatus.UNCERTAIN, IN_FLIGHT, code != null ? code : CODE_PREVIOUS_UNCERTAIN, null, null, now);
+            } else {
+                // 발행 생략은 외부에 쓰지 않았다. 확정으로 남기지 않고 예약을 지운다.
+                publications.discard(id, IN_FLIGHT);
+            }
             return;
         }
-        PublicationStatus to = commentOnly ? commentOutcome(item, code) : outcome(ticket, status, code);
+        if (to == PublicationStatus.FAILED && unknown) {
+            finish(id, PublicationStatus.UNCERTAIN, IN_FLIGHT, code != null ? code : CODE_PREVIOUS_UNCERTAIN, null, null, now);
+            return;
+        }
         String externalId = null;
         String externalUrl = null;
         if (to == PublicationStatus.CONFIRMED) {
@@ -100,7 +130,15 @@ public class PublicationLedger {
                     : ticket.getGithubIssueNumber() == null ? null : String.valueOf(ticket.getGithubIssueNumber());
             externalUrl = commentOnly && item != null && item.commentUrl() != null ? item.commentUrl() : ticket.getGithubIssueUrl();
         }
-        finish(id.get(), to, IN_FLIGHT, code, externalId, externalUrl, now);
+        finish(id, to, IN_FLIGHT, code, externalId, externalUrl, now);
+    }
+
+    // 복구 워커가 멈춘 진행 중 행을 UNCERTAIN 또는 FAILED로 보낸다. 읽은 뒤 행이 바뀌었으면(끝났거나 다시 예약됐다) false다.
+    @Transactional
+    public boolean recover(Publication row, PublicationStatus to, String errorCode) {
+        for (PublicationStatus source : IN_FLIGHT)
+            if (!source.canMoveTo(to)) throw new IllegalStateException("허용되지 않는 발행 상태 전이: " + source + " -> " + to);
+        return publications.recover(row.getId(), row.getAttemptCount(), to, IN_FLIGHT, errorCode, OffsetDateTime.now()) == 1;
     }
 
     // 본문 발행(CREATE, LINK, UPDATE)의 티켓 결과를 발행 기록 상태로 옮긴다.
@@ -108,7 +146,8 @@ public class PublicationLedger {
         return switch (status) {
             // 본문은 반영됐고 알림 댓글만 실패한 UPDATED도 본문 작업은 확정이다. 댓글은 COMMENT 작업이 따로 맡는다.
             case PUBLISHED, LINKED, UPDATED -> PublicationStatus.CONFIRMED;
-            default -> ticket.isPublishOutcomeUnknown() || UNCERTAIN_CODES.contains(code)
+            // previousOutcomeUnknown(지난 시도의 결과 모름)도 반영한다. 이번 시도가 확정 실패여도 지난 시도의 결과는 아직 모른다.
+            default -> ticket.mustRecheckOnPublish() || (code != null && UNCERTAIN_CODES.contains(code))
                     ? PublicationStatus.UNCERTAIN : PublicationStatus.FAILED;
         };
     }
@@ -116,6 +155,10 @@ public class PublicationLedger {
     // 알림 댓글 재전송의 결과. 댓글이 이미 있는지 끝까지 확인하지 못했거나 결과를 모르면 결과 모름이다.
     private static PublicationStatus commentOutcome(PublishGateway.Item item, String code) {
         if (item == null || "UNKNOWN".equals(item.status())) return PublicationStatus.UNCERTAIN;
+        return commentOutcomeOf(code);
+    }
+
+    private static PublicationStatus commentOutcomeOf(String code) {
         if (code == null) return PublicationStatus.CONFIRMED;
         return "COMMENT_FAILED".equals(code) ? PublicationStatus.FAILED : PublicationStatus.UNCERTAIN;
     }
@@ -125,7 +168,11 @@ public class PublicationLedger {
     public void resolveUncertain(TaskItem ticket, boolean applied, String url) {
         for (Long id : publications.findIds(ticket.getId(), ticket.getPublishTarget(), PublicationStatus.UNCERTAIN)) {
             if (applied) finish(id, PublicationStatus.CONFIRMED, UNCERTAIN_ONLY, null, null, url, OffsetDateTime.now());
-            else finish(id, PublicationStatus.FAILED, UNCERTAIN_ONLY, TaskItem.VERIFIED_NOT_APPLIED, null, null, OffsetDateTime.now());
+            else {
+                finish(id, PublicationStatus.FAILED, UNCERTAIN_ONLY, TaskItem.VERIFIED_NOT_APPLIED, null, null, OffsetDateTime.now());
+                // 담당자가 반영되지 않은 것을 확인했으므로 결과 모름 표시를 푼다.
+                publications.clearOutcomeUnknown(id);
+            }
         }
     }
 
