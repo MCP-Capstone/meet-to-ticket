@@ -207,7 +207,8 @@ async def run_publish_batch(
         else:
             github = await github_tools(settings)
             publisher = make_mcp_publisher(github)
-    if settings.rag_enabled and llm is None:
+    needs_recheck = any(t.publish_target == "GITHUB" and not t.retry_comment_only for t in request.tickets)
+    if settings.rag_enabled and needs_recheck and llm is None:
         from llm import OpenAILLM
         llm = OpenAILLM(settings)
 
@@ -215,6 +216,8 @@ async def run_publish_batch(
     prepared = list(request.tickets)
     by_repo: dict[tuple[str, str], list[int]] = {}
     for index, ticket in enumerate(prepared):
+        if ticket.publish_target != "GITHUB" or ticket.retry_comment_only:
+            continue
         by_repo.setdefault((ticket.project.github_owner, ticket.project.github_repo), []).append(index)
     indexed: dict[tuple[str, str], IssueTools] = {}
     if settings.rag_enabled:

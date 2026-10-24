@@ -6,7 +6,7 @@ import { Spinner } from './Spinner'
 
 const kinds = { CREATE: '신규 이슈 본문', LINK: '기존 이슈에 추가할 댓글', UPDATE: '기존 이슈 본문에 추가할 내용' }
 // GitHub가 숨겨 표시하는 발행 중복 확인용 표식은 미리보기에서도 숨긴다.
-const visibleBody = (body: string) => body.split('\n').filter((line) => !/^<!-- meettoticket:(link|update) .* -->$/.test(line)).join('\n')
+const visibleBody = (body: string) => body.split('\n').filter((line) => !/^<!-- meettoticket:(link|update|update-comment) .* -->$/.test(line)).join('\n')
 
 export function TicketPublicationPreview({ ticket, dirty }: { ticket: MyTicket; dirty: boolean }) {
   const [open, setOpen] = useState(false)

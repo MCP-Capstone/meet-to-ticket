@@ -95,6 +95,21 @@ public class PublishService {
             if (ticket.getTicketStatus() != TicketStatus.FAILED) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
             // 재대조할 수 없는 대상의 결과 모름은 Agent가 어차피 막으므로, 확인 결과(resolve-outcome)를 먼저 남겨야 한다 (#280).
             if (PublishResolution.of(ticket) == PublishResolution.MANUAL_CHECK) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+			if (!ticket.canRetryPublish()) throw new BusinessException(ErrorCode.PUBLISH_RETRY_NOT_ALLOWED);
+			return prepare(userId, List.of(ticket));
+		}));
+	}
+
+	// UPDATED를 일반 재발행하지 않고 알림 댓글만 보낸다. 같은 행 잠금으로 중복 클릭도 차단한다.
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	public Started retryComment(UUID ticketId, Long userId) {
+		return dispatch(tx.execute(status -> {
+			TaskItem ticket = items.findForUpdate(ticketId).orElseThrow(() -> new BusinessException(ErrorCode.TICKET_NOT_FOUND));
+			var assignee = ticket.getAssignee();
+			if (assignee == null || assignee.getUser() == null || !assignee.getUser().getId().equals(userId))
+				throw new BusinessException(ErrorCode.TICKET_ASSIGNEE_REQUIRED);
+			if (ticket.getTicketStatus() != TicketStatus.UPDATED || !ticket.isCommentRetry())
+				throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
             return prepare(userId, List.of(ticket));
         }));
     }
@@ -193,12 +208,18 @@ public class PublishService {
             record(ticket, r);
         }
         // 보고에 없는 티켓은 발행됐는지 알 수 없다. 실패로 두되 결과 모름으로 구분한다.
-        for (TaskItem ticket : waiting.values())
+        // 기한 초과, 묶음 전체 실패처럼 일시적인 경우가 대부분이라 확인 후 다시 시도할 수 있게 둔다(재대조 또는 MANUAL_CHECK가 중복을 막는다).
+		for (TaskItem ticket : waiting.values()) {
+			if (ticket.isCommentRetry()) {
+				recordCommentFailure(ticket, "알림 댓글 결과를 받지 못했습니다. 다시 보내면 기존 댓글 표식을 먼저 확인합니다.");
+				continue;
+			}
             ticket.recordPublishResult(
                     TicketStatus.FAILED, null, null, null,
                     result.errorCode() != null ? result.errorCode() : "RESULT_MISSING",
                     result.errorMessage() != null ? result.errorMessage() : "발행 결과를 받지 못했습니다.",
-                    false, true);
+                    true, true);
+		}
 
         List<TaskItem> all = items.findByBatch(batchId);
         long failed = all.stream().filter(i -> i.getTicketStatus() == TicketStatus.FAILED).count();
@@ -213,6 +234,21 @@ public class PublishService {
     }
 
     private void record(TaskItem ticket, PublishGateway.Item r) {
+		if (ticket.isCommentRetry()) {
+			// 댓글 실패/응답 유실 때문에 이미 완료한 본문 갱신을 FAILED로 되돌리지 않는다.
+			if ("UPDATED".equals(r.status()) && r.errorCode() != null && !retryable(r)) {
+				// 댓글이 이미 있는지 끝까지 확인하지 못했다(MARKER_CHECK_INCOMPLETE 등). 다시 보내면 중복될 수 있어
+				// 댓글 재전송을 막고(isCommentRetry가 거짓이 된다) GitHub에서 직접 확인하게 한다.
+				ticket.recordPublishResult(TicketStatus.UPDATED, ProcessingType.UPDATE,
+						ticket.getGithubIssueNumber(), ticket.getGithubIssueUrl(), r.errorCode(), r.errorMessage(), false, false);
+			} else if (!"UPDATED".equals(r.status()) || r.errorCode() != null) {
+				recordCommentFailure(ticket, r.errorMessage() != null ? r.errorMessage() : "알림 댓글 결과를 확인하지 못했습니다.");
+			} else {
+				ticket.recordPublishResult(TicketStatus.UPDATED, ProcessingType.UPDATE,
+						ticket.getGithubIssueNumber(), ticket.getGithubIssueUrl(), null, null, false, false);
+			}
+			return;
+		}
         ProcessingType executed = parse(r.processingType());
         // 저장 칸 이름은 githubIssueUrl이지만 Notion 대상은 만든 페이지 URL을, Slack 대상은 게시한 메시지 URL을 담는다(스키마는 그대로).
         String url = r.notionPageUrl() != null ? r.notionPageUrl() : r.messageUrl() != null ? r.messageUrl() : r.githubIssueUrl();
@@ -230,6 +266,11 @@ public class PublishService {
                     r.errorCode() != null ? r.errorCode() : "PUBLISH_FAILED", r.errorMessage(), retryable(r), false);
         }
     }
+
+	private void recordCommentFailure(TaskItem ticket, String message) {
+		ticket.recordPublishResult(TicketStatus.UPDATED, ProcessingType.UPDATE,
+				ticket.getGithubIssueNumber(), ticket.getGithubIssueUrl(), "COMMENT_FAILED", message, true, false);
+	}
 
     private static boolean retryable(PublishGateway.Item r) {
         return Boolean.TRUE.equals(r.retryable());
@@ -279,7 +320,7 @@ public class PublishService {
                 i.getGithubIssueNumber(), i.getGithubIssueUrl(), code, waiting ? null : i.getErrorMessage(),
                 PublishFailureCategory.of(code),
                 // 결과 모름은 카드와 같은 기준(지난 결과 모름 포함)으로 내려준다. Notion/Slack 차단 실패도 결과 모름으로 보인다.
-                !waiting && i.isPublishRetryable(), !waiting && i.getTicketStatus() == TicketStatus.FAILED && i.mustRecheckOnPublish(), i.getPublishTarget());
+                !waiting && i.canRetryPublish(), !waiting && i.getTicketStatus() == TicketStatus.FAILED && i.mustRecheckOnPublish(), i.getPublishTarget());
     }
 
     // 담당자가 카드에서 고친 내용(contentJson)과 처리 유형을 그대로 보낸다. 발행 본문은 Agent가 이 내용으로 조립한다.
