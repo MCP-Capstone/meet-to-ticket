@@ -42,24 +42,32 @@ export function PublishBatchResult({ batchId, onDone, onClose }: Props) {
   }, [running])
   const elapsed = (now - batchStartedAt(result?.createdAt, openedAt)) / 1000
   const slowNotice = running ? slowPublishNotice(elapsed) : null
+  const title = error ? '발행 결과를 확인하지 못했어요' : running ? '발행하고 있어요' : result.status === 'SUCCEEDED' ? '발행을 마쳤어요' : result.status === 'PARTIAL_FAILED' ? '일부 티켓을 발행하지 못했어요' : '발행하지 못했어요'
+  // 0건인 항목은 빼고 한 줄로 요약한다.
+  const counts = result ? ([['발행', result.summary.published], ['연결', result.summary.linked], ['갱신', result.summary.updated], ['생략', result.summary.skipped], ['실패', result.summary.failed], ['처리 중', result.summary.publishing]] as const).filter(([, n]) => n > 0) : []
   return <section className="card publish-result" aria-label="발행 결과">
-    <div className="card-header"><h2>발행 결과</h2><button type="button" className="secondary" onClick={onClose}>결과 닫기</button></div>
-    <p className="muted">발행 접수 완료 · 묶음 ID: {batchId}</p>
-    {error ? <div role="alert"><p className="error">{error}</p><p>발행을 다시 요청하지 않고 결과만 조회합니다.</p><button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}>결과 조회 다시 시도</button></div>
-      : <p role="status">{running ? <><Spinner size="sm" label="발행 결과 확인 중" /> 발행 결과를 확인하고 있습니다. (경과 {formatElapsed(elapsed)})</> : result.status === 'SUCCEEDED' ? '모든 티켓 처리가 완료됐습니다.' : result.status === 'PARTIAL_FAILED' ? '일부 티켓 처리에 실패했습니다.' : '티켓 처리에 실패했습니다.'}</p>}
+    <div className="publish-result-header">
+      <div>
+        <h2 role="status">{running && !error && <Spinner size="sm" label="발행 결과 확인 중" />}{title}</h2>
+        {result && <p className="muted">{result.summary.total}건 중 {counts.map(([label, n]) => `${label} ${n}`).join(' · ') || '처리한 티켓 없음'}{running && ` · 경과 ${formatElapsed(elapsed)}`}</p>}
+      </div>
+      <button type="button" className="link" onClick={onClose}>닫기</button>
+    </div>
+    {error && <div role="alert"><p className="error">{error}</p><p className="muted">발행을 다시 요청하지 않고 결과만 조회합니다.</p><button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}>결과 다시 조회</button></div>}
     {!error && slowNotice && <p className="notice">{slowNotice}</p>}
-    {result && <>
-      {result.executionMode === 'MOCK' && <p className="notice">모의 실행 결과입니다. 실제 GitHub, Notion, Slack에는 발행하지 않습니다.</p>}
-      <dl className="ticket-counts"><div><dt>전체</dt><dd>{result.summary.total}</dd></div><div><dt>발행</dt><dd>{result.summary.published}</dd></div><div><dt>연결</dt><dd>{result.summary.linked}</dd></div><div><dt>갱신</dt><dd>{result.summary.updated}</dd></div><div><dt>생략</dt><dd>{result.summary.skipped}</dd></div><div><dt>실패</dt><dd>{result.summary.failed}</dd></div><div><dt>처리 중</dt><dd>{result.summary.publishing}</dd></div></dl>
-      <ul className="publish-entries">{result.tickets.map((ticket) => {
-        const target = ticket.publishTarget ?? 'GITHUB'
-        const url = safePublishUrl(ticket.githubIssueUrl, target)
-        return <li key={ticket.ticketId}><strong>{ticket.title}</strong><p>{labels[ticket.status as keyof typeof labels] ?? ticket.status}</p>
-          {url && <a href={url} target="_blank" rel="noreferrer">{linkLabel[target]}{target === 'GITHUB' && ticket.githubIssueNumber ? ` #${ticket.githubIssueNumber}` : ' 열기'}</a>}
-          {(ticket.status === 'FAILED' || ticket.errorCode || ticket.errorMessage) && <p className="error">{failureGuide(ticket)}</p>}
-          {ticket.outcomeUnknown && <p className="notice">{toolName[target]}에 반영됐을 수 있습니다. {target === 'GITHUB' ? '다시 시도하면 이미 만든 이슈가 있는지 먼저 확인합니다. 새 이슈는 확인할 수 있도록 몇 분 뒤에 다시 시도할 수 있습니다.' : '내 티켓에서 확인한 결과(이미 반영됨/반영되지 않음)를 남겨 주세요.'}</p>}
-        </li>
-      })}</ul>
-    </>}
+    {result?.executionMode === 'MOCK' && <p className="publish-result-mock">모의 실행 · 실제 GitHub, Notion, Slack에는 발행하지 않았어요</p>}
+    {result && <ul className="publish-entries">{result.tickets.map((ticket) => {
+      const target = ticket.publishTarget ?? 'GITHUB'
+      const url = safePublishUrl(ticket.githubIssueUrl, target)
+      return <li key={ticket.ticketId}>
+        <div className="publish-entry-main">
+          <strong>{ticket.title}</strong>
+          {url && <a href={url} target="_blank" rel="noreferrer">{linkLabel[target]}{target === 'GITHUB' && ticket.githubIssueNumber ? ` #${ticket.githubIssueNumber}` : ' 열기'} ↗</a>}
+        </div>
+        <span className={`badge publish-entry-status ${ticket.status.toLowerCase()}`}>{labels[ticket.status as keyof typeof labels] ?? ticket.status}</span>
+        {(ticket.status === 'FAILED' || ticket.errorCode || ticket.errorMessage) && <p className="error">{failureGuide(ticket)}</p>}
+        {ticket.outcomeUnknown && <p className="notice">{toolName[target]}에 반영됐을 수 있습니다. {target === 'GITHUB' ? '다시 시도하면 이미 만든 이슈가 있는지 먼저 확인합니다. 새 이슈는 확인할 수 있도록 몇 분 뒤에 다시 시도할 수 있습니다.' : '내 티켓에서 확인한 결과(이미 반영됨/반영되지 않음)를 남겨 주세요.'}</p>}
+      </li>
+    })}</ul>}
   </section>
 }

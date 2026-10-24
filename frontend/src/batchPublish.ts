@@ -15,7 +15,7 @@ export function publishSelection(tickets: MyTicket[]) {
   const pending = tickets.filter((ticket) => ticket.status === 'PENDING_REVIEW' || ticket.status === 'ASSIGNEE_REQUIRED').length
   const reason = pending ? `아직 검토하지 않은 티켓이 ${pending}건 있습니다.`
     : tickets.some((ticket) => ticket.status === 'PUBLISHING') ? '이미 발행 중인 티켓이 있습니다.'
-    : !confirmed.length ? '발행할 확인된 티켓이 없습니다.'
+    : !confirmed.length ? '발행할 승인된 티켓이 없습니다.'
     : null
   return { confirmed, pending, rejected: tickets.filter((ticket) => ticket.status === 'REJECTED').length, reason }
 }
