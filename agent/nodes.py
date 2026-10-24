@@ -830,6 +830,7 @@ class AgentNodes:
                     "dedupe": t.get("dedupe"),
                     "meeting": {"title": state.get("meeting_title", ""), "date": state.get("meeting_date")},
                     "references": t.get("references", []),
+                    "background": t.get("background", ""),
                     "publish_target": t.get("publish_target", TARGET_GITHUB),
                     "target_reason": t.get("target_reason"),
                     # 발행할 때 쓰는 것과 같은 본문. 발행 전 초안 저장과 미리보기에 쓴다

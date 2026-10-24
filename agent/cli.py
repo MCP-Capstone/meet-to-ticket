@@ -8,6 +8,10 @@ agent 폴더에서
     # 2) 회의 요약 파일로 실행 — 저장소·팀원은 옵션과 samples/members.json에서
     python cli.py samples/10min_1_summary.md --dry-run
 
+    # 3) 프로젝트 맥락(기존 이슈, Notion 문서)을 고정 JSON으로 넣어 실행 - 맥락 반영 평가용
+    python cli.py eval/dataset/context-v1/inputs/cx01_background_summary.md \
+        --context eval/dataset/context-v1/contexts/cx01_background_context.json --dry-run
+
 --dry-run이면 GitHub에 발행하지 않고 추출·검수 결과만 본다 (OPENAI_API_KEY만 있으면 됨).
 """
 
@@ -24,6 +28,7 @@ from config import load_env, load_settings, validate_settings  # noqa: E402
 
 load_env()
 from parsing import parse_summary  # noqa: E402
+from project_context import STATIC_CONTEXT_ROOT, static_context_tools  # noqa: E402
 from runner import run  # noqa: E402
 from schemas import Meeting, Project, ProjectMember, RunRequest  # noqa: E402
 
@@ -56,6 +61,7 @@ def main() -> None:
     p.add_argument("--repo", default="mcp-capstone", help="요약 파일로 실행할 때 저장소 이름")
     p.add_argument("--dry-run", action="store_true", help="GitHub에 발행하지 않음")
     p.add_argument("--out", default="", help="결과 JSON(백엔드 보고 형식)을 저장할 경로")
+    p.add_argument("--context", help="프로젝트 맥락 JSON (issues, notionDocs). 주면 MCP 대신 이 값을 맥락으로 쓴다")
     args = p.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -70,10 +76,15 @@ def main() -> None:
     if args.dry_run:
         settings.dry_run = True
     validate_settings(settings)  # --dry-run을 반영한 뒤 검증한다
+    context_tools = None
+    if args.context:
+        context_tools, has_docs = static_context_tools(Path(args.context))
+        if has_docs and not req.project.notion_page_url:
+            req.project.notion_page_url = STATIC_CONTEXT_ROOT
 
     print(f"작업: {req.task_id} · 회의: {req.meeting.meeting_id} · "
           f"저장소: {req.project.github_owner}/{req.project.github_repo}{' · DRY-RUN' if settings.dry_run else ''}")
-    result = asyncio.run(run(req, settings))
+    result = asyncio.run(run(req, settings, notion_tools=context_tools))
 
     print()
     print(f"상태: {result.status}  오류: {result.error_code or '-'} {result.error_message or ''}")
