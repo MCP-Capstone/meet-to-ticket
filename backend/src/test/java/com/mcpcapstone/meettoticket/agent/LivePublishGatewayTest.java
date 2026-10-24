@@ -27,7 +27,8 @@ class LivePublishGatewayTest {
                 .andRespond(withStatus(HttpStatus.NOT_FOUND));
         assertThat(gateway.status("batch")).isEmpty();
         assertThat(gateway.status("batch")).get().extracting(PublishGateway.Result::status).isEqualTo("SUCCEEDED");
-        assertThat(gateway.status("missing")).isEmpty();
+        // Agent가 모르는 묶음(재시작으로 기록을 잃음)은 "아직 결과 없음"과 구분한다 (#302)
+        assertThatThrownBy(() -> gateway.status("missing")).isInstanceOf(PublishBatchLostException.class);
         server.verify();
     }
 }
