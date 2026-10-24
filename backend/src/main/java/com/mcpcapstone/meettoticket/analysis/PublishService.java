@@ -142,8 +142,12 @@ public class PublishService {
     // Agent에 보내기 전에 멱등키를 예약한다 (#263). 예약하지 못하면(이미 확정, 진행 중, 확인 필요) 외부에 쓰지 않고 요청 전체를 거절한다.
     private void reserve(TaskItem ticket, PublishGateway.Ticket sent, UUID batchId) {
         PublishOperation operation = PublishOperation.of(sent.processingType(), sent.retryCommentOnly());
-        if (ledger.reserve(ticket.getId(), ticket.getPublishTarget(), operation, batchId) != PublicationLedger.Reservation.RESERVED)
-            throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+        switch (ledger.reserve(ticket.getId(), ticket.getPublishTarget(), operation, batchId)) {
+            case RESERVED -> { }
+            // 상태 충돌(409)과 달리 기다리면 풀리므로 화면이 목록을 막지 않고 안내만 하도록 429로 돌려준다 (#336).
+            case TOO_SOON -> throw new BusinessException(ErrorCode.PUBLISH_RETRY_TOO_SOON);
+            default -> throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+        }
     }
 
     private Started dispatch(Prepared prepared) {

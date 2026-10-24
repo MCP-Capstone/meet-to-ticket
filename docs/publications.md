@@ -72,6 +72,7 @@ v1:{ticketId}:{target}:{operation}        예) v1:7c9e...:GITHUB:CREATE
 | 기존 행 | 결과 | PublishService 동작 |
 |---|---|---|
 | 없음 / FAILED / UNCERTAIN(GitHub) | RESERVED | 계속 진행 |
+| UNCERTAIN(GitHub CREATE), 결과 모름이 된 뒤 `PUBLISH_GITHUB_RECHECK_DELAY`(기본 3분) 전 | TOO_SOON | 429 `PUBLISH_RETRY_TOO_SOON`, 요청 전체 롤백 (아래 "GitHub 신규 이슈 재시도 대기") |
 | RESERVED, SENT | IN_PROGRESS | 409 `TICKET_STATUS_CONFLICT`, 요청 전체 롤백 |
 | CONFIRMED | ALREADY_CONFIRMED | 409 `TICKET_STATUS_CONFLICT` |
 | UNCERTAIN(Notion, Slack) | VERIFICATION_REQUIRED | 409 `TICKET_STATUS_CONFLICT` (`resolve-outcome`을 먼저 남겨야 한다) |
@@ -84,6 +85,15 @@ v1:{ticketId}:{target}:{operation}        예) v1:7c9e...:GITHUB:CREATE
 
 - Notion/Slack: 재대조할 수단이 없어 `resolve-outcome` 전에는 UNCERTAIN -> RESERVED가 막힌다. 반영됨이면 CONFIRMED(링크 저장), 반영되지 않음이면 FAILED로 끝나 다시 시도할 수 있다.
 - GitHub: 담당자가 확인했다는 체크 뒤 다시 시도하면 Agent가 이슈, 댓글, 섹션을 재대조한다(`previousOutcomeUnknown`). `resolve-outcome`은 GitHub에는 열려 있지 않다(409). 그래서 GitHub의 UNCERTAIN -> RESERVED는 허용하되 Agent 재대조가 확인 역할을 한다. `PUBLISH_RETRY_NOT_ALLOWED`(`retryable=false`) 같은 기존 티켓 단위 차단은 그대로 먼저 적용된다.
+
+### GitHub 신규 이슈 재시도 대기 (#336)
+
+GitHub CREATE의 재대조는 이전 시도가 만든 이슈를 GitHub 검색 API로 찾는다. 검색 색인은 새 이슈를 몇 초에서 1분 넘게 늦게 반영해, 결과 모름 직후 다시 보내면 이미 만든 이슈를 못 찾고 하나 더 만든다(#303 E2E에서 재현, `docs/publish-e2e.md`). 그래서 두 겹으로 막는다.
+
+- Backend: CREATE 기록이 UNCERTAIN이면 결과 모름이 된 시각(UNCERTAIN 행의 `updated_at`) 뒤 `PUBLISH_GITHUB_RECHECK_DELAY`(기본 3분)가 지나야 다시 예약한다. 접수 시각(`sent_at`)으로 세지 않는 이유는 재대조나 앞 티켓 때문에 쓰기가 접수 뒤 몇 분 늦게 나갈 수 있어서다 (#340). 그 전에는 429 `PUBLISH_RETRY_TOO_SOON`이다. 기다리면 풀리는 거절이라 화면이 상태 충돌(409)처럼 목록을 막지 않고 메시지만 보여 준다. 재시도와 수정 후 재발행 모두 예약을 거치므로 같이 적용된다.
+- Agent: 검색에서 못 찾으면 최근 열린 이슈 30개를 목록 API로 보고, 제목이 같은 이슈와 최근 10개의 본문 끝줄(회의 ID, work_key)을 확인한다. 목록에는 다른 회의의 같은 제목 이슈가 섞일 수 있어 제목만으로는 판정하지 않는다 (#340). 목록 API도 몇 초 늦을 수 있어 Backend 대기와 함께 쓴다.
+
+LINK, UPDATE는 이슈 번호로 댓글과 본문을 직접 조회해 색인 지연이 없으므로 기다리지 않는다. 확정 실패(FAILED)도 이전 이슈가 없으므로 기다리지 않는다.
 
 ## 발행 흐름과의 연결
 
@@ -181,6 +191,7 @@ UNCERTAIN으로 보낼 때 티켓도 같이 맞춘다. 맞추지 않으면 다�
 | `PUBLISH_RECOVERY_INTERVAL_MS` | `300000` | 실행 주기(5분) |
 | `PUBLISH_RECOVERY_STALE_AFTER` | `10m` | 이 시간 이상 갱신이 없는 행만 후보 |
 | `PUBLISH_RECOVERY_BATCH_SIZE` | `100` | 한 주기에 정리하는 최대 건수 |
+| `PUBLISH_GITHUB_RECHECK_DELAY` | `3m` | GitHub 신규 이슈가 결과 모름일 때 다시 보내기 전 기다리는 시간 (#336). 복구 워커 설정은 아니지만 발행 기록 예약에 쓴다 |
 
 `app.analysis.scheduling-enabled=false`면 다른 스케줄러와 함께 꺼진다.
 

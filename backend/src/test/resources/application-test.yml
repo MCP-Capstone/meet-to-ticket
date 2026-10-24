@@ -19,3 +19,6 @@ app:
     queue-listener-enabled: false
   demo:
     enabled: true
+  publish:
+    # 결과 모름 재시도 테스트가 바로 다시 보낼 수 있게 끈다. 기다리는 동작은 PublishRetryDelayTest가 따로 확인한다.
+    github-recheck-delay: 0s

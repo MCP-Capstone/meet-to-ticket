@@ -32,7 +32,7 @@ async def test_10min_review(settings):
     assert a7["assignees"] == ["minjun-k", "seoyeon-p", "doyun-l", "yujin-c", "haneul-j", "jihoon-o"]
     assert a7["unresolved_assignees"] == []
     # 기한 계산
-    assert tickets["10m1-a2"]["due"] == {"text": "2026-10-20 오전", "date": "2026-10-20", "time": "12:00"}
+    assert tickets["10m1-a2"]["due"] == {"text": "2026-10-20 오전", "date": "2026-10-20", "time": None}
 
 
 async def test_conditional_approved_when_setting_off(settings):

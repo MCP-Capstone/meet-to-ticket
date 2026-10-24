@@ -1,6 +1,7 @@
 import pytest
 
 from batch_publish import _ticket, publish_batch
+from publisher import ToolCallError
 from runner import run_publish_batch
 from schemas import Project, PublishBatchRequest, PublishTicket
 
@@ -451,6 +452,88 @@ async def test_unknown_create_legacy_issue_without_footer_still_matches_by_title
 
     assert out.items[0].github_issue_number == 55 and writes(publisher) == []
     assert not [c for c in publisher.calls if c[0] == "marker"]
+
+
+class ListingPublisher(BodyPublisher):
+    """검색 색인에 아직 없는 이슈를 최근 이슈 목록으로만 돌려준다 (#336)."""
+
+    def __init__(self, bodies, recent, list_error=None, **kw):
+        super().__init__(bodies, **kw)
+        self.recent = recent
+        self.list_error = list_error
+
+    async def list_issues(self, **args):
+        self.calls.append(("list", args))
+        if self.list_error:
+            raise self.list_error
+        return {"issues": self.recent}
+
+
+@pytest.mark.anyio
+async def test_unknown_create_finds_issue_missing_from_search_in_recent_list():
+    t = unknown_ticket("a", "CREATE")
+    publisher = ListingPublisher({55: "본문\n" + footer_of(t)},
+                                 recent=[{"number": 9, "title": "다른 작업", "state": "open", "url": "u9"},
+                                         {"number": 55, "title": "CSV 개선", "state": "open", "url": "https://github.com/o/r/issues/55"}])
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert out.items[0].status == "PUBLISHED" and out.items[0].github_issue_number == 55
+    assert writes(publisher) == []
+    assert [c[1]["state"] for c in publisher.calls if c[0] == "list"] == ["open"]
+    # 제목이 같은 이슈의 끝줄을 먼저 확인한다
+    assert [c[1]["number"] for c in publisher.calls if c[0] == "marker"] == [55]
+
+
+@pytest.mark.anyio
+async def test_unknown_create_does_not_take_same_title_issue_of_other_meeting_from_recent_list():
+    t = unknown_ticket("a", "CREATE")
+    publisher = ListingPublisher({40: "본문\n" + footer_of(t, meeting_id="other-meeting")},
+                                 recent=[{"number": 40, "title": "CSV 개선", "state": "open", "url": "u40"}])
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert writes(publisher) == ["create"] and out.items[0].github_issue_number == 101
+
+
+@pytest.mark.anyio
+async def test_unknown_create_checks_footer_of_same_title_issue_beyond_newest_recent_issues():
+    t = unknown_ticket("a", "CREATE")
+    recent = [{"number": n, "title": f"작업 {n}", "state": "open", "url": "u"} for n in range(100, 80, -1)]
+    recent.append({"number": 60, "title": "CSV 개선", "state": "open", "url": "u60"})
+    publisher = ListingPublisher({60: "본문\n" + footer_of(t)}, recent=recent)
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert out.items[0].github_issue_number == 60 and writes(publisher) == []
+
+
+@pytest.mark.anyio
+async def test_unknown_create_finds_retitled_issue_missing_from_search_by_footer_in_recent_list():
+    t = unknown_ticket("a", "CREATE")
+    publisher = ListingPublisher({55: "본문\n" + footer_of(t)},
+                                 recent=[{"number": 56, "title": "다른 작업", "state": "open", "url": "u"},
+                                         {"number": 55, "title": "수정 전 제목", "state": "open", "url": "u55"}])
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert out.items[0].github_issue_number == 55 and writes(publisher) == []
+
+
+@pytest.mark.anyio
+async def test_unknown_create_checks_footer_of_only_newest_recent_issues():
+    t = unknown_ticket("a", "CREATE")
+    recent = [{"number": n, "title": f"작업 {n}", "state": "open", "url": "u"} for n in range(100, 70, -1)]
+    publisher = ListingPublisher({}, recent=recent)
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert writes(publisher) == ["create"] and out.items[0].github_issue_number == 101
+    assert [c[1]["number"] for c in publisher.calls if c[0] == "marker"] == list(range(100, 90, -1))
+
+
+@pytest.mark.anyio
+async def test_unknown_create_falls_back_to_search_only_when_listing_fails():
+    t = unknown_ticket("a", "CREATE")
+    publisher = ListingPublisher({}, recent=[], list_error=ToolCallError("GITHUB_RATE_LIMIT", "한도 초과"))
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert out.items[0].status == "PUBLISHED" and writes(publisher) == ["create"]
 
 
 @pytest.mark.anyio
