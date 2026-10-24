@@ -26,7 +26,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -76,10 +76,30 @@ CASES = [
 ]
 
 
+@dataclass
+class DupCase:
+    """한 번 발행한 티켓을 결과 모름(previous_outcome_unknown)으로 바로 다시 보내고 외부에 몇 건 생겼는지 센다."""
+    case_id: str
+    target: str
+    kind: str = "CREATE"
+    retitle: bool = False   # 다시 보내기 전에 제목을 고친다 (#320)
+    note: str = ""
+
+
+DUP_CASES = [
+    DupCase("DUP-GH-CREATE", "GITHUB", note="결과 모름 직후 재시도. 기존 이슈를 찾아 새로 만들지 않는다"),
+    DupCase("DUP-GH-RETITLE", "GITHUB", retitle=True, note="제목을 고친 뒤 재시도 (#320). 본문 끝줄로 기존 이슈를 찾는다"),
+    DupCase("DUP-GH-LINK", "GITHUB", "LINK", note="같은 연결 댓글을 다시 달지 않는다"),
+    DupCase("DUP-GH-UPDATE", "GITHUB", "UPDATE", note="같은 변경 섹션과 알림 댓글을 다시 붙이지 않는다"),
+    DupCase("DUP-NOTION", "NOTION", note="확인 전에는 다시 만들지 않는다 (NOTION_VERIFY_REQUIRED)"),
+    DupCase("DUP-SLACK", "SLACK", note="확인 전에는 다시 보내지 않는다 (SLACK_VERIFY_REQUIRED)"),
+]
+
+
 # ---------------------------------------------------------------- 티켓
 
 
-def make_ticket(case: Case, run_id: str, project: Project, label: str | None, target_issue: int | None) -> PublishTicket:
+def make_ticket(case: Case | DupCase, run_id: str, project: Project, label: str | None, target_issue: int | None) -> PublishTicket:
     title = f"[E2E #303 {run_id}] {case.case_id} 발행 검증"
     content: dict[str, Any] = {
         "work_key": f"e2e-{run_id}-{case.case_id.lower()}",
@@ -163,6 +183,29 @@ class Services:
     def comments(self, number: int) -> list[str]:
         resp = self.github.get(f"/repos/{self.owner}/{self.repo}/issues/{number}/comments", params={"per_page": 100})
         return [c.get("body") or "" for c in resp.raise_for_status().json()]
+
+    def issues_with(self, work_key: str, since: str) -> list[int]:
+        """본문 끝줄에 이 work_key가 있는 이슈 번호. 검색 API는 색인이 늦어 목록 API로 센다."""
+        resp = self.github.get(f"/repos/{self.owner}/{self.repo}/issues",
+                               params={"state": "all", "since": since, "per_page": 100})
+        return [i["number"] for i in resp.raise_for_status().json()
+                if "pull_request" not in i and f"work_key: {work_key} " in (i.get("body") or "")]
+
+    def search_lag(self, work_key: str, limit: float = 120) -> float | None:
+        """검색 API(재시도 때 기존 이슈를 찾는 경로)가 이 work_key 이슈를 찾기까지 걸린 초. 못 찾으면 None."""
+        started = time.monotonic()
+        while time.monotonic() - started < limit:
+            resp = self.github.get("/search/issues", params={"q": f'"{work_key}" repo:{self.owner}/{self.repo} is:issue'})
+            if resp.status_code == 200 and resp.json().get("total_count"):
+                return time.monotonic() - started
+            time.sleep(2)
+        return None
+
+    def slack_count(self, channel: str, text: str, oldest: float) -> int | None:
+        data = self.slack.get("/conversations.history", params={"channel": channel, "oldest": f"{oldest:.6f}", "limit": 200}).json()
+        if not data.get("ok"):
+            return None
+        return sum(html.unescape(m.get("text", "")).strip() == text for m in data.get("messages") or [])
 
     def close_issue(self, number: int) -> None:
         self.github.patch(f"/repos/{self.owner}/{self.repo}/issues/{number}", json={"state": "closed"})
@@ -296,10 +339,61 @@ async def publish(ticket: PublishTicket, settings: Settings) -> tuple[PublishIte
     return result.items[0], time.monotonic() - started
 
 
+async def run_duplicate(case: DupCase, ticket: PublishTicket, settings: Settings, services: Services,
+                        since: str, started: float, delay: float = 0) -> dict[str, Any]:
+    """처음 발행 뒤 결과 모름으로 delay초 뒤 다시 보내고, 외부에 생긴 항목 수를 센다. 1건이어야 한다."""
+    first, _ = await publish(ticket, settings)
+    await asyncio.sleep(delay)
+    retry_ticket = ticket.model_copy(update={"previous_outcome_unknown": True})
+    if case.retitle:
+        retry_ticket = retry_ticket.model_copy(update={"title": ticket.title + " (제목 수정)"})
+    retry, seconds = await publish(retry_ticket, settings)
+    preview = publication_preview(ticket) if case.target == "GITHUB" else {}
+    issues: list[int] = []
+    lag = None
+    if case.target == "GITHUB" and case.kind == "CREATE":
+        # 목록 API도 만든 직후에는 빠질 수 있어, 두 발행이 돌려준 번호와 목록을 합쳐 센다
+        lag = services.search_lag(ticket.content_json["work_key"])
+        known = {n for n in (first.github_issue_number, retry.github_issue_number) if n}
+        issues = sorted(known | set(services.issues_with(ticket.content_json["work_key"], since)))
+        count = len(issues)
+        same = retry.github_issue_number == first.github_issue_number
+        expect = f"재시도가 같은 이슈 #{first.github_issue_number}를 돌려줌"
+    elif case.target == "GITHUB" and case.kind == "LINK":
+        count = [c.strip() for c in services.comments(ticket.target_issue_number)].count(preview["body"].strip())
+        same, expect = retry.status == "LINKED", "재시도가 연결됨으로 끝남"
+    elif case.target == "GITHUB":
+        count = (services.issue(ticket.target_issue_number).get("body") or "").count(preview["body"].strip())
+        notes = [c.strip() for c in services.comments(ticket.target_issue_number)].count((preview["secondaryBody"] or "").strip())
+        count = max(count, notes)
+        same, expect = retry.status == "UPDATED", "재시도가 갱신됨으로 끝남"
+    elif case.target == "SLACK":
+        text = (ticket.content_json.get("description") or "").strip()
+        count = services.slack_count(ticket.project.slack_channel_id, text, started)
+        same, expect = retry.error_code == "SLACK_VERIFY_REQUIRED", "재시도가 SLACK_VERIFY_REQUIRED로 막힘"
+    else:
+        # Notion은 하위 페이지 목록을 바로 셀 수단이 없어, 재시도가 페이지를 돌려주지 않았는지로 센다
+        count = 1 + bool(retry.notion_page_id or retry.notion_page_url)
+        same, expect = retry.error_code == "NOTION_VERIFY_REQUIRED", "재시도가 NOTION_VERIFY_REQUIRED로 막힘"
+    checks: list[dict[str, Any]] = []
+    check(checks, "처음 발행 성공", first.status in SUCCESS, f"{first.status} {first.error_code or ''}")
+    check(checks, expect, same, f"{retry.status} {retry.error_code or ''} #{retry.github_issue_number or '-'}")
+    check(checks, "외부에 1건", count == 1, f"{count}건")
+    return {"case": case.case_id, "condition": "중복", "target": case.target, "kind": case.kind, "channel": ticket.project.slack_channel_id,
+            "seconds": seconds, "checks": checks, "count": count, "issues": issues,
+            "searchLagSeconds": None if lag is None else round(lag, 1),
+            "item": first.model_dump(by_alias=True, mode="json"), "retry": retry.model_dump(by_alias=True, mode="json")}
+
+
 def cleanup(rows: list[dict[str, Any]], services: Services) -> list[str]:
     done = []
     for row in rows:
         item = row["item"]
+        if len(row.get("issues") or []) > 1:
+            for number in row["issues"]:
+                if number != item.get("githubIssueNumber"):
+                    services.close_issue(number)
+                    done.append(f"GitHub #{number} 닫음 (중복)")
         if row["target"] == "GITHUB" and row["kind"] == "CREATE" and item.get("githubIssueNumber"):
             services.close_issue(item["githubIssueNumber"])
             done.append(f"GitHub #{item['githubIssueNumber']} 닫음")
@@ -314,7 +408,8 @@ def cleanup(rows: list[dict[str, Any]], services: Services) -> list[str]:
 
 def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     normal = [r for r in rows if r["condition"] == "정상"]
-    failures = [r for r in rows if r["condition"] != "정상"]
+    failures = [r for r in rows if r["condition"] in {"권한 없음", "설정 누락"}]
+    duplicates = [r for r in rows if r["condition"] == "중복"]
     checks = [c for r in normal for c in r["checks"] if not c["name"].startswith("성공으로")]
     seconds = sorted(r["seconds"] for r in normal)
     return {
@@ -322,6 +417,8 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "필드 정확도": f"{sum(c['ok'] for c in checks)}/{len(checks)}",
         "실패 조건 기대 일치": f"{sum(all(c['ok'] for c in r['checks']) for r in failures)}/{len(failures)}",
         "처리 시간 (정상, 초)": {"중앙값": round(seconds[len(seconds) // 2], 2), "최대": round(seconds[-1], 2)} if seconds else {},
+        "중복 발행 수": f"{sum(max((r['count'] or 0) - 1, 0) for r in duplicates)} (재시도 {len(duplicates)}건)",
+        "중복 방지 기대 일치": f"{sum(all(c['ok'] for c in r['checks']) for r in duplicates)}/{len(duplicates)}",
     }
 
 
@@ -331,7 +428,9 @@ def markdown_report(run_id: str, summary: dict[str, Any], rows: list[dict[str, A
     lines += ["", "| 시나리오 | 조건 | 결과 | 오류 코드 | 시간(초) | 확인 |", "|---|---|---|---|---|---|"]
     for r in rows:
         failed = [c["name"] for c in r["checks"] if not c["ok"]]
-        lines.append(f"| {r['case']} | {r['condition']} | {r['item']['status']} | {r['item'].get('errorCode') or '-'} | "
+        last = r.get("retry") or r["item"]
+        status = f"{r['item']['status']} -> {last['status']} (외부 {r['count']}건)" if "retry" in r else last["status"]
+        lines.append(f"| {r['case']} | {r['condition']} | {status} | {last.get('errorCode') or '-'} | "
                      f"{r['seconds']:.2f} | {'통과' if not failed else '실패: ' + ', '.join(failed)} |")
     if cleaned:
         lines += ["", "정리: " + ", ".join(cleaned)]
@@ -345,14 +444,18 @@ async def main() -> None:
     parser.add_argument("--slack-channel", required=True)
     parser.add_argument("--only", help="시나리오 ID 쉼표 구분 (기본 전체)")
     parser.add_argument("--yes", action="store_true", help="실제로 발행한다")
+    parser.add_argument("--retry-delay", type=float, default=0, help="중복 시나리오에서 다시 보내기 전 기다릴 초 (기본 0: 바로)")
     parser.add_argument("--keep", action="store_true", help="만든 이슈, 페이지, 메시지를 정리하지 않는다")
     args = parser.parse_args()
 
     owner, repo = args.repo.split("/", 1)
     cases = [c for c in CASES if not args.only or c.case_id in args.only.split(",")]
+    dup_cases = [c for c in DUP_CASES if not args.only or c.case_id in args.only.split(",")]
     print("시나리오:")
     for c in cases:
         print(f"  {c.case_id:18} {c.condition:6} {c.target:7} {c.kind:7} 기대={c.expect}  {c.note}")
+    for c in dup_cases:
+        print(f"  {c.case_id:18} 중복   {c.target:7} {c.kind:7} 기대=외부 1건  {c.note}")
     if not args.yes:
         print("\n계획만 출력했습니다. 실제로 발행하려면 --yes를 붙이세요.")
         return
@@ -367,6 +470,8 @@ async def main() -> None:
     settings = Settings(mcp_server_url=f"http://127.0.0.1:{port}/mcp", rag_enabled=False, dry_run=False)
     rows: list[dict[str, Any]] = []
     base_issue: int | None = None
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    started = time.time()
     try:
         for case in cases:
             target_issue = base_issue if case.kind in {"LINK", "UPDATE"} else None
@@ -383,6 +488,26 @@ async def main() -> None:
                          "item": item.model_dump(by_alias=True, mode="json")})
             mark = "통과" if all(c["ok"] for c in checks) else "실패"
             print(f"  {case.case_id:18} {item.status:9} {item.error_code or '-':24} {seconds:6.2f}초  {mark}")
+        dup_issue: int | None = None
+        for dup in dup_cases:
+            target_issue = dup_issue if dup.kind in {"LINK", "UPDATE"} else None
+            if dup.kind in {"LINK", "UPDATE"} and target_issue is None:
+                print(f"  {dup.case_id}: DUP-GH-CREATE 이슈가 없어 건너뜀")
+                continue
+            ticket = make_ticket(dup, run_id, base, label, target_issue)
+            row = await run_duplicate(dup, ticket, settings, services, since, started, args.retry_delay)
+            if dup.case_id == "DUP-GH-CREATE" and row["item"].get("status") == "PUBLISHED":
+                dup_issue = row["item"]["githubIssueNumber"]
+            rows.append(row)
+            mark = "통과" if all(c["ok"] for c in row["checks"]) else "실패"
+            lag = f"  검색 색인 {row['searchLagSeconds']}초" if row["searchLagSeconds"] is not None else ""
+            print(f"  {dup.case_id:18} 재시도 {row['retry']['status']:9} {row['retry'].get('errorCode') or '-':24} "
+                  f"외부 {row['count']}건  {mark}{lag}")
+    except BaseException:
+        # 중간에 멈춰도 이미 만든 항목은 정리한다
+        if not args.keep:
+            print("중단: " + ", ".join(cleanup(rows, services)))
+        raise
     finally:
         server.terminate()
         server.wait(timeout=10)
