@@ -2,6 +2,7 @@
 
 LLM/실제 외부 서비스는 호출하지 않는다. 기능 복구 계약 검증이며 성능 평가가 아니다.
 """
+import asyncio
 import os
 import socket
 import subprocess
@@ -106,3 +107,24 @@ async def test_serialized_pre_send_connection_failure_remains_retryable(mcp_url)
     for target in ("GITHUB", "NOTION", "SLACK"):
         item = await publish_one(ticket(target), make_mcp_publisher(tools))
         assert item.status == "FAILED" and item.error_code == "MCP_UNAVAILABLE" and item.retryable
+
+
+@pytest.mark.anyio
+async def test_hung_external_write_holds_publish_batch_without_agent_deadline(mcp_url):
+    """#299 재현: 외부 쓰기가 응답하지 않으면 Agent에는 묶음 마감이 없어 MCP 도구 응답을 계속 기다린다.
+
+    실제로는 MCP 도구 안의 외부 요청 시간 초과(20초)나 MCP 클라이언트 응답 대기 기본값(5분)이 끝나야 묶음이 끝난다.
+    #302에서 묶음 마감을 넣으면 이 테스트를 기대 동작(마감 안에 결과 모름으로 끝남)으로 바꾼다.
+    """
+    settings = Settings(mcp_server_url=mcp_url, rag_enabled=False, dry_run=False)
+    tools = await github_tools(settings)
+    await tools["fixture_mode"].ainvoke({"mode": "hang"})
+    try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(
+                run_publish_batch(PublishBatchRequest(batch_id="hang", tickets=[ticket()]), settings), timeout=2)
+        state = parse_tool_result(await tools["fixture_snapshot"].ainvoke({}))
+        # 이슈 생성 요청은 이미 외부로 나갔다. 마감으로 끊더라도 재시도 가능 실패가 아니라 결과 모름이어야 하는 이유다
+        assert [(w["method"], w["path"]) for w in state["writes"]] == [("POST", "/repos/o/r/issues")]
+    finally:
+        await tools["fixture_mode"].ainvoke({"mode": "ok"})
