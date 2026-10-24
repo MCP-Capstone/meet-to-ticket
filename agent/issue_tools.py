@@ -157,7 +157,8 @@ class IssueTools:
         if self._reader is not None:
             tools.append(StructuredTool.from_function(
                 coroutine=self.read_issue, name="read_issue", args_schema=ReadArgs,
-                description="후보 이슈의 제목·상태·본문·닫힌 시각을 원문으로 읽는다. 검색 결과만으로 같은 작업인지 애매할 때 쓴다."))
+                description="후보 이슈의 제목·상태·본문·닫힌 시각을 원문으로 읽는다. 검색 결과만으로 같은 작업인지 애매할 때, "
+                            "그리고 UNRELATED로 끝내기 전에 유사 검색 1위 후보를 확인할 때 쓴다."))
         outside = sorted({t.name for t in tools} - READ_ONLY_TOOLS)
         if outside:  # 읽기 전용 allowlist 밖의 도구는 모델에게 줄 수 없다 (assert는 -O에서 사라져 예외를 쓴다)
             raise RuntimeError(f"dedupe 모델에 줄 수 없는 도구: {outside}")
