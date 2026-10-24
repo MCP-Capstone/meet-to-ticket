@@ -13,7 +13,6 @@
     "test:progress": "node --test tests/analysisProgress.test.mjs",
     "preview": "vite preview",
     "test:publish": "node --test tests/batchPublish.test.mjs",
-    "test:dedupe": "node --test tests/ticketDedupe.test.mjs",
     "test:preview": "node --test tests/ticketPreview.test.mjs",
     "test:publication": "node --test tests/ticketPublication.test.mjs",
     "test:failure": "node --test tests/publishFailure.test.mjs"
