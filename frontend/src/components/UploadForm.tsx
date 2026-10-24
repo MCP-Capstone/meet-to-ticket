@@ -76,9 +76,6 @@ export function UploadForm({ projects, projectId, projectsLoading, onProjectChan
   }
 
   return <form className="card upload-form" onSubmit={handleSubmit}>
-    <div className="card-header"><div>
-      <h2>회의록 분석</h2>
-    </div></div>
     <fieldset className="upload-fields" disabled={starting}>
       <div className="row upload-settings">
         <label>프로젝트 (필수)

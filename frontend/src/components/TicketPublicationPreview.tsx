@@ -33,16 +33,15 @@ export function TicketPublicationPreview({ ticket, dirty }: { ticket: MyTicket; 
   const current = data?.version === version ? data.value : null
   const error = failure?.version === version ? failure.message : null
   return <div className="ticket-publication-preview">
-    <button type="button" className="secondary" aria-expanded={open} aria-controls={`preview-${ticket.ticketId}`} onClick={() => { setData(null); setFailure(null); setOpen((value) => !value) }}>{open ? '미리보기 닫기' : '발행 본문 미리보기'}</button>
-    {open && <section id={`preview-${ticket.ticketId}`} className="publication-preview-panel" aria-label="발행 본문 미리보기">
-      <h4>발행 본문 미리보기</h4>
-      <p className="muted">서버에 저장된 현재 내용을 보여줍니다. 발행 직전 재대조로 처리 유형과 대상이 달라질 수 있습니다.</p>
+    <button type="button" className="secondary" aria-expanded={open} aria-controls={`preview-${ticket.ticketId}`} onClick={() => { setData(null); setFailure(null); setOpen((value) => !value) }}>{open ? '실제 발행 내용 닫기' : '실제 발행 내용 확인'}</button>
+    {open && <section id={`preview-${ticket.ticketId}`} className="publication-preview-panel" aria-label="실제 발행 내용">
+      <h4>실제 발행 내용</h4>
+      <p className="muted">현재 저장된 설정으로 외부 도구에 전달할 형식입니다. 발행 직전 재검수로 처리 유형과 대상이 달라질 수 있습니다.</p>
       {dirty && <p className="notice" role="status">저장하지 않은 수정이 있습니다. 현재 미리보기에는 반영되지 않았습니다. 저장하면 최신 내용으로 다시 조회합니다.</p>}
       {error ? <div role="alert"><p className="error">{error}</p><button type="button" className="secondary" onClick={() => setAttempt((n) => n + 1)}>미리보기 다시 조회</button></div>
         : !current ? <p role="status"><Spinner size="sm" label="미리보기 조회 중" /> 저장된 발행 내용을 불러오고 있습니다.</p>
         : <>
           <h5>{current.title}</h5>
-          {current.executionMode === 'MOCK' && <p className="notice">모의 미리보기입니다. 실제 발행 본문 생성은 Agent 연동 모드에서 확인할 수 있습니다.</p>}
           {current.publication ? <>
             <h5>{current.publishTarget === 'SLACK' ? 'Slack 메시지 미리보기' : kinds[current.publication.kind]}</h5>
             {current.publication.targetIssueNumber !== null && <p>대상 이슈 #{current.publication.targetIssueNumber}</p>}

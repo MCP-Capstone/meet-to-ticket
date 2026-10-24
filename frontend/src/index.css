@@ -1,22 +1,22 @@
 :root {
-  --text: #1f2328;
-  --muted: #656d76;
-  --bg: #f6f8fa;
+  --text: #1e2430;
+  --muted: #626b78;
+  --bg: #f8f9fb;
   --card: #ffffff;
-  --border: #d0d7de;
-  --accent: #0969da;
-  --accent-soft: #ddf4ff;
-  --danger: #cf222e;
-  --danger-soft: #ffebe9;
-  --warn: #9a6700;
-  --warn-soft: #fff8c5;
-  --ok: #1a7f37;
-  --ok-soft: #dafbe1;
+  --border: #dde2e8;
+  --accent: #2459c7;
+  --accent-soft: #eef4ff;
+  --danger: #b84a4a;
+  --danger-soft: #fff0f0;
+  --warn: #9a6a13;
+  --warn-soft: #fff7e8;
+  --ok: #287a54;
+  --ok-soft: #edf8f2;
   --link: #8250df;
   --link-soft: #fbefff;
   --radius: 10px;
 
-  font: 15px/1.6 system-ui, -apple-system, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  font: 14px/1.6 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
   color: var(--text);
   background: var(--bg);
 }
@@ -116,27 +116,26 @@ h2 {
   margin: 0;
   padding: 0;
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 0;
+  width: min(520px, 100%);
 }
 
 .stepper li {
-  flex: 1;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
-.stepper li.active {
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
-}
+.stepper li:not(:last-child)::after { width: 42px; height: 1px; margin: 0 14px 0 6px; background: var(--border); content: ''; }
+.stepper li.active { color: var(--accent); font-weight: 600; }
 
 .stepper li.done {
   color: var(--ok);
@@ -150,7 +149,7 @@ h2 {
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  background: var(--bg);
+  background: var(--card);
   border: 1px solid currentColor;
 }
 
@@ -1087,7 +1086,215 @@ button.danger { color: var(--danger); border: 1px solid var(--danger); }
 .publication-backlog > div { margin-top: 12px; }
 @media (max-width: 560px) { .publication-preview-panel { padding: 12px; } }
 
-/* 발행 설정 수정 (#247) */
-.ticket-publication-fields { border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 16px 0; min-width: 0; }
-.ticket-publication-fields legend { font-weight: 600; padding: 0 4px; }
-.ticket-publication-fields p { overflow-wrap: anywhere; }
+/* Workspace shell: the review experience uses one persistent navigation area and
+   keeps page titles, filters, and task content in a single reading column. */
+.app-shell {
+  min-height: 100dvh;
+  background: var(--card);
+}
+
+.app-shell.is-authenticated {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding: 27px 23px 40px;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 0 44px;
+}
+
+.brand strong { font-size: 16px; letter-spacing: -.02em; }
+.brand span, .sidebar-user small { color: var(--muted); font-size: 12px; }
+
+.app-sidebar .workspace-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 0;
+}
+
+.app-sidebar .workspace-nav button {
+  display: flex;
+  align-items: center;
+  width: 184px;
+  height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 0;
+  color: var(--muted);
+  text-align: left;
+}
+
+.app-sidebar .workspace-nav button:hover { background: transparent; color: var(--accent); }
+.app-sidebar .workspace-nav button[aria-current='page'] {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.sidebar-user {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding: 0;
+  border-top: 0;
+}
+
+.sidebar-user > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; }
+.sidebar-user strong { font-size: 13px; }
+.sidebar-user .link {
+  display: inline-flex;
+  width: auto;
+  height: auto;
+  padding: 4px 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+.sidebar-user .link:hover { color: var(--text); background: transparent; }
+.avatar { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 50%; background: #fff; font-size: 12px; }
+
+.app-content {
+  width: 100%;
+  margin: 0;
+  padding: 28px 34px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.app-shell:not(.is-authenticated) .app-content { width: min(480px, 100%); padding-top: 12vh; }
+.app-content .header { align-items: flex-start; min-height: 54px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.app-content .header h1 { font-size: 26px; line-height: 36px; letter-spacing: -.04em; }
+
+/* Shared surface treatment: quiet borders and clear, high-contrast actions. */
+.app-content .card { border-color: var(--border); border-radius: 8px; box-shadow: none; }
+.app-content button.primary { height: 38px; padding: 8px 14px; border-radius: 7px; background: var(--accent); font-size: 13px; }
+.app-content button.primary:hover:not(:disabled) { background: #1c49aa; }
+.app-content button.secondary { height: 38px; border-color: var(--border); border-radius: 7px; background: #fff; font-size: 13px; }
+.app-content input, .app-content textarea, .app-content select { border-color: var(--border); border-radius: 6px; }
+
+/* My tickets is an inbox, not a dashboard: the action is above the grouped list. */
+.my-tickets { gap: 20px; }
+.my-tickets > .card:first-child { padding: 0; border: 0; background: transparent; }
+.my-tickets > .card:first-child .card-header { align-items: center; }
+.my-tickets > .card:first-child h2 { font-size: 18px; }
+.my-tickets > .card:first-child .muted { margin-top: 4px; }
+.ticket-tabs { gap: 22px; margin-top: 2px; }
+.ticket-tabs button { padding: 10px 0 12px; }
+.ticket-tabs button.active { color: #20211f; }
+.ticket-list-heading { margin-top: 6px; }
+.ticket-list-heading h3 { font-size: 15px; }
+.ticket-group { gap: 10px; padding-top: 8px; }
+.ticket-group > header { padding: 4px 2px; }
+.ticket-group > header strong { font-size: 15px; }
+.ticket-card { padding: 20px; }
+.my-tickets > .card[aria-label='회의별 일괄 발행'] { padding: 18px 20px; background: #f5f5f3; }
+.my-tickets > .card[aria-label='회의별 일괄 발행'] h2 { font-size: 15px; }
+.publish-groups > li:first-child { border-top: 0; padding-top: 6px; }
+
+.ticket-workspace {
+  display: grid;
+  grid-template-columns: 404px minmax(0, 674px);
+  gap: 20px;
+  align-items: start;
+}
+
+.ticket-list-panel, .ticket-detail-panel {
+  min-height: 722px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.ticket-list-panel { padding: 16px; }
+.ticket-list-panel-heading { display: flex; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
+.ticket-list-panel-heading span { color: var(--muted); font-size: 12px; }
+.ticket-list-panel .ticket-group { gap: 0; padding-top: 16px; }
+.ticket-list-panel .ticket-group > header { grid-template-columns: minmax(0, 1fr) auto; gap: 0; padding: 0 0 10px; }
+.ticket-list-panel .ticket-group > header strong { font-size: 14px; }
+.ticket-list-panel .ticket-group > header span { grid-column: 1; grid-row: 2; margin-top: 2px; font-size: 11px; }
+.ticket-list-panel .ticket-group > header em { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+.ticket-list-item { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; width: 100%; gap: 1px 10px; padding: 10px 6px; border-top: 1px solid var(--border); color: var(--text); text-align: left; }
+.ticket-list-item:first-of-type { border-top: 0; }
+.ticket-list-item:hover { background: #f6f8fc; }
+.ticket-list-item.selected { border-radius: 6px; border-top-color: transparent; background: var(--accent-soft); }
+.ticket-list-item span { grid-column: 1 / -1; color: var(--muted); font-size: 11px; font-weight: 500; }
+.ticket-list-item strong { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 500; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-list-item em { align-self: center; padding: 1px 8px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 11px; font-style: normal; white-space: nowrap; }
+.ticket-list-item em.confirmed, .ticket-list-item em.published, .ticket-list-item em.linked, .ticket-list-item em.updated { background: var(--ok-soft); color: var(--ok); }
+.ticket-list-item em.rejected, .ticket-list-item em.failed { background: var(--danger-soft); color: var(--danger); }
+.ticket-detail-panel { overflow: hidden; }
+.ticket-detail-panel .ticket-card { min-height: 722px; border: 0; border-radius: 0; padding: 24px 26px; }
+.ticket-detail-panel .ticket-card .card-header > div > p { font-size: 12px; }
+.ticket-detail-panel .ticket-card h3 { margin-top: 10px; font-size: 20px; line-height: 28px; }
+.ticket-detail-panel .ticket-card .meta { color: var(--accent); }
+.ticket-detail-panel .ticket-card > .ticket-body { margin: 14px 0; padding-top: 16px; border-top: 1px solid var(--border); }
+.ticket-detail-panel .ticket-card > .ticket-actions { justify-content: flex-end; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--border); }
+.ticket-detail-panel .ticket-card > .ticket-actions .muted { order: -1; margin-right: auto; }
+
+/* Forms and result pages follow the same single-column workspace rhythm. */
+.upload-form { width: 100%; max-width: 1098px; margin: 0; padding: 0; border: 0 !important; border-radius: 0 !important; background: transparent !important; }
+.upload-form .upload-fields { gap: 18px; }
+.upload-form .row { grid-template-columns: 460px 260px; gap: 24px; }
+.upload-form .dropzone { min-height: 148px; flex-direction: column; align-items: center; justify-content: center; padding: 22px; border: 1px dashed #9ab4e6; border-radius: 8px; background: var(--accent-soft); text-align: center; }
+.upload-form .dropzone strong { color: var(--accent); font-size: 13px; }
+.upload-form .dropzone span { font-size: 12px; }
+.upload-form .upload-actions { padding-top: 14px; border-top: 1px solid var(--border); }
+.progress { width: 100%; max-width: 1098px; margin: 0; }
+.back-button { display: inline-flex; align-items: center; gap: 6px; width: fit-content; padding: 0; color: var(--muted); font-size: 13px; }
+.back-button::before { content: '←'; font-size: 16px; }
+.back-button:hover { color: var(--text); background: transparent; }
+.ticket-evidence { margin: 14px 0 0; padding: 12px 0; border-top: 1px solid var(--border); color: var(--text); }
+.ticket-evidence summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.ticket-evidence[open] summary { margin-bottom: 10px; color: var(--text); font-weight: 600; }
+.ticket-evidence ul { display: grid; gap: 8px; margin: 0; padding-left: 18px; }
+.ticket-evidence li { color: var(--text); font-size: 13px; line-height: 1.6; }
+.project-list { gap: 20px; }
+.project-list-heading h2 { font-size: 20px; }
+.project-list > .muted { display: none; }
+.project-list .project-list-heading { display: none; }
+.project-list .project-list-table-wrap { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.project-list .project-list-table th, .project-list .project-list-table td { padding: 16px 14px; }
+.project-editor { max-width: 900px; }
+.project-editor > .card-header { padding: 0 2px 4px; }
+.project-editor > .card-header h2 { font-size: 20px; }
+.project-tool { background: #fcfcfb; border-color: #e3e3df; }
+.project-editor > .card-header { display: none; }
+.project-editor .project-fields > .card { padding: 0; border: 0; background: transparent; }
+.project-editor .project-fields > .card > h2 { margin-bottom: 12px; font-size: 18px; }
+
+@media (max-width: 820px) {
+  .app-shell.is-authenticated { display: block; }
+  .app-sidebar { position: static; height: auto; padding: 16px; border-right: 0; border-bottom: 1px solid #e4e4e0; }
+  .brand { padding: 0 4px 14px; }
+  .app-sidebar .workspace-nav { flex-direction: row; overflow-x: auto; }
+  .app-sidebar .workspace-nav button { flex: 0 0 auto; width: auto; }
+  .sidebar-user { display: none; }
+  .app-content { padding: 28px 20px 52px; }
+  .ticket-workspace { grid-template-columns: 1fr; }
+  .ticket-list-panel, .ticket-detail-panel, .ticket-detail-panel .ticket-card { min-height: auto; }
+}
+
+@media (max-width: 560px) {
+  .app-content { padding: 24px 16px 44px; gap: 18px; }
+  .app-content .header h1 { font-size: 26px; }
+  .app-content .header { padding-bottom: 16px; }
+  .app-sidebar .workspace-nav button { padding: 8px; font-size: 13px; }
+  .my-tickets > .card[aria-label='회의별 일괄 발행'] { padding: 16px; }
+}

@@ -4,6 +4,7 @@ import type { MyTicket, MyTicketList } from '../api'
 import { Spinner } from './Spinner'
 import { TicketCard } from './TicketCard'
 import { BatchPublishFlow } from './BatchPublishFlow'
+import { singleLineLabel } from '../displayText'
 
 interface Props {
   onBusyChange: (busy: boolean) => void
@@ -15,10 +16,15 @@ const countKey = (status: MyTicket['status']) => status === 'PENDING_REVIEW' ? '
 type TicketTab = 'review' | 'approved' | 'rejected' | 'attention'
 
 const tabLabel: Record<TicketTab, string> = {
-  review: '검토할 것',
+  review: '검토',
   approved: '승인됨',
   rejected: '거절됨',
-  attention: '확인 필요',
+  attention: '발행 확인 필요',
+}
+const targetLabel: Record<MyTicket['publishTarget'], string> = { GITHUB: 'GitHub 이슈', NOTION: 'Notion', SLACK: 'Slack' }
+const reviewStatusLabel: Record<MyTicket['status'], string> = {
+  ASSIGNEE_REQUIRED: '담당자 필요', PENDING_REVIEW: '미검토', CONFIRMED: '승인됨', REJECTED: '거절됨',
+  PUBLISHING: '발행 중', PUBLISHED: '발행됨', LINKED: '연결됨', UPDATED: '수정됨', SKIPPED: '발행 생략', FAILED: '발행 확인 필요',
 }
 
 const tabTickets = (tickets: MyTicket[], tab: TicketTab) => tickets.filter((ticket) => {
@@ -42,13 +48,13 @@ const groupByProjectAndMeeting = (tickets: MyTicket[]) => {
 export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }: Props) {
   const [data, setData] = useState<MyTicketList | null>(null)
   const [tab, setTab] = useState<TicketTab>('review')
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [mutating, setMutating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [revision, setRevision] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [settingsFeedback, setSettingsFeedback] = useState<{ message: string; error: boolean; pending?: boolean } | null>(null)
-  const listHeading = useRef<HTMLHeadingElement>(null)
   const settingsMessage = useRef<HTMLParagraphElement>(null)
   useEffect(() => {
     if (settingsFeedback && !settingsFeedback.pending) {
@@ -153,8 +159,8 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
   const changeTab = (next: TicketTab) => {
     if (next === tab || mutationLock.current || loading || !canDiscard()) return
     setTab(next)
+    setSelectedTicketId(null)
     setRevision((n) => n + 1)
-    requestAnimationFrame(() => listHeading.current?.focus())
   }
   const openSettings = async (targetProjectId: number) => {
     if (mutationLock.current || loading) return
@@ -185,8 +191,16 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
       if (lifecycle.current.mounted) { setMutating(false); onBusyChange(false) }
     }
   }
-  const visibleTickets = tabTickets(current?.tickets ?? [], tab)
+  const tabs: TicketTab[] = ['review', 'approved', 'rejected']
+  if ((current?.counts.failed ?? 0) > 0) tabs.push('attention')
+  // 실패 탭의 마지막 티켓이 처리되면, 숨겨진 탭 상태에 머물지 않고 검토 탭을 보여 준다.
+  const activeTab = tab === 'attention' && !tabs.includes('attention') ? 'review' : tab
+  const visibleTickets = tabTickets(current?.tickets ?? [], activeTab)
   const ticketGroups = groupByProjectAndMeeting(visibleTickets)
+  const selectedTicket = visibleTickets.find((ticket) => ticket.ticketId === selectedTicketId) ?? visibleTickets[0] ?? null
+  const selectedMeetingTickets = selectedTicket
+    ? (current?.tickets.filter((ticket) => ticket.projectId === selectedTicket.projectId && ticket.meetingId === selectedTicket.meetingId) ?? [])
+    : []
   const publishLock = useCallback((value: boolean) => {
     mutationLock.current = value
     setMutating(value)
@@ -195,33 +209,39 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
   const busy = mutating || loading
   // 조회 필터 변경 시 기존 프로젝트 카드가 잠깐 표시되지 않게 한다.
   return (
-    <section className="my-tickets" aria-labelledby="my-tickets-title">
-      <div className="card">
-        <div className="card-header"><div><h2 id="my-tickets-title">내 티켓</h2><p className="muted">할당된 티켓을 검토하고 승인 또는 거절하세요.</p></div>
-          <button type="button" className="secondary" disabled={busy} onClick={() => void manualRefresh()}>목록 새로고침</button>
-        </div>
-        {current && <div className="ticket-tabs" role="tablist" aria-label="티켓 상태별 목록">
-          {(['review', 'approved', 'rejected', 'attention'] as TicketTab[]).map((key) => {
+    <section className="my-tickets" aria-label="내 티켓">
+      {current && <div className="ticket-tabs" role="tablist" aria-label="티켓 상태별 목록">
+          {tabs.map((key) => {
             const count = key === 'review' ? current.counts.pendingReview : key === 'approved' ? current.counts.confirmed : key === 'rejected' ? current.counts.rejected : current.counts.failed
-            return <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? 'active' : ''} onClick={() => changeTab(key)} disabled={busy}>{tabLabel[key]} <span>{count}</span></button>
+            return <button key={key} type="button" role="tab" aria-selected={activeTab === key} className={activeTab === key ? 'active' : ''} onClick={() => changeTab(key)} disabled={busy}>{tabLabel[key]} <span>{count}</span></button>
           })}
-        </div>}
-      </div>
+      </div>}
       {settingsFeedback && <p ref={settingsMessage} tabIndex={-1} className={settingsFeedback.error ? 'error ticket-settings-feedback' : 'notice ticket-settings-feedback'} role={settingsFeedback.error ? 'alert' : 'status'}>{settingsFeedback.message}</p>}
       {notice && <p className="project-success" role="status">{notice}</p>}
       {error && <div className="ticket-error" role="alert"><p className="error">{error}</p><button type="button" className="link" disabled={busy} onClick={() => void manualRefresh()}>목록 다시 시도</button></div>}
       {loading && <p className="inline-status" role="status"><Spinner size="sm" label="내 티켓 조회 중" />내 티켓을 불러오고 있습니다.</p>}
-      {current && current.tickets.length > 0 && <BatchPublishFlow tickets={current.tickets} busy={busy || Boolean(error)} dirty={hasDirty} onLock={publishLock} onRefresh={load} />}
       {current && !current.tickets.length && !loading && <p className="card empty">아직 나에게 전달된 티켓이 없습니다.</p>}
-      {current && <>
-        <div className="ticket-list-heading"><h3 ref={listHeading} tabIndex={-1}>{tabLabel[tab]}</h3></div>
-        {!visibleTickets.length && !loading && <p className="card empty" role="status">이 상태의 티켓이 없습니다.</p>}
-      </>}
-      {current && <div className="ticket-list" aria-busy={busy}>
-        {ticketGroups.map((group) => <section className="ticket-group" key={`${group.projectName}:${group.meetingTitle}`}>
-          <header><strong>{group.projectName}</strong><span>{group.meetingTitle}</span><em>{group.tickets.length}건</em></header>
-          {group.tickets.map((ticket) => <TicketCard key={`${ticket.ticketId}-${revision}`} ticket={ticket} busy={busy} onCommit={commit} onRefresh={load} onDirtyChange={dirtyChange} onOpenProjectSettings={(id) => void openSettings(id)} />)}
-        </section>)}
+      {current && !visibleTickets.length && !loading && <p className="card empty" role="status">이 상태의 티켓이 없습니다.</p>}
+      {current && visibleTickets.length > 0 && <div className="ticket-workspace" aria-busy={busy}>
+        <aside className="ticket-list-panel" aria-label={`${tabLabel[activeTab]} 목록`}>
+          <div className="ticket-list-panel-heading"><strong>티켓 목록</strong><span>{visibleTickets.length}건</span></div>
+          {ticketGroups.map((group) => <section className="ticket-group" key={`${group.projectName}:${group.meetingTitle}`}>
+            <header><strong>{group.projectName}</strong><span>{singleLineLabel(group.meetingTitle)}</span><em>{group.tickets.length}</em></header>
+            {group.tickets.map((ticket) => <button type="button" key={`${ticket.ticketId}-${revision}`} className={`ticket-list-item${selectedTicket?.ticketId === ticket.ticketId ? ' selected' : ''}`} onClick={() => {
+              if (canDiscard()) setSelectedTicketId(ticket.ticketId)
+            }} disabled={busy}>
+              <span>{targetLabel[ticket.publishTarget]}</span>
+              <strong>{singleLineLabel(ticket.title, '제목 없음')}</strong>
+              <em className={`ticket-list-status ${ticket.status.toLowerCase()}`}>{reviewStatusLabel[ticket.status]}</em>
+            </button>)}
+          </section>)}
+        </aside>
+        <section className="ticket-detail-panel" aria-label="선택한 티켓 상세">
+          {selectedTicket && <>
+            {activeTab === 'review' && <BatchPublishFlow tickets={selectedMeetingTickets} busy={busy || Boolean(error)} dirty={hasDirty} onLock={publishLock} onRefresh={load} />}
+            <TicketCard key={selectedTicket.ticketId} ticket={selectedTicket} busy={busy} onCommit={commit} onRefresh={load} onDirtyChange={dirtyChange} onOpenProjectSettings={(id) => void openSettings(id)} />
+          </>}
+        </section>
       </div>}
     </section>
   )

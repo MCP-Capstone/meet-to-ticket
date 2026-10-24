@@ -20,17 +20,16 @@ const { TicketDedupeDetails } = await import(component)
 const base = { judged: true, skipped: null, relation: 'RELATED', issue: { number: 12, title: '기존 업무', state: 'open', url: 'https://github.com/example/repo/issues/12' }, overlap: true, reason: '기존 업무와 연관됩니다.', before: null, after: null, changedByRecheck: false }
 const render = (dedupe, rest = {}) => renderToStaticMarkup(createElement(TicketDedupeDetails, { ticket: { ticketId: 'test', publishTarget: 'GITHUB', processingType: 'CREATE', dedupe, ...rest } }))
 
-test('누락된 정보와 명시적인 판단 미수행을 구분한다', () => {
-  for (const d of [null, undefined]) assert.match(render(d), /정보가 제공되지 않았습니다/)
+test('사용자 검토가 필요 없는 중복 정보는 노출하지 않는다', () => {
+  for (const d of [null, undefined]) assert.equal(render(d), '')
   const html = render({ ...base, judged: false, skipped: 'timeout' })
-  assert.match(html, /중복 판단 안 됨/)
-  assert.match(html, /판단 시간이 초과/)
-  assert.doesNotMatch(html, /겹칠 수 있음|기존 업무와 연관|href=/)
+  assert.equal(html, '')
+  assert.doesNotMatch(html, /유사 이슈|기존 업무와 연관|href=/)
 })
 test('겹침 경고는 판단한 GitHub 신규 발행에만 표시한다', () => {
-  assert.match(render(base), /겹칠 수 있음/)
-  for (const rest of [{ processingType: 'LINK' }, { processingType: 'UPDATE' }, { publishTarget: 'NOTION' }]) assert.doesNotMatch(render(base, rest), /겹칠 수 있음/)
-  assert.doesNotMatch(render({ ...base, overlap: false }), /겹칠 수 있음/)
+  assert.match(render(base), /유사 이슈가 있습니다/)
+  for (const rest of [{ processingType: 'LINK' }, { processingType: 'UPDATE' }, { publishTarget: 'NOTION' }]) assert.doesNotMatch(render(base, rest), /유사 이슈가 있습니다/)
+  assert.doesNotMatch(render({ ...base, overlap: false }), /유사 이슈가 있습니다/)
 })
 test('관계·사유·기존 이슈 상태와 새 탭 링크를 표시한다', () => {
   const html = render(base)
@@ -68,12 +67,13 @@ test('비정상 링크는 누를 수 없고 알 수 없는 관계·상태를 추
     assert.match(html, /상태 정보 없음/)
   }
 })
-test('사유 누락과 알 수 없는 미수행 이유를 안전하게 안내한다', () => {
+test('사유 누락은 판단 정보와 분리해 안전하게 안내한다', () => {
   assert.match(render({ ...base, reason: '  ' }), /판단 사유가 제공되지 않았습니다/)
-  const html = render({ ...base, judged: false, skipped: 'error: internal-details' })
-  assert.match(html, /판단을 완료하지 못했습니다/)
-  assert.doesNotMatch(html, /internal-details/)
-  assert.match(render({ ...base, judged: false, skipped: 'constructor' }), /판단을 완료하지 못했습니다/)
+  for (const skipped of ['error: internal-details', 'constructor']) {
+    const html = render({ ...base, judged: false, skipped })
+    assert.equal(html, '')
+    assert.doesNotMatch(html, /internal-details/)
+  }
 })
 test('판단 정보는 발행·수정용 컨트롤 없이 읽기 전용이다', () => {
   assert.doesNotMatch(render(base), /<button|<input|<select|<form|<textarea/)
