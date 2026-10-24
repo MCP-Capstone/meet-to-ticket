@@ -104,10 +104,27 @@ class PublishRetryDelayTest {
 		return tx.execute(s -> ledger.reserve(t.getId(), PublishTarget.GITHUB, operation, UUID.randomUUID()));
 	}
 
-	// 마지막 시도를 minutes분 전으로 옮긴다
+	// 마지막 시도와 결과 모름이 된 시각을 minutes분 전으로 옮긴다
 	private void age(TaskItem t, int minutes) {
 		OffsetDateTime past = OffsetDateTime.now().minusMinutes(minutes);
-		jdbc.update("update publications set reserved_at = ?, sent_at = ? where task_item_id = ?", past, past, t.getId());
+		jdbc.update("update publications set reserved_at = ?, sent_at = ?, updated_at = ? where task_item_id = ?", past, past, past, t.getId());
+	}
+
+	@Test
+	void 보낸_지_오래됐어도_방금_결과_모름이_됐으면_기다린다() throws Exception {
+		TaskItem t = failed();
+		UUID batch = retry(t);
+		// 재대조 등으로 쓰기가 늦게 나가 보낸 지 10분 뒤에 결과 모름이 됐다
+		OffsetDateTime sent = OffsetDateTime.now().minusMinutes(10);
+		jdbc.update("update publications set reserved_at = ?, sent_at = ? where task_item_id = ?", sent, sent, t.getId());
+		mvc.perform(post("/internal/publish-batches/{id}/result", batch).header("X-Internal-Token", TOKEN).contentType("application/json")
+						.content("{\"batchId\":\"%s\",\"status\":\"FAILED\",\"items\":[{\"ticketId\":\"%s\",\"status\":\"UNKNOWN\",\"errorMessage\":\"마감\"}]}"
+								.formatted(batch, t.getId())))
+				.andExpect(status().isAccepted());
+
+		mvc.perform(post("/api/tickets/{id}/retry", t.getId()).session(session))
+				.andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.code").value("PUBLISH_RETRY_TOO_SOON"));
+		verify(gateway, times(1)).submit(any());
 	}
 
 	@Test

@@ -124,7 +124,7 @@ GitHub 검색 API와 목록 API에 새 이슈가 보이기까지 걸린 시간 (
 
 ### 수정 뒤 (#336)
 
-Backend는 GitHub 신규 이슈가 결과 모름이면 마지막 시도 뒤 3분(`PUBLISH_GITHUB_RECHECK_DELAY`)이 지나야 다시 보내고, Agent는 검색에서 못 찾으면 최근 열린 이슈 목록도 확인한다 (`docs/publications.md`).
+Backend는 GitHub 신규 이슈가 결과 모름이면 결과 모름이 된 뒤 3분(`PUBLISH_GITHUB_RECHECK_DELAY`)이 지나야 다시 보내고, Agent는 검색에서 못 찾으면 최근 열린 이슈 목록도 확인한다 (`docs/publications.md`).
 
 | 시나리오 | 재시도까지 | 결과 | 외부 항목 |
 |---|---|---|---|

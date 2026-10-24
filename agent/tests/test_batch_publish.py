@@ -472,13 +472,37 @@ class ListingPublisher(BodyPublisher):
 @pytest.mark.anyio
 async def test_unknown_create_finds_issue_missing_from_search_in_recent_list():
     t = unknown_ticket("a", "CREATE")
-    publisher = ListingPublisher({}, recent=[{"number": 9, "title": "다른 작업", "state": "open", "url": "u9"},
-                                             {"number": 55, "title": "CSV 개선", "state": "open", "url": "https://github.com/o/r/issues/55"}])
+    publisher = ListingPublisher({55: "본문\n" + footer_of(t)},
+                                 recent=[{"number": 9, "title": "다른 작업", "state": "open", "url": "u9"},
+                                         {"number": 55, "title": "CSV 개선", "state": "open", "url": "https://github.com/o/r/issues/55"}])
     out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
 
     assert out.items[0].status == "PUBLISHED" and out.items[0].github_issue_number == 55
     assert writes(publisher) == []
     assert [c[1]["state"] for c in publisher.calls if c[0] == "list"] == ["open"]
+    # 제목이 같은 이슈의 끝줄을 먼저 확인한다
+    assert [c[1]["number"] for c in publisher.calls if c[0] == "marker"] == [55]
+
+
+@pytest.mark.anyio
+async def test_unknown_create_does_not_take_same_title_issue_of_other_meeting_from_recent_list():
+    t = unknown_ticket("a", "CREATE")
+    publisher = ListingPublisher({40: "본문\n" + footer_of(t, meeting_id="other-meeting")},
+                                 recent=[{"number": 40, "title": "CSV 개선", "state": "open", "url": "u40"}])
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert writes(publisher) == ["create"] and out.items[0].github_issue_number == 101
+
+
+@pytest.mark.anyio
+async def test_unknown_create_checks_footer_of_same_title_issue_beyond_newest_recent_issues():
+    t = unknown_ticket("a", "CREATE")
+    recent = [{"number": n, "title": f"작업 {n}", "state": "open", "url": "u"} for n in range(100, 80, -1)]
+    recent.append({"number": 60, "title": "CSV 개선", "state": "open", "url": "u60"})
+    publisher = ListingPublisher({60: "본문\n" + footer_of(t)}, recent=recent)
+    out = await publish_batch(PublishBatchRequest(batch_id="b", tickets=[t]), publisher)
+
+    assert out.items[0].github_issue_number == 60 and writes(publisher) == []
 
 
 @pytest.mark.anyio

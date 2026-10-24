@@ -95,5 +95,5 @@ app:
       batch-size: ${PUBLISH_RECOVERY_BATCH_SIZE:100}
     # Agent가 묶음을 모르면(재시작) 이 시간이 지난 묶음부터 바로 결과 모름(RESULT_LOST)으로 끝낸다.
     lost-grace: ${PUBLISH_LOST_GRACE:1m}
-    # GitHub 신규 이슈가 결과 모름이면 마지막 시도 뒤 이 시간이 지나야 다시 보낸다. 재대조가 쓰는 GitHub 검색 색인이 늦게 반영된다 (#336).
+    # GitHub 신규 이슈가 결과 모름이면 결과 모름이 된 뒤 이 시간이 지나야 다시 보낸다. 재대조가 쓰는 GitHub 검색 색인이 늦게 반영된다 (#336).
     github-recheck-delay: ${PUBLISH_GITHUB_RECHECK_DELAY:3m}
