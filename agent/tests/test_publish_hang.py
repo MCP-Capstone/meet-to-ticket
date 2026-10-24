@@ -58,25 +58,65 @@ def test_mcp_client_applies_configured_timeouts():
     connection = _mcp_client("github", "http://127.0.0.1:8000/mcp", settings).connections["github"]
     assert connection["timeout"] == 7
     assert connection["session_kwargs"] == {"read_timeout_seconds": timedelta(seconds=45)}
+    # 연결을 닫을 때의 세션 종료 요청도 같은 상한을 쓰게 한다 (기본 300초, #318 리뷰)
+    assert connection["sse_read_timeout"] == 45
 
     off = _mcp_client("github", "http://127.0.0.1:8000/mcp", Settings(mcp_call_timeout_seconds=0)).connections["github"]
-    assert "session_kwargs" not in off
+    assert "session_kwargs" not in off and "sse_read_timeout" not in off
     # 전체 재색인(reindex.py)은 오래 걸리므로 settings 없이 만들어 상한을 두지 않는다
     assert "timeout" not in _mcp_client("rag", "http://127.0.0.1:8002/mcp").connections["rag"]
 
 
 @pytest.mark.anyio
 async def test_publish_deadline_leaves_inflight_unknown_and_unsent_retryable():
-    """마감에 걸리면 처리 중이던 티켓은 결과 모름, 시작하지 않은 티켓은 보내지 않은 재시도 가능 실패다."""
+    """마감에 걸리면 쓰기 요청을 보낸 티켓은 결과 모름, 시작하지 않은 티켓은 보내지 않은 재시도 가능 실패다."""
     publisher = SlowPublisher()
     request = PublishBatchRequest(batch_id="deadline", tickets=[ticket("first"), ticket("second")])
     started = time.monotonic()
     result = await publish_batch(request, publisher, deadline=time.monotonic() + 0.5)
     assert time.monotonic() - started < 2
     first, second = result.items
-    assert (first.status, first.error_code, first.retryable) == ("UNKNOWN", "PUBLISH_DEADLINE", True)
+    assert (first.status, first.error_code, first.retryable) == ("UNKNOWN", "RESULT_UNKNOWN", True)
     assert (second.status, second.error_code, second.retryable) == ("FAILED", "PUBLISH_DEADLINE", True)
     assert len(publisher.calls) == 1 and result.status == "FAILED"
+
+
+@pytest.mark.anyio
+async def test_deadline_during_pre_write_lookup_is_unsent_not_unknown():
+    """쓰기 전 확인 조회(결과 모름 뒤 재시도의 기존 이슈 검색) 중 마감에 걸리면 보내지 않은 것이므로 결과 모름이 아니다 (#318 리뷰)."""
+    class SlowLookup(SlowPublisher):
+        async def search_issues(self, **args):
+            await asyncio.sleep(60)
+
+    publisher = SlowLookup(hang_first=False)
+    retry = ticket().model_copy(update={"previous_outcome_unknown": True})
+    result = await publish_batch(PublishBatchRequest(batch_id="lookup", tickets=[retry]), publisher,
+                                 deadline=time.monotonic() + 0.5)
+    [item] = result.items
+    assert (item.status, item.error_code, item.retryable) == ("FAILED", "PUBLISH_DEADLINE", True)
+    assert publisher.calls == []
+
+
+@pytest.mark.anyio
+async def test_recheck_stuck_at_deadline_still_leaves_time_to_publish(monkeypatch):
+    """재대조가 멈춰도 남은 마감의 절반에서 끊고 저장된 처리 유형으로 발행한다 (#318 리뷰: 전에는 하나도 발행하지 못했다)."""
+    import recheck
+
+    async def ready_tools(settings, owner, repo, github):
+        return HangingIndexTools(), "ready"
+
+    async def stuck(tickets, **kwargs):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(runner, "make_issue_tools", ready_tools)
+    monkeypatch.setattr(recheck, "recheck", stuck)
+    publisher = SlowPublisher(hang_first=False)
+    started = time.monotonic()
+    result = await run_publish_batch(PublishBatchRequest(batch_id="recheck", tickets=[ticket()]),
+                                     Settings(rag_enabled=True, publish_deadline_seconds=2, rag_sync_timeout_seconds=1),
+                                     publisher=publisher, llm=object())
+    assert [(i.status, i.github_issue_number) for i in result.items] == [("PUBLISHED", 101)]
+    assert len(publisher.calls) == 1 and time.monotonic() - started < 3
 
 
 @pytest.mark.anyio
