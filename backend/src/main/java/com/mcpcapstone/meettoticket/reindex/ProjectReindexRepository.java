@@ -4,6 +4,7 @@ import jakarta.persistence.LockModeType;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,4 +17,8 @@ public interface ProjectReindexRepository extends JpaRepository<ProjectReindex, 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from ProjectReindex r where r.project.id = :projectId")
     Optional<ProjectReindex> findByProjectIdForUpdate(@Param("projectId") Long projectId);
+
+    @Modifying
+    @Query("delete from ProjectReindex r where r.project.id = :projectId")
+    int deleteByProjectId(@Param("projectId") Long projectId);
 }

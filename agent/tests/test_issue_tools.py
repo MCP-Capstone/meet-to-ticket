@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from conftest import FakeLLM, FakePublisher, FakeReporter, make_request
+from conftest import PUBLISHED_10MIN, FakeLLM, FakePublisher, FakeReporter, make_request
 from issue_tools import IssueTools
 from runner import run
 
@@ -75,7 +75,9 @@ async def test_keyword_search_and_resource_read():
     assert out["issues"][0]["number"] == 7
     text = await judge["read_issue"].ainvoke({"number": 12})
     assert reads == ["issue://o/r/12"]  # Resource를 도구로 감싸 읽는다
-    assert len(text) <= 300 and text.endswith("(길어서 생략됨)")
+    # 이슈 본문은 데이터 태그로 감싸 넘기고, 길이 한도는 태그 안의 본문에 적용한다 (#265)
+    assert text.startswith("<existing_issue>\n") and text.endswith("(길어서 생략됨)\n</existing_issue>")
+    assert len(text) <= 300 + len("<existing_issue>\n\n</existing_issue>")
 
 
 async def test_errors_are_returned_to_model_as_text():
@@ -99,6 +101,8 @@ async def test_sync_and_index_are_code_only():
     assert "sync_issues" not in [t.name for t in tools.judge_tools()]
     assert await tools.sync() == {"indexed": 3, "skipped": 10}
     assert sync.calls == [{"owner": "o", "repo": "r", "full": False}]
+    assert await tools.sync(recheck_empty=True) == {"indexed": 3, "skipped": 10}
+    assert sync.calls[-1] == {"owner": "o", "repo": "r", "full": False, "recheck_empty": True}
     assert await tools.index(15) is True and index.calls == [{"owner": "o", "repo": "r", "number": 15}]
     failing, _ = make_tools(sync_tool=FakeMcpTool(error="[EMBEDDING_ERROR] x"), index_tool=FakeMcpTool(error="[GITHUB_ERROR] y"))
     assert await failing.sync() is None and await failing.index(1) is False  # 실패해도 예외 없이 계속
@@ -135,7 +139,7 @@ async def test_runner_continues_when_rag_is_down(settings):
     settings.rag_mcp_url = "http://127.0.0.1:9/mcp"  # 아무것도 듣지 않는 포트
     pub = FakePublisher()
     result = await run(make_request(), settings, llm=FakeLLM(), publisher=pub, reporter=FakeReporter())
-    assert result.status == "SUCCEEDED" and len(pub.calls) == 6  # 중복 확인 없이 기존처럼 발행
+    assert result.status == "SUCCEEDED" and len(pub.calls) == len(PUBLISHED_10MIN)  # 중복 확인 없이 기존처럼 발행
     assert result.metrics["rag"]["status"] == "unavailable"
 
 
@@ -144,5 +148,6 @@ async def test_runner_syncs_index_once(settings):
     tools, _ = make_tools(sync_tool=sync)
     result = await run(make_request(), settings, llm=FakeLLM(), publisher=FakePublisher(), reporter=FakeReporter(),
                        issue_tools=tools)
-    assert len(sync.calls) == 1
+    # 분석 경로만 변경 없음 응답을 한 번 더 확인하도록 요청한다 (발행 전 재대조는 test_recheck에서 기본값 확인)
+    assert sync.calls == [{"owner": "o", "repo": "r", "full": False, "recheck_empty": True}]
     assert result.metrics["rag"] == {"status": "ready", "sync": {"indexed": 2, "skipped": 5, "updated_at": "2026-10-21T06:00:00Z"}}

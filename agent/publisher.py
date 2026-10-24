@@ -6,6 +6,8 @@ import json
 import re
 from typing import Any
 
+import httpx
+
 from resolve import Due
 from state import MCP_UNAVAILABLE, PUBLISH_FAILED, TARGET_NOTION
 
@@ -54,13 +56,33 @@ def parse_tool_result(raw: Any) -> dict[str, Any]:
     raise ToolCallError(PUBLISH_FAILED, f"알 수 없는 도구 결과 형식: {type(raw)}")
 
 
-def error_from_exception(exc: Exception, default_code: str = PUBLISH_FAILED) -> ToolCallError:
+_CONNECT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+
+def _connect_failed(exc: BaseException) -> bool:
+    """요청을 보내기 전 연결 단계에서 실패했는지.
+
+    langchain-mcp-adapters(0.3.x)는 연결 실패를 ExceptionGroup으로 감싸 올리므로 안쪽까지 본다.
+    그룹 안의 예외가 모두 연결 실패일 때만 미전송으로 본다.
+    """
+    if isinstance(exc, BaseExceptionGroup):
+        return bool(exc.exceptions) and all(_connect_failed(e) for e in exc.exceptions)
+    return isinstance(exc, _CONNECT_ERRORS)
+
+
+def error_from_exception(exc: Exception, default_code: str = PUBLISH_FAILED, *, write_started: bool = False) -> ToolCallError:
     if isinstance(exc, ToolCallError):
         return exc
     text = str(exc)
     tag = TAG.search(text)
     if tag:
-        return ToolCallError(tag.group(1), text)
+        return ToolCallError(tag.group(1), text, ambiguous=tag.group(1) == "RESULT_UNKNOWN")
+    # 메시지에 'connection'이 있다는 것만으로 미전송이라고 판단하지 않는다.
+    # httpx의 연결/풀 확보 실패만 요청 전 실패임을 알 수 있다. 읽기/쓰기/EOF는 결과 불명이다.
+    if _connect_failed(exc):
+        return ToolCallError(MCP_UNAVAILABLE, text or type(exc).__name__)
+    if write_started:
+        return ToolCallError(default_code, text or type(exc).__name__, ambiguous=True)
     lowered = text.lower()
     if any(k in lowered for k in ("timeout", "timed out", "readtimeout")):
         return ToolCallError(default_code, text, ambiguous=True)
@@ -86,11 +108,20 @@ class McpPublisher:
     async def _call(self, tool: Any | None, args: dict[str, Any], name: str) -> dict[str, Any]:
         if tool is None:
             raise ToolCallError(MCP_UNAVAILABLE, f"{name} MCP 도구를 찾지 못했습니다")
+        writing = name in {"create_issue", "add_comment", "update_issue", "post_message", "create_page"}
         try:
             raw = await tool.ainvoke(args)
         except Exception as exc:  # noqa: BLE001
-            raise error_from_exception(exc) from exc
-        return parse_tool_result(raw)
+            raise error_from_exception(exc, write_started=writing) from exc
+        try:
+            return parse_tool_result(raw)
+        except ToolCallError as exc:
+            # 명시적인 MCP 거절 응답은 실패, 해석 불가능한 쓰기 응답은 성공 여부 불명.
+            if writing and not TAG.search(exc.message):
+                exc.ambiguous = True
+            if writing and exc.code == "RESULT_UNKNOWN":
+                exc.ambiguous = True
+            raise
 
     async def create_issue(self, **args: Any) -> dict[str, Any]:
         return await self._call(self.create_tool, args, "create_issue")
@@ -136,6 +167,10 @@ class DryRunPublisher:
     async def create_page(self, **args: Any) -> dict[str, Any]:
         self.calls.append(args)
         return {"status": "dry_run", "page_id": None, "url": None}
+
+    async def post_message(self, **args: Any) -> dict[str, Any]:
+        self.calls.append(args)
+        return {"status": "dry_run", "permalink": None}
 
     async def search_issues(self, **args: Any) -> dict[str, Any]:
         return {"issues": []}

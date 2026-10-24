@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from conftest import FakeLLM, FakePublisher, FakeReporter, make_request, make_state, run_review
+from conftest import PUBLISHED_10MIN, FakeLLM, FakePublisher, FakeReporter, make_request, make_state, run_review
 from nodes import AgentNodes
 from runner import run
 from test_issue_tools import FakeMcpTool, make_tools
@@ -111,8 +111,8 @@ async def test_semantic_search_then_read_issue(settings):
     assert d["handling"] == {"type": "UPDATE", "issue_number": 12, "overlap": False, "judged": True}
     assert [c["tool"] for c in d["tool_calls"]] == ["search_similar_issues", "read_issue"]
     tool_results = [m.content for m in chat.seen["비동기 사용자 CSV 내보내기 API"] if m.type == "tool"]
-    assert "CSV 빈 결과 오류 수정" in tool_results[0] and tool_results[1].startswith("제목: CSV")
-    assert len(pub.calls) == 6  # CHANGE는 새로 발행한다 (본문에 이전 이슈 링크, test_dedupe_publish)
+    assert "CSV 빈 결과 오류 수정" in tool_results[0] and tool_results[1].startswith("<existing_issue>\n제목: CSV")
+    assert len(pub.calls) == len(PUBLISHED_10MIN)  # CHANGE는 새로 발행한다 (본문에 이전 이슈 링크, test_dedupe_publish)
 
 
 async def test_no_candidates_submits_without_tools(settings):
@@ -139,7 +139,7 @@ async def test_total_tool_limit(settings):
     result, pub = await run_case(settings, chat)
     d = by_key(result)["10m1-a1"]
     assert d["relation"] is None and d["skipped"] == "tool_limit" and len(d["tool_calls"]) == 5
-    assert len(pub.calls) == 6  # 판단이 없어도 발행은 그대로
+    assert len(pub.calls) == len(PUBLISHED_10MIN)  # 판단이 없어도 발행은 그대로
     # 한도를 넘기면 판단 없이 신규 발행으로 처리한다 (TASK-041)
     assert d["handling"] == {"type": "CREATE", "issue_number": None, "overlap": False, "judged": False}
 
@@ -169,7 +169,7 @@ async def test_timeout_per_ticket(settings):
     result, pub = await run_case(settings, FakeToolChat(delay=0.3))
     assert {d["skipped"] for d in by_key(result).values() if d} == {"timeout"}
     assert {d["handling"]["type"] for d in by_key(result).values() if d} == {"CREATE"}
-    assert len(pub.calls) == 6
+    assert len(pub.calls) == len(PUBLISHED_10MIN)
 
 
 async def test_concurrency_limit(settings):
@@ -198,7 +198,7 @@ async def test_rag_down_marks_skipped_and_publishes(settings):
     pub = FakePublisher()
     result = await run(make_request(), settings, llm=ToolLLM(FakeToolChat()), publisher=pub, reporter=FakeReporter())
     assert {d["skipped"] for d in by_key(result).values() if d} == {"rag_unavailable"}
-    assert len(pub.calls) == 6
+    assert len(pub.calls) == len(PUBLISHED_10MIN)
 
 
 async def test_deadline_skips_judging(settings):

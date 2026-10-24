@@ -1,6 +1,9 @@
 # 전체 서비스 Docker 실행
 
 이 구성은 demo 프로파일과 기본 테스트 계정을 사용하는 로컬·데모용이며, 운영 배포용 구성이 아닙니다.
+demo/local/test 외의 프로파일(미지정 포함)에서는 `BACKEND_INTERNAL_TOKEN`, `DB_PASSWORD`, `RABBITMQ_PASSWORD`가 비어 있거나 기본값이면 backend가 빈 생성 전에 기동을 거부합니다. 이 Compose는 demo 프로파일이라 영향이 없습니다.
+루트 `docker-compose.yml`의 DB/브로커 포트는 `127.0.0.1`로만 바인딩됩니다. 원격 호스트나 VM에서 Compose를 띄우고 다른 PC에서 접속하는 흐름은 막히므로 SSH 터널 등을 사용하세요.
+RabbitMQ 관리 UI(15672)도 호스트의 localhost에서만 열 수 있습니다.
 
 `compose.full.yml`은 frontend, backend, agent, business-mcp, rag-mcp, postgres, rabbitmq를 함께 실행한다.
 기존 `docker-compose.yml`은 로컬 개발용 DB·RabbitMQ 설정으로 유지한다.
@@ -23,7 +26,7 @@ cp -n .env.example .env
 |---|---|
 | 루트 `.env` | `BACKEND_INTERNAL_TOKEN`, 공개 포트, 실행 모드, DB·RabbitMQ 및 demo 계정 설정 |
 | `agent/.env` | `OPENAI_API_KEY` 및 선택적인 모델·추적 설정 |
-| `business-mcp/.env` | `GITHUB_TOKEN`, (선택) `GITHUB_ALLOWED_REPOS`, Notion 발행 시 `NOTION_TOKEN`, Slack 연결 확인 시 `SLACK_BOT_TOKEN` |
+| `business-mcp/.env` | `GITHUB_TOKEN`, (선택) `GITHUB_ALLOWED_REPOS`, Notion 발행 시 `NOTION_TOKEN`, Slack 연결 확인과 공지 발행 시 `SLACK_BOT_TOKEN` |
 | `rag-mcp/.env` | `GITHUB_TOKEN`(이슈 읽기), `GITHUB_OWNER`, `GITHUB_REPO`, `OPENAI_API_KEY`(임베딩) |
 
 키 파일이 없어도 컨테이너는 기동하지만 실제 LLM 분석에는 OpenAI 키, 실제 이슈 발행에는 GitHub 토큰이 필요하다.
@@ -33,7 +36,7 @@ API 키와 토큰은 실행 시 환경 변수로 전달하며 이미지에 복�
 루트의 `DRY_RUN=true`가 기본이다. 분석·검수 LLM은 호출하지만 실제 GitHub 이슈와 Notion 페이지는 생성하지 않는다.
 `agent/.env`의 `DRY_RUN`보다 루트 Compose 설정이 우선한다.
 분석 단계의 발행 결과는 `SKIPPED`로 반환한다. 이슈 링크가 없는 발행 제외 결과가 정상이다.
-내 티켓에서 확인한 티켓을 발행하면 링크 없이 발행 완료(`PUBLISHED`)로 바뀐다. 이 티켓은 실제 발행 모드로 바꿔도 다시 발행되지 않으므로, 실제 발행은 새 회의로 확인한다.
+내 티켓에서 확인한 티켓을 발행하면 링크 없이 발행 생략(`SKIPPED`)으로 바뀐다. 이 티켓은 실제 발행 모드로 바꿔도 다시 발행되지 않으므로, 실제 발행은 새 회의로 확인한다. v2.0.0에서 만든 DB에는 같은 상황의 티켓이 발행 완료(`PUBLISHED`)로 남아 있다.
 실제 발행은 루트 `.env`에서 `DRY_RUN=false`로 바꾸고 컨테이너를 재생성한 뒤 새 회의를 분석한다.
 
 ## 실행

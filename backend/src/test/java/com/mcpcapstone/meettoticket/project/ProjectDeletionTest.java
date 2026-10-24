@@ -1,6 +1,8 @@
 package com.mcpcapstone.meettoticket.project;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -15,10 +17,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import com.mcpcapstone.meettoticket.agent.AgentContracts;
+import com.mcpcapstone.meettoticket.agent.AgentException;
 import com.mcpcapstone.meettoticket.analysis.AnalysisTask;
 import com.mcpcapstone.meettoticket.analysis.AnalysisTaskRepository;
 import com.mcpcapstone.meettoticket.analysis.TaskItem;
@@ -29,6 +33,10 @@ import com.mcpcapstone.meettoticket.meeting.Meeting;
 import com.mcpcapstone.meettoticket.meeting.MeetingRepository;
 import com.mcpcapstone.meettoticket.queue.AnalysisDispatch;
 import com.mcpcapstone.meettoticket.queue.AnalysisDispatchRepository;
+import com.mcpcapstone.meettoticket.reindex.ProjectReindex;
+import com.mcpcapstone.meettoticket.reindex.ProjectReindexGateway;
+import com.mcpcapstone.meettoticket.reindex.ProjectReindexRepository;
+import com.mcpcapstone.meettoticket.reindex.ReindexStatus;
 import com.mcpcapstone.meettoticket.user.UserRepository;
 
 @SpringBootTest
@@ -44,8 +52,11 @@ class ProjectDeletionTest {
 	@Autowired AnalysisTaskRepository tasks;
 	@Autowired TaskItemRepository items;
 	@Autowired AnalysisDispatchRepository dispatches;
+	@Autowired ProjectReindexRepository reindexes;
+	@MockitoBean ProjectReindexGateway index;
 
 	private String name;
+	private String repo;
 	private MockHttpSession admin;
 	private MockHttpSession member;
 	private long adminId;
@@ -59,6 +70,7 @@ class ProjectDeletionTest {
 		adminId = userId(admin);
 		long memberId = userId(member);
 		name = "삭제 테스트 " + suffix;
+		repo = "del-" + suffix;
 		String res = mvc.perform(post("/api/projects").session(admin).contentType("application/json")
 						.content("""
 								{"name":"%s","description":null,"githubOwner":"MCP-Capstone","githubRepo":"del-%s",
@@ -100,6 +112,17 @@ class ProjectDeletionTest {
 		return task;
 	}
 
+	// Agent 작업에 연결된 RUNNING 재색인 기록을 만든다. 끝난 상태가 필요하면 Agent 응답으로 마무리한다.
+	private ProjectReindex reindex(ReindexStatus status) {
+		ProjectReindex run = new ProjectReindex(projects.findById(projectId).orElseThrow());
+		run.bindAgentJob("job-" + projectId);
+		if (status == ReindexStatus.SUCCEEDED)
+			run.succeed(new ProjectReindexGateway.AgentStatus(status, null, null, 1, 0, 1, 1, null));
+		else if (status == ReindexStatus.FAILED)
+			run.fail("실패");
+		return reindexes.save(run);
+	}
+
 	@Test
 	void 관리자가_이름을_맞게_입력하면_딸린_기록과_함께_삭제한다() throws Exception {
 		AnalysisTask task = analysis(TaskStatus.COMPLETED);
@@ -116,6 +139,18 @@ class ProjectDeletionTest {
 		assertThat(users.existsById(adminId)).isTrue();
 		mvc.perform(get("/api/projects/{id}", projectId).session(admin))
 				.andExpect(status().isForbidden());
+		// 저장소 색인도 함께 지운다 (TASK-037)
+		verify(index).dropIndex("MCP-Capstone", repo);
+	}
+
+	@Test
+	void 색인_삭제가_실패해도_프로젝트는_삭제한다() throws Exception {
+		doThrow(new AgentException(true)).when(index).dropIndex(anyString(), anyString());
+
+		deleteProject(admin, name).andExpect(status().isNoContent());
+
+		assertThat(projects.existsById(projectId)).isFalse();
+		verify(index).dropIndex("MCP-Capstone", repo);
 	}
 
 	@Test
@@ -130,6 +165,7 @@ class ProjectDeletionTest {
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 		assertThat(projects.existsById(projectId)).isTrue();
+		verify(index, never()).dropIndex(anyString(), anyString());
 	}
 
 	@Test
@@ -141,5 +177,47 @@ class ProjectDeletionTest {
 				.andExpect(jsonPath("$.code").value("PROJECT_ANALYSIS_IN_PROGRESS"));
 		assertThat(projects.existsById(projectId)).isTrue();
 		assertThat(members.findByProjectIdOrderById(projectId)).hasSize(2);
+		verify(index, never()).dropIndex(anyString(), anyString());
+	}
+
+	@Test
+	void 끝난_재색인_기록이_있어도_함께_삭제한다() throws Exception {
+		for (ReindexStatus status : new ReindexStatus[] {ReindexStatus.SUCCEEDED, ReindexStatus.FAILED}) {
+			createProject();
+			Long reindexId = reindex(status).getId();
+
+			deleteProject(admin, name).andExpect(status().isNoContent());
+
+			assertThat(projects.existsById(projectId)).isFalse();
+			assertThat(reindexes.existsById(reindexId)).isFalse();
+			verify(index).dropIndex("MCP-Capstone", repo);
+		}
+	}
+
+	@Test
+	void 재색인이_진행_중이면_409다() throws Exception {
+		Long reindexId = reindex(ReindexStatus.RUNNING).getId();
+		when(index.status("job-" + projectId)).thenReturn(
+				new ProjectReindexGateway.AgentStatus(ReindexStatus.RUNNING, null, "색인 중", null, null, null, null, null));
+
+		deleteProject(admin, name)
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("PROJECT_REINDEX_IN_PROGRESS"));
+		assertThat(projects.existsById(projectId)).isTrue();
+		assertThat(members.findByProjectIdOrderById(projectId)).hasSize(2);
+		assertThat(reindexes.findById(reindexId)).get().extracting(ProjectReindex::getStatus).isEqualTo(ReindexStatus.RUNNING);
+		verify(index, never()).dropIndex(anyString(), anyString());
+	}
+
+	@Test
+	void Agent가_모르는_재색인은_실패로_정리하고_삭제한다() throws Exception {
+		Long reindexId = reindex(ReindexStatus.RUNNING).getId();
+		when(index.status("job-" + projectId)).thenThrow(new ProjectReindexGateway.JobNotFoundException("job-" + projectId));
+
+		deleteProject(admin, name).andExpect(status().isNoContent());
+
+		assertThat(projects.existsById(projectId)).isFalse();
+		assertThat(reindexes.existsById(reindexId)).isFalse();
+		verify(index).dropIndex("MCP-Capstone", repo);
 	}
 }

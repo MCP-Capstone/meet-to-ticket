@@ -20,6 +20,19 @@ MEMBERS = [
     ProjectMember(name="오지훈", github_name="jihoon-o"),
 ]
 
+# 전원 GitHub 계정이 매핑된 목록. 담당자 미확정 티켓은 자동 발행이 막히므로(#267)
+# 자동 발행(publish_on_run) 테스트는 `settings` fixture를 통해 이 목록을 기본으로 쓴다.
+# 그 밖의 테스트는 기존대로 MEMBERS(정하늘 미매핑)를 기본으로 쓴다
+MAPPED_MEMBERS = [
+    ProjectMember(name=m.name, github_name=m.github_name or "haneul-j") for m in MEMBERS
+]
+_default_members = {"value": MEMBERS}
+
+# 10min_1 샘플을 자동 발행하면 GitHub에 쓰는 티켓: 승인된 신규 티켓 중 담당자가 한 명인 것.
+# a2, a8은 조건부 기존 이슈 갱신(확인 필요)이고, a7은 담당자가 여러 명이라 막힌다 (#292).
+# 중복 판단은 발행 전 검수 승인 기준이라 a7을 포함해 6건을 본다
+PUBLISHED_10MIN = ("10m1-a1", "10m1-a3", "10m1-a4", "10m1-a5", "10m1-a6")
+
 
 @pytest.fixture(autouse=True)
 def no_tracing():
@@ -54,7 +67,7 @@ def make_request(name: str = "10min_1", content: str | None = None, members=None
         task_id=f"task-{name}",
         meeting=Meeting(meeting_id=name, title="t", original_content=content if content is not None else sample(name)),
         project=Project(github_owner="MCP-Capstone", github_repo="mcp-capstone"),
-        project_members=MEMBERS if members is None else members,
+        project_members=_default_members["value"] if members is None else members,
     )
 
 
@@ -205,7 +218,9 @@ class FakeReporter:
 @pytest.fixture
 def settings() -> Settings:
     # 기존 테스트는 Phase 1 흐름(검수 후 바로 발행)을 검증한다. 초안 저장 모드는 draft_settings로 본다
-    return Settings(max_revisions=2, publish_on_run=True)
+    _default_members["value"] = MAPPED_MEMBERS
+    yield Settings(max_revisions=2, publish_on_run=True, allow_auto_publish=True)
+    _default_members["value"] = MEMBERS
 
 
 @pytest.fixture

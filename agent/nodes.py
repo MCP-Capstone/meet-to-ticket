@@ -11,6 +11,7 @@ LLM, 발행 도구, 백엔드 보고는 생성자로 주입한다. 테스트에�
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections import Counter
@@ -21,6 +22,7 @@ from typing import Any
 import prompts
 from config import Settings
 from context import planning_text
+from guard import SUSPICIOUS_WARNING, scan_draft
 from extraction import NO_EVIDENCE_WARNING, from_llm, from_table, keep_verbatim
 from parsing import parse_summary
 from publisher import ToolCallError, build_issue_body, build_notion_page, build_slack_notice, pick_labels
@@ -69,7 +71,20 @@ INDEX_TIMEOUT_SECONDS = 10
 # 초안 단계 카드 경고 (초안을 다시 쓸 때마다 지우고 새로 붙인다)
 LABEL_WARNING = "라벨 후보에 없어 뺀 라벨"
 DRAFT_QUOTE_WARNING = "초안의 근거 인용 중 원문과 다른"
-DRAFT_WARNING_PREFIXES = (LABEL_WARNING, DRAFT_QUOTE_WARNING)
+DRAFT_LENGTH_WARNING = "초안이 길이 한도를 넘어 확인 필요"
+DRAFT_WARNING_PREFIXES = (LABEL_WARNING, DRAFT_QUOTE_WARNING, SUSPICIOUS_WARNING, DRAFT_LENGTH_WARNING)
+MAX_TITLE, MAX_DESCRIPTION, MAX_LIST = 60, 1500, 5
+
+
+def clip_text(text: str, limit: int) -> str:
+    """한도를 넘는 글을 공백 경계에서 자르고 말줄임표를 붙인다 (결과 길이는 limit 이하). 공백이 없으면 글자 단위로 자른다."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1]
+    space = cut.rfind(" ")
+    if space >= limit // 2:
+        cut = cut[:space]
+    return cut.rstrip() + "…"
 # 초안 저장 모드에서 보완 한도 후에도 남은 검수 지적 (상세는 content_json.review.notes)
 REVIEW_LEFT_WARNING = "자동 검수 지적"
 MISSING_DRAFT_FEEDBACK = "[9] 초안 작성 결과에 이 할 일이 빠짐 → 이 할 일의 초안을 작성"
@@ -133,6 +148,8 @@ def new_ticket(todo: ExtractedTodo, members: list[ProjectMember], meeting_date: 
         "assignee_names": assignees.names,
         "assignees": assignees.logins,
         "unresolved_assignees": assignees.unresolved,
+        "unmatched_assignees": assignees.unmatched,
+        "ambiguous_assignees": assignees.ambiguous,
         "due": {"text": due.text, "date": due.date, "time": due.time},
         "expected": {"raw": expected.raw, "kind": expected.kind, "keys": expected.keys},
         "title": "",
@@ -278,6 +295,8 @@ class AgentNodes:
             "open_questions": state.get("open_questions", []),
             "project_context": state.get("project_context", {}),
         }
+        # URL/명령어 경고의 기준 텍스트: 프로젝트 맥락(Notion, 기존 이슈)에 있던 것은 정상으로 본다
+        context_text = json.dumps(context["project_context"], ensure_ascii=False)
         targets = [
             t for t in tickets
             if t["review_status"] == REVIEW_REVISE or (t["review_status"] == REVIEW_PENDING and not t["title"])
@@ -317,7 +336,7 @@ class AgentNodes:
                 if d is not None:
                     # Phase 1 흐름(PUBLISH_ON_RUN)은 분류하지 않고 GitHub로만 발행한다 (baseline 재현)
                     self._apply_draft(t, d, labels, state["original_content"], context["open_questions"],
-                                      classify=not self.settings.publish_on_run)
+                                      classify=not self.settings.publish_on_run, context_text=context_text)
                 elif t["revisions"] < self.settings.max_revisions:
                     # 초안이 빠진 할 일은 검수로 보내지 않고 다시 작성한다 (보완 한도를 같이 쓴다).
                     # 보완 중이던 티켓은 같은 피드백으로 다시 쓴다. 한도에 닿으면 검수가 처리한다
@@ -329,13 +348,31 @@ class AgentNodes:
 
     @staticmethod
     def _apply_draft(t: dict[str, Any], d: Any, labels: list[str], source: str, open_questions: list[str],
-                     classify: bool = True) -> None:
+                     classify: bool = True, context_text: str = "") -> None:
         # 초안 단계 경고는 초안을 다시 쓸 때마다 새로 계산한다 (보완할 때 같은 경고가 쌓이지 않게)
         t["warnings"] = [w for w in t["warnings"] if not w.startswith(DRAFT_WARNING_PREFIXES)]
         t["title"] = d.title.strip()
         t["description"] = d.description.strip()
         t["tasks"] = [x.strip() for x in d.tasks if x.strip()]
         t["acceptance_criteria"] = [c.strip() for c in d.acceptance_criteria if c.strip()]
+        # 출력 검증: 제목/설명이 한도를 넘으면 공백 경계에서 자르고 말줄임표를 붙인다. 작업/완료 조건 항목은 버리지 않고
+        # 경고만 붙인다. 회의록/프로젝트 맥락에 없던 URL/코드블록/명령어는 경고한다 (프롬프트 인젝션 방어)
+        over = []
+        if len(t["title"]) > MAX_TITLE:
+            t["title"] = clip_text(t["title"], MAX_TITLE)
+            over.append(f"제목 {MAX_TITLE}자")
+        if len(t["description"]) > MAX_DESCRIPTION:
+            t["description"] = clip_text(t["description"], MAX_DESCRIPTION)
+            over.append(f"설명 {MAX_DESCRIPTION}자")
+        if len(t["tasks"]) > MAX_LIST:
+            over.append(f"상세 작업 {MAX_LIST}개 (현재 {len(t['tasks'])}개)")
+        if len(t["acceptance_criteria"]) > MAX_LIST:
+            over.append(f"완료 조건 {MAX_LIST}개 (현재 {len(t['acceptance_criteria'])}개)")
+        if over:
+            t["warnings"].append(f"{DRAFT_LENGTH_WARNING}: {', '.join(over)}")
+        found = scan_draft([t["title"], t["description"], *t["tasks"], *t["acceptance_criteria"]], source, context_text)
+        if found:
+            t["warnings"].append(f"{SUSPICIOUS_WARNING}: {', '.join(found)[:200]}")
         t["labels"], dropped_labels = pick_labels(d.labels, labels)
         if dropped_labels:
             t["warnings"].append(f"{LABEL_WARNING}: {', '.join(dropped_labels)}")
@@ -613,6 +650,32 @@ class AgentNodes:
 
     # ------------------------------------------------------------ 4. 발행
 
+    @staticmethod
+    def unconfirmed_reason(t: dict[str, Any]) -> str | None:
+        """GitHub에 쓰기 전 담당자 확정 여부. 사람이 확정하지 않은 항목은 PUBLISH_ON_RUN이어도 쓰지 않는다.
+
+        담당자가 정확히 한 멤버로 정해지지 않으면 미확정이다 (없음, 멤버 불일치, 동명이인, 여러 명):
+        백엔드 AssigneeResolver도 이런 티켓을 ASSIGNEE_REQUIRED(담당 지정 필요)로 두고, 담당자가 한 명을 지정해야
+        확인(CONFIRMED)과 발행으로 넘어간다.
+        이름이 멤버와 맞고 GitHub 계정만 없는 경우는 담당자가 정해진 것이라 막지 않는다 (본문에 계정 미매핑으로 남는다).
+        """
+        # unmatched_assignees가 없는 티켓(이전 체크포인트)은 계정 없음과 구분할 수 없어 보수적으로 unresolved를 쓴다
+        unmatched = t.get("unmatched_assignees")
+        if unmatched is None:
+            unmatched = t.get("unresolved_assignees") or []
+        if unmatched:
+            return "담당자 미확정: " + ", ".join(unmatched) + " (프로젝트 멤버와 이름이 맞지 않아 자동 발행하지 않음)"
+        if t.get("ambiguous_assignees"):
+            return ("담당자 미확정: " + ", ".join(t["ambiguous_assignees"])
+                    + " (같은 이름의 멤버가 여러 명이라 자동 발행하지 않음)")
+        if len(t.get("assignee_names") or []) > 1:
+            # 티켓 담당자는 한 명이다. 여러 명이면 사람이 한 명을 고른 뒤 발행한다
+            return ("담당자 미확정: " + ", ".join(t["assignee_names"])
+                    + " (담당자가 여러 명이라 자동 발행하지 않음. 한 명만 지정해야 함)")
+        if not t.get("assignee_names") and not t.get("assignees"):
+            return "담당자 미확정: 지정된 담당자가 없어 자동 발행하지 않음"
+        return None
+
     async def publish(self, state: AgentState) -> dict[str, Any]:
         await self._progress(state, STAGE_PUBLISHING)
         tickets = _copy(state["tickets"])
@@ -630,6 +693,15 @@ class AgentNodes:
                 t["github_issue_url"] = f"https://github.com/{state['owner']}/{state['repo']}/issues/{existing}"
                 t["reason"] = f"기존 이슈 #{existing}과 같은 작업이라 새로 만들지 않음"
                 t["dedupe"] = {**t["dedupe"], "linked_existing": True}
+                continue
+            blocked = self.unconfirmed_reason(t)  # 연결만 하는 티켓은 쓰기가 없어 위에서 끝난다. 생성 경로만 막는다
+            if blocked:
+                # 백엔드가 APPROVED 항목을 발행된 것으로 오해하지 않게 확인 필요로 내린다. 기존 사유는 보존한다
+                t["publish_status"] = "BLOCKED"
+                t["review_status"] = REVIEW_NEEDS_CHECK
+                t["action"] = "NEEDS_CHECK"
+                t["reason"] = f"{t['reason']}; {blocked}" if t.get("reason") else blocked
+                t["warnings"].append(blocked)
                 continue
             if fatal:
                 t["publish_status"] = "FAILED"
@@ -659,10 +731,17 @@ class AgentNodes:
             t["publish_status"] = "SUCCEEDED"
             t["github_issue_number"] = res.get("number")
             t["github_issue_url"] = res.get("url")
+            # 막히지 않고 여기까지 온 미매핑 이름은 멤버이지만 GitHub 계정이 없는 담당자다 (#292)
+            no_account = t.get("unresolved_assignees") or []
+            if no_account:
+                t["warnings"].append(f"GitHub 계정이 없어 담당자로 지정하지 못함: {', '.join(no_account)}")
             dropped = res.get("dropped_assignees") or []
             if dropped:
                 t["warnings"].append(f"GitHub에서 담당자 지정이 안 됨: {', '.join(dropped)}")
-            # TODO(TASK-046): MCP가 돌려줄 droppedLabels(발행 때 빠진 라벨)를 결과에 합친다
+            # 저장소에 없는 라벨은 MCP가 빼고 만든다. 담당자가 알 수 있게 경고로 남긴다 (TASK-046)
+            dropped_labels = res.get("dropped_labels") or []
+            if dropped_labels:
+                t["warnings"].append(f"저장소에 없는 라벨이라 빠짐: {', '.join(dropped_labels)}")
             if self.issue_tools is not None and t["github_issue_number"]:
                 # 다음 실행의 중복 판단에서 찾을 수 있게 색인에 넣는다. 실패해도 발행 결과는 그대로
                 indexed = await self._index(t["github_issue_number"])
@@ -713,6 +792,8 @@ class AgentNodes:
                         "names": t["assignee_names"],
                         "github": t["assignees"],
                         "unresolved": t["unresolved_assignees"],
+                        "unmatched": t.get("unmatched_assignees", []),
+                        "ambiguous": t.get("ambiguous_assignees", []),
                     },
                     "due": t["due"],
                     "expected": t["expected"],

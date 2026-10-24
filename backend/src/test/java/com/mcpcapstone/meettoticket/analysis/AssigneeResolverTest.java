@@ -40,6 +40,17 @@ class AssigneeResolverTest {
 	}
 
 	@Test
+	void 동일_GitHub_시드와_가입_멤버는_가입된_사용자에게_보낸다() {
+		User user = new User("yunk", "hash", "최윤경");
+		var seed = member(6L, "최윤경", "0unk0");
+		var registered = new ProjectMember(null, user, "최윤경", "0unk0");
+		ReflectionTestUtils.setField(registered, "id", 7L);
+		assertThat(resolve("{\"assignees\":{\"names\":[\"최윤경\"],\"github\":[\"0unk0\"]}}", seed, registered)).isSameAs(registered);
+		var unrelated = member(8L, "최윤경", "different-account");
+		assertThat(resolve("{\"assignees\":{\"names\":[\"최윤경\"]}}", unrelated, registered)).isNull();
+	}
+
+	@Test
 	void 담당자가_없거나_여러_명이거나_멤버와_맞지_않으면_정하지_않는다() {
 		assertThat(resolve("{\"assignees\":{\"names\":[],\"github\":[],\"unresolved\":[]}}", kim)).isNull();
 		assertThat(resolve("{\"assignees\":{\"names\":[\"김민준\",\"이도윤\"],\"github\":[],\"unresolved\":[]}}", kim, lee)).isNull();

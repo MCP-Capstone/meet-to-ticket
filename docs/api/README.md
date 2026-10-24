@@ -41,6 +41,7 @@
 | POST | /api/tickets/publish | 202 | 확인한 N건 발행 (`projectId`·`meetingId` 필터, 회의 지정 시 `ticketIds` 필수). 확인 상태 티켓만 발행 중으로 바꿔 Agent `POST /publish`로 보냄 |
 | GET | /api/publish-batches/{batchId} | 200 | 발행 결과: 건수 요약, 티켓별 이슈 링크/실패 사유 (요청한 사용자만) |
 | POST | /api/tickets/{ticketId}/retry | 202 | 실패한 티켓 다시 시도. 담당자만(403), 실패 상태가 아니면 409. 결과는 `batchId`로 조회 |
+| POST | /api/tickets/{ticketId}/resolve-outcome | 200 | Notion/Slack 결과 모름 실패를 확인 결과(`applied`, 선택 `url`)로 정리. 담당자만(403), `resolution=MANUAL_CHECK` 실패가 아니면 409 |
 | POST | /api/projects/{projectId}/analysis-tasks | 202 | 회의록 처리 요청 (회의 저장 + 분석 접수, 기획_v16) |
 | POST | /api/projects/{projectId}/meetings | 201 | multipart file 업로드·회의 저장 |
 | GET | /api/meetings/{meetingId} | 200 | 본문을 제외한 회의 메타데이터 |
@@ -54,7 +55,7 @@
 
 프로젝트를 등록한 사용자는 관리자(ADMIN)이자 멤버가 되고, 편집(PUT)은 관리자만 한다(아니면 403 `PROJECT_ADMIN_REQUIRED`).
 `memberUserIds`는 변경 후 전체 멤버 목록이며, 관리자는 목록에 없어도 남는다. 관리자 지정/해제는 role API(`{"role": "ADMIN" | "MEMBER"}`)로 하고, 마지막 관리자를 해제하면 409 `LAST_PROJECT_ADMIN`이다. 같은 GitHub 저장소는 대소문자가 달라도 409 `DUPLICATE_PROJECT_REPOSITORY`이다.
-프로젝트 삭제는 본문 `{"confirmName": "프로젝트 이름"}`이 저장된 이름과 같아야 한다(아니면 400 `PROJECT_NAME_MISMATCH`). 멤버, 회의 기록, 분석 작업과 티켓을 지우고 이미 발행한 GitHub 이슈, Slack 메시지, Notion 페이지는 그대로 둔다. 처리 중인 회의록이 있으면 409 `PROJECT_ANALYSIS_IN_PROGRESS`이다.
+프로젝트 삭제는 본문 `{"confirmName": "프로젝트 이름"}`이 저장된 이름과 같아야 한다(아니면 400 `PROJECT_NAME_MISMATCH`). 멤버, 회의 기록, 분석 작업과 티켓을 지우고 이미 발행한 GitHub 이슈, Slack 메시지, Notion 페이지는 그대로 둔다. 처리 중인 회의록이 있으면 409 `PROJECT_ANALYSIS_IN_PROGRESS`, 재색인이 진행 중이면 409 `PROJECT_REINDEX_IN_PROGRESS`이다. 재색인 상태 조회와 같은 규칙으로 멈춘 재색인(제한 시간 초과, Agent에서 작업을 찾지 못함 등)은 먼저 실패로 정리하므로 삭제를 계속 막지 않는다. 재색인 기록도 함께 지운다.
 저장(POST/PUT)할 때마다 GitHub 계정이 있는 멤버의 저장소 권한을 Agent `POST /projects/check-members`로 확인한다(이전 결과는 먼저 초기화). 멤버별 `repositoryPermission`은 GRANTED/DENIED, 계정이 없으면 NO_ACCOUNT(호출 제외)이다. 멤버 ERROR나 Agent/MCP 전체 실패는 저장을 막지 않고 해당 멤버 `repositoryPermission=null`, `connections.github=ERROR`로 응답한다(전부 성공이면 CONNECTED, 확인할 멤버가 없으면 null). `GET /api/projects/{projectId}`는 외부 호출 없이 저장된 값을 반환한다.
 멤버 저장소 권한과 도구 연결은 TASK-006 전까지 확인하지 않는다. GitHub 계정이 없는 멤버만 `NO_ACCOUNT`이고, 확인 전 값은 `null`이다.
 
@@ -98,7 +99,7 @@ Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤
 - `connections`: 상세 API와 같은 저장값. `CONNECTED`는 연결됨, `NOT_CONNECTED`는 미연결, `ERROR`는 확인 실패, `null`은 확인 전이다. 목록 화면은 실패·확인 전을 ‘권한 확인 필요’로 안내한다. 조회 중 외부 Agent·도구 호출은 없다.
 - `memberCount`: 미가입 팀원을 포함한 전체 프로젝트 멤버 수. `lastMeetingDate`: 저장된 회의 날짜 중 최댓값(회의가 없으면 `null`). 프로젝트 수와 무관하게 소속·멤버 수·최근 회의를 세 번의 조회로 가져온다.
 - `canEdit`: 현재 사용자가 프로젝트 관리자이면 `true`. 목록의 편집·삭제 버튼 표시 기준이며, 실제 권한은 기존 PUT·DELETE API가 다시 검사한다.
-- 삭제는 기존 `DELETE /api/projects/{projectId}`에 `{"confirmName":"프로젝트 이름"}`을 보내고 성공 시 204를 받는다. 처리 중인 회의가 있으면 409 `PROJECT_ANALYSIS_IN_PROGRESS` 메시지를 표시하고 입력은 유지한다. 삭제 후 현재 업로드 프로젝트도 남아 있는 프로젝트로 변경하며, 모두 삭제하면 선택을 비운다.
+- 삭제는 기존 `DELETE /api/projects/{projectId}`에 `{"confirmName":"프로젝트 이름"}`을 보내고 성공 시 204를 받는다. 처리 중인 회의가 있으면 409 `PROJECT_ANALYSIS_IN_PROGRESS`, 재색인 중이면 409 `PROJECT_REINDEX_IN_PROGRESS` 메시지를 표시하고 입력은 유지한다. 삭제 후 현재 업로드 프로젝트도 남아 있는 프로젝트로 변경하며, 모두 삭제하면 선택을 비운다.
 - 기존 삭제 API는 회의·작업·티켓·멤버를 삭제하고 이미 발행한 외부 결과물은 유지한다. **기존 이슈 색인 삭제는 TASK-037 후속 작업**이며 현재 삭제 창에도 색인이 남는다고 안내한다.
 
 ### 일괄 발행과 발행 결과 (#194)
@@ -110,19 +111,30 @@ Agent 결과를 저장할 때 각 항목의 담당자 이름을 프로젝트 멤
 - `MEETING_REVIEW_INCOMPLETE` (409): 본인의 검토 대기/담당 지정 필요 티켓이 남아 있다.
 - `TICKET_STATUS_CONFLICT` (409): 같은 회의의 본인 티켓이 이미 발행 중이다.
 - `PUBLISH_SELECTION_CHANGED` (409): 확인 창의 ID와 현재 확인 상태 티켓이 다르거나 `ticketIds`를 생략했다. 목록을 다시 불러오고 확인 창부터 진행한다.
-- `PUBLISH_TARGET_UNSUPPORTED` (409): GitHub 외 도구의 확인 티켓이 포함돼 있다. 일부만 몰래 제외하지 않는다.
+- `PUBLISH_TARGET_UNSUPPORTED` (409): 일괄 발행이 처리하지 않는 도구의 확인 티켓이 포함돼 있다. 일부만 몰래 제외하지 않는다. 현재 GitHub, Notion, Slack은 모두 처리한다.
 - `NO_CONFIRMED_TICKETS` (409): 발행할 본인 티켓이 없거나 프로젝트 필터와 일치하지 않는다.
 
 응답과 결과 조회 계약은 기존과 같다. 회의 필터를 생략한 기존 호출은 아래의 기존 동작을 유지하며, 새 화면에서는 반드시 회의 필터를 보낸다.
 
 
-`POST /api/tickets/publish`는 로그인 사용자가 담당인 확인(`CONFIRMED`) 티켓만 한 묶음으로 담는다. 검토 대기와 거절 티켓은 담기지 않는다. 발행 대상이 GitHub가 아닌(Slack, Notion) 확인 티켓도 담기지 않고 확인 상태로 남는다(Agent 일괄 발행은 GitHub만 처리). 담긴 티켓은 `PUBLISHING`(발행 중)이 되어 다시 담을 수 없고(중복 클릭 방지, 없으면 409 `NO_CONFIRMED_TICKETS`), Agent `POST /publish`가 202로 접수한다. 202는 접수이지 발행 성공이 아니다. Agent가 접수하지 않은 것이 확실하면 티켓은 확인 상태로 돌아가고 502 `AGENT_ACCEPTANCE_FAILED`이다.
-Agent는 결과를 `POST /internal/publish-batches/{batchId}/result`(내부 토큰)로 보고하고, 백엔드는 티켓 상태를 `PUBLISHED`/`LINKED`/`UPDATED`/`FAILED`로 바꿔 이슈 번호/URL/실패 사유를 저장한다. 발행 직전 재대조로 처리 유형이 바뀌면 실제 실행한 유형을 저장한다. 요청은 갔지만 결과를 모르는 경우(`UNKNOWN`)와 보고에서 빠진 티켓은 `FAILED`이면서 `outcomeUnknown=true`이다. 다시 시도하면 이슈가 두 번 생길 수 있어 구분한다. 같은 묶음의 보고가 다시 와도 한 번만 반영한다.
+`POST /api/tickets/publish`는 로그인 사용자가 담당인 확인(`CONFIRMED`) 티켓만 한 묶음으로 담는다. 검토 대기와 거절 티켓은 담기지 않는다. GitHub 이슈, Notion 페이지, Slack 회의 결과 공지 티켓을 모두 담는다. 담긴 티켓은 `PUBLISHING`(발행 중)이 되어 다시 담을 수 없고(중복 클릭 방지, 없으면 409 `NO_CONFIRMED_TICKETS`), Agent `POST /publish`가 202로 접수한다. 202는 접수이지 발행 성공이 아니다. Agent가 접수하지 않은 것이 확실하면 티켓은 확인 상태로 돌아가고 502 `AGENT_ACCEPTANCE_FAILED`이다.
+Agent는 결과를 `POST /internal/publish-batches/{batchId}/result`(내부 토큰)로 보고하고, 백엔드는 티켓 상태를 `PUBLISHED`/`LINKED`/`UPDATED`/`FAILED`로 바꿔 이슈 번호/URL/실패 사유를 저장한다. Slack 공지는 Agent가 `POSTED`와 `messageUrl`로 알려 주며 `PUBLISHED`로 저장한다. 결과 항목의 `githubIssueUrl`에는 `publishTarget`에 따라 GitHub 이슈, Notion 페이지, Slack 메시지 URL이 담긴다. 발행 직전 재대조로 처리 유형이 바뀌면 실제 실행한 유형을 저장한다. 요청은 갔지만 결과를 모르는 경우(`UNKNOWN`)와 보고에서 빠진 티켓은 `FAILED`이면서 `outcomeUnknown=true`이다. 다시 시도하면 이슈가 두 번 생길 수 있어 구분한다. 같은 묶음의 보고가 다시 와도 한 번만 반영한다.
 `GET /api/publish-batches/{batchId}`는 `RUNNING`(결과 대기)이면 계속 조회한다. `GET /api/tickets/me`의 `counts.failed`는 실패 배너용이다. MOCK 모드는 GitHub 발행 없이 즉시 `PUBLISHED`로 저장하며 이슈 링크가 없다.
 `POST /api/tickets/{ticketId}/retry`는 실패(`FAILED`) 티켓 하나를 새 묶음으로 다시 발행한다(REQ-019). 티켓 행을 잠근 뒤 발행 중으로 바꾸므로 같은 티켓을 동시에 다시 시도해도 한 번만 접수되고 나머지는 409 `TICKET_STATUS_CONFLICT`이다. 결과는 같은 규칙으로 저장되어 성공하면 `PUBLISHED`/`LINKED`/`UPDATED`, 실패하면 다시 `FAILED`(새 사유)가 된다. Agent가 접수하지 않은 것이 확실하면 502 `AGENT_ACCEPTANCE_FAILED`이고 티켓은 이전 실패 상태와 사유를 유지한다. 결과 항목의 `failureCategory`는 `REPOSITORY_PERMISSION`(`REPOSITORY_NOT_ALLOWED`, `GITHUB_AUTH`, `GITHUB_FORBIDDEN`)이면 PM이 프로젝트 설정에서 저장소 권한을 풀어야 하는 실패이고, 그 밖은 `OTHER`이다. `outcomeUnknown=true`인 티켓도 재시도할 수 있으며 Agent가 발행 직전 재대조로 이미 만들어진 이슈를 연결로 바꾼다.
 `GET /api/tickets/me`의 티켓은 실패(`FAILED`) 상태일 때만 `publishFailure`(`errorCode`, `errorMessage`, `failureCategory`, `retryable`, `outcomeUnknown`)를 담고 그 밖에는 null이다. `outcomeUnknown`에는 이전 시도의 결과 모름도 포함되며, 화면은 이때 GitHub 확인 단계를 거친 뒤 다시 시도하게 한다.
 `POST /api/tickets/{ticketId}/revise`는 실패(`FAILED`) 티켓을 검토 대기(`PENDING_REVIEW`)로 되돌려 고친 뒤 다시 확인할 수 있게 한다. 담당자만 할 수 있고 실패 상태가 아니면 409 `TICKET_STATUS_CONFLICT`이다. 티켓의 지난 발행 결과(오류 코드, 재시도 가능 여부, 결과 모름, 이슈 번호/URL)는 비운다. 지난 묶음의 `GET /api/publish-batches/{batchId}`는 묶음이 끝날 때 저장한 티켓별 기록을 보여 주므로, 이후 티켓을 다시 시도하거나 수정으로 되돌려도 바뀌지 않는다.
 지난 발행이 결과 모름(`outcomeUnknown=true`)이었던 티켓은 수정을 거쳐도 표시가 남고, 다시 발행할 때 Agent에 `previousOutcomeUnknown=true`로 보낸다. Agent는 담당자가 처리 유형을 직접 바꿨더라도 발행 직전 재대조를 하고, 이미 반영된 것이 있으면 다시 쓰지 않는다. 신규 발행은 같은 `work_key`의 열린 이슈(제목 일치)를 그 티켓의 결과(`PUBLISHED`)로 보고, 연결은 같은 회의의 연결 댓글이, 갱신은 같은 회의의 `회의 변경 사항` 섹션이 이미 있으면 다시 달거나 덧붙이지 않는다. 댓글이 너무 많아 끝까지 확인하지 못하면 쓰지 않고 `MARKER_CHECK_INCOMPLETE`로 실패시킨다. 확실한 성공이 오면 표시는 풀린다.
+
+실패를 푸는 방법은 `publishFailure.resolution`으로 내려준다(#280). 대상별 차이는 백엔드 `PublishTarget`의 재대조 가능 여부 하나로 정하고, 화면은 이 값만 보고 버튼을 고른다.
+
+| resolution | 언제 | 화면 |
+|---|---|---|
+| `RETRY` | 일반 실패, GitHub 결과 모름 (다시 시도하면 Agent가 재대조) | 다시 시도 (결과 모름이면 확인 체크 후) |
+| `MANUAL_CHECK` | Notion/Slack 결과 모름 (이미 반영됐는지 찾는 도구가 없음) | 이미 반영됨 / 반영되지 않음 |
+
+Notion 페이지와 Slack 공지는 결과 모름 뒤 재발행을 Agent가 보내지 않고 `NOTION_VERIFY_REQUIRED`/`SLACK_VERIFY_REQUIRED`(재시도 불가)로 실패시킨다. 담당자는 대상 도구에서 직접 확인한 결과를 `POST /api/tickets/{ticketId}/resolve-outcome`으로 남긴다. `{"applied": true, "url": "..."}`이면 `PUBLISHED`로 끝내고 `url`(선택)을 결과 링크로 저장한다. 링크는 Notion이면 `notion.so`/`notion.site`, Slack이면 `slack.com`의 https 링크여야 하고, 아니면 400 `VALIDATION_FAILED`다. `{"applied": false}`면 결과 모름 표시를 풀고 `VERIFIED_NOT_APPLIED`(재시도 가능) 실패로 바꿔, 다시 시도하면 차단 없이 발행한다(`url`은 검사하지 않고 버린다). GitHub 티켓이나 `MANUAL_CHECK`가 아닌 실패는 409 `TICKET_STATUS_CONFLICT`다. GitHub는 잘못 누르면 자동 재대조가 꺼져 이슈가 중복될 수 있어 받지 않는다. `MANUAL_CHECK` 실패의 `POST /retry`와 `POST /revise`도 409다. 확인 결과는 실패 상태에서만 남길 수 있어서, 먼저 되돌리면 확인할 길 없이 대상만 잠기기 때문이다. `{"applied": false}`는 지금 실패가 결과 모름 자체(타임아웃, `*_VERIFY_REQUIRED`)일 때만 사유를 `VERIFIED_NOT_APPLIED`로 바꾸고, 결과 모름 뒤 재발행이 설정 오류(예: `NOTION_ROOT_MISSING`)로 끝났다면 그 사유를 남긴다. 결과 모름 실패의 `publishFailure.checkUrl`은 반영 여부를 확인하러 갈 곳(저장소 이슈 목록, Notion 기획 페이지, Slack 채널)이다.
+
+결과 모름이 남은 티켓은 수정으로 되돌려도 발행 대상을 바꿀 수 없다(`publishTargetLocked=true`, `PATCH /publication`은 409 `PUBLISH_TARGET_LOCKED`, #280). 결과 모름은 이미 기록됐을 수 있다는 뜻이라, 다른 대상으로 보내면 같은 업무가 두 곳에 생길 수 있기 때문이다. 그 대상에서 결론을 내면(GitHub는 다시 시도의 재대조, Notion/Slack은 확인 결과) 잠금이 풀린다. 본문 수정은 잠그지 않고, 결과 모름이 아닌 확실한 실패는 대상을 바꿀 수 있다.
 
 ### 전송 결과와 대표 담당 지정 (#213)
 
@@ -202,7 +214,7 @@ Agent 환경에서 `uvicorn main:app --port 8001`로 실행한다. 설치는 [Ag
 문서 조회만으로 LLM·MCP를 호출하지 않는다. POST는 실제 업무를 실행하므로 단독 테스트는
 `agent/.env`의 `DRY_RUN=true`, `BACKEND_BASE_URL=` 설정으로 발행·콜백을 끈다. 설정 로더는 .env를 환경변수보다 우선한다.
 
-`POST /publish`는 백엔드가 `batchId`와 `reviewStatus: CONFIRMED` 티켓만 보내는 내부 API다. GitHub 티켓에는 프로젝트 저장소와 확정한 `processingType`(`CREATE`/`LINK`/`UPDATE`), 기존 이슈 번호(연결·갱신 때), 편집된 `contentJson`을 포함한다. Slack 공지 티켓에는 `publishTarget: SLACK`, 프로젝트 `slackChannelId`, 공지의 `contentJson.slack.text`·`reviewers`, 연결된 `slackMembers[{name, slackUserId}]`를 함께 보낸다. Agent는 GitHub 티켓을 저장소별 재대조하고, Slack 공지는 한 번 `post_message`로 게시한다. 최종 결과는 `POST /internal/publish-batches/{batchId}/result`에 GitHub의 `PUBLISHED`/`LINKED`/`UPDATED`, Slack의 `POSTED`, 실패·결과 모름과 이슈·댓글·메시지 링크를 함께 보고한다. 같은 `batchId` 재요청은 중복 발행하지 않는다.
+`POST /publish`는 백엔드가 `batchId`와 `reviewStatus: CONFIRMED` 티켓만 보내는 내부 API다. GitHub 티켓에는 프로젝트 저장소와 확정한 `processingType`(`CREATE`/`LINK`/`UPDATE`), 기존 이슈 번호(연결·갱신 때), 편집된 `contentJson`을 포함한다. Slack 공지 티켓에는 `publishTarget: SLACK`, 프로젝트 `slackChannelId`, 공지의 `contentJson.slack.text`·`reviewers`, 연결된 `slackMembers[{name, slack_user_id}]`(Agent가 dict로 읽어 키가 snake_case)를 함께 보낸다. Agent는 GitHub 티켓을 저장소별 재대조하고, Slack 공지는 한 번 `post_message`로 게시한다. 최종 결과는 `POST /internal/publish-batches/{batchId}/result`에 GitHub의 `PUBLISHED`/`LINKED`/`UPDATED`, Slack의 `POSTED`, 실패·결과 모름과 이슈·댓글·메시지 링크를 함께 보고한다. 같은 `batchId` 재요청은 중복 발행하지 않는다.
 DRY_RUN도 실제 추출·검수 LLM 호출과 모델 API 키가 필요하다. 키는 Swagger 요청 JSON에 넣지 않는다.
 현재 Agent dry-run은 승인 항목을 SKIPPED(발행 생략)로 반환한다. 이를 실제 GitHub 생성 거절로 해석하지 않는다.
 가짜 LLM·MCP로 확인하려면 Agent의 자동 테스트를 실행한다.

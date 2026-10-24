@@ -111,6 +111,20 @@ class MyTicketTest {
 	}
 
 	@Test
+	void 검토_대기_티켓의_제목을_수정한다() throws Exception {
+		UUID ticketId = analyze("함주헌");
+
+		mvc.perform(patch("/api/tickets/{id}", ticketId)
+				.contentType("application/json")
+				.content("{\"title\":\"CSV 빈 결과 500 오류 수정\"}")
+				.session(me))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.title").value("CSV 빈 결과 500 오류 수정"));
+
+		assertThat(items.findById(ticketId).orElseThrow().getTitle()).isEqualTo("CSV 빈 결과 500 오류 수정");
+	}
+
+	@Test
 	void 다른_사용자는_내_티켓을_보지_못하고_비로그인은_401이다() throws Exception {
 		UUID mine = analyze("함주헌");
 		MockHttpSession other = new MockHttpSession();

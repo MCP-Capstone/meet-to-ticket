@@ -55,7 +55,7 @@ export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh }: Pr
     <section className="card" aria-label="회의별 일괄 발행"><h2>회의별 발행</h2><p className="muted">이 회의의 내 티켓을 모두 확인 또는 거절한 뒤, 확인한 티켓만 발행합니다. 다른 담당자의 검토를 기다릴 필요는 없습니다.</p>
       {dirty && <p className="notice">수정 중인 티켓을 저장하거나 취소한 뒤 발행하세요.</p>}
       {error && <p className="error" role="alert">{error}</p>}
-      {uncertain && <p className="notice">이미 접수됐을 수 있어 재발행을 막았습니다. 목록을 새로고침하고 GitHub 반영 여부를 확인하세요.</p>}
+      {uncertain && <p className="notice">이미 접수됐을 수 있어 재발행을 막았습니다. 목록을 새로고침하고 발행 대상 도구에 반영됐는지 확인하세요.</p>}
       <ul className="publish-groups">{meetingGroups(tickets).map((group) => {
         const state = publishSelection(group.tickets)
         return <li key={group.key}><div><strong>{group.first.meetingTitle}</strong><p className="muted">{group.first.projectName} · 회의 #{group.first.meetingId} · 검토 대기 {state.pending}건 · 확인 {state.confirmed.length}건 · 거절 {state.rejected}건</p>

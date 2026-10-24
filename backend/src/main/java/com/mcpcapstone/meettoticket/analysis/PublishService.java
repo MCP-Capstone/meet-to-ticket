@@ -27,6 +27,8 @@ import java.util.*;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class PublishService {
+    private static final int MAX_RECONCILE_PER_CYCLE = 10;
+
     private final TaskItemRepository items;
     private final PublishBatchRepository batches;
     private final UserRepository users;
@@ -43,7 +45,6 @@ public class PublishService {
             List<TaskItem> picked = new ArrayList<>();
             for (UUID id : items.findIdsAssignedTo(userId, TicketStatus.CONFIRMED, projectId)) {
                 // 잠근 뒤 다시 확인해야 그 사이 발행 중으로 바뀐 티켓을 걸러낸다.
-                // Agent 일괄 발행은 GitHub와 Notion을 처리한다. Slack 대상은 확인 상태로 두고 해당 발행 기능(TASK-051)이 맡는다.
                 items.findForUpdate(id)
                         .filter(i -> i.getTicketStatus() == TicketStatus.CONFIRMED && publishable(i.getPublishTarget()))
                         .ifPresent(picked::add);
@@ -92,12 +93,30 @@ public class PublishService {
             if (assignee == null || assignee.getUser() == null || !assignee.getUser().getId().equals(userId))
                 throw new BusinessException(ErrorCode.TICKET_ASSIGNEE_REQUIRED);
             if (ticket.getTicketStatus() != TicketStatus.FAILED) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+            // 재대조할 수 없는 대상의 결과 모름은 Agent가 어차피 막으므로, 확인 결과(resolve-outcome)를 먼저 남겨야 한다 (#280).
+            if (PublishResolution.of(ticket) == PublishResolution.MANUAL_CHECK) throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
+			if (!ticket.canRetryPublish()) throw new BusinessException(ErrorCode.PUBLISH_RETRY_NOT_ALLOWED);
+			return prepare(userId, List.of(ticket));
+		}));
+	}
+
+	// UPDATED를 일반 재발행하지 않고 알림 댓글만 보낸다. 같은 행 잠금으로 중복 클릭도 차단한다.
+	@Transactional(propagation = Propagation.NOT_SUPPORTED)
+	public Started retryComment(UUID ticketId, Long userId) {
+		return dispatch(tx.execute(status -> {
+			TaskItem ticket = items.findForUpdate(ticketId).orElseThrow(() -> new BusinessException(ErrorCode.TICKET_NOT_FOUND));
+			var assignee = ticket.getAssignee();
+			if (assignee == null || assignee.getUser() == null || !assignee.getUser().getId().equals(userId))
+				throw new BusinessException(ErrorCode.TICKET_ASSIGNEE_REQUIRED);
+			if (ticket.getTicketStatus() != TicketStatus.UPDATED || !ticket.isCommentRetry())
+				throw new BusinessException(ErrorCode.TICKET_STATUS_CONFLICT);
             return prepare(userId, List.of(ticket));
         }));
     }
 
+    // GitHub 이슈, Notion 페이지, Slack 공지(TASK-051) 모두 Agent 일괄 발행이 처리한다.
     private static boolean publishable(PublishTarget target) {
-        return target == PublishTarget.GITHUB || target == PublishTarget.NOTION;
+        return target == PublishTarget.GITHUB || target == PublishTarget.NOTION || target == PublishTarget.SLACK;
     }
 
     private record Prepared(UUID batchId, PublishGateway.Request request) {}
@@ -139,6 +158,25 @@ public class PublishService {
         });
     }
 
+    // Agent 결과 보고가 오지 않아도 실행 중인 묶음을 조회해 끝낸다.
+    // 스케줄러 스레드를 오래 잡지 않도록 한 주기에 조회하는 묶음 수를 제한하고, Agent에 닿지 않으면 그 주기는 바로 멈춘다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void reconcileRunning() {
+        List<UUID> running = batches.findIdsByStatusCreatedBefore(PublishBatchStatus.RUNNING, OffsetDateTime.now());
+        for (UUID id : running.stream().limit(MAX_RECONCILE_PER_CYCLE).toList()) {
+            try {
+                gateway.status(id.toString()).ifPresent(result ->
+                        tx.executeWithoutResult(status -> applyResult(id, result)));
+            } catch (AgentException e) {
+                // 묶음마다 타임아웃을 기다리면 주기가 묶음 수만큼 늘어난다. Agent가 응답하지 않으면 다음 주기에 다시 조회한다.
+                log.warn("Agent 결과 조회 실패로 이번 주기의 일괄 발행 조회를 멈춤, 다음 주기에 다시 조회: {}", e.getMessage());
+                return;
+            } catch (RuntimeException e) {
+                log.warn("일괄 발행 {} 결과 반영 실패, 다음 주기에 다시 조회: {}", id, e.getMessage());
+            }
+        }
+    }
+
     // 접수 확인에 실패했거나 Agent가 보고하지 못한 묶음은 기한이 지나면 결과 모름으로 끝낸다.
     // 그대로 두면 티켓이 발행 중에 묶여 다시 발행할 수 없다. 기한 뒤에 온 보고는 이미 끝난 묶음이라 무시된다.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -170,12 +208,18 @@ public class PublishService {
             record(ticket, r);
         }
         // 보고에 없는 티켓은 발행됐는지 알 수 없다. 실패로 두되 결과 모름으로 구분한다.
-        for (TaskItem ticket : waiting.values())
+        // 기한 초과, 묶음 전체 실패처럼 일시적인 경우가 대부분이라 확인 후 다시 시도할 수 있게 둔다(재대조 또는 MANUAL_CHECK가 중복을 막는다).
+		for (TaskItem ticket : waiting.values()) {
+			if (ticket.isCommentRetry()) {
+				recordCommentFailure(ticket, "알림 댓글 결과를 받지 못했습니다. 다시 보내면 기존 댓글 표식을 먼저 확인합니다.");
+				continue;
+			}
             ticket.recordPublishResult(
                     TicketStatus.FAILED, null, null, null,
                     result.errorCode() != null ? result.errorCode() : "RESULT_MISSING",
                     result.errorMessage() != null ? result.errorMessage() : "발행 결과를 받지 못했습니다.",
-                    false, true);
+                    true, true);
+		}
 
         List<TaskItem> all = items.findByBatch(batchId);
         long failed = all.stream().filter(i -> i.getTicketStatus() == TicketStatus.FAILED).count();
@@ -190,20 +234,43 @@ public class PublishService {
     }
 
     private void record(TaskItem ticket, PublishGateway.Item r) {
+		if (ticket.isCommentRetry()) {
+			// 댓글 실패/응답 유실 때문에 이미 완료한 본문 갱신을 FAILED로 되돌리지 않는다.
+			if ("UPDATED".equals(r.status()) && r.errorCode() != null && !retryable(r)) {
+				// 댓글이 이미 있는지 끝까지 확인하지 못했다(MARKER_CHECK_INCOMPLETE 등). 다시 보내면 중복될 수 있어
+				// 댓글 재전송을 막고(isCommentRetry가 거짓이 된다) GitHub에서 직접 확인하게 한다.
+				ticket.recordPublishResult(TicketStatus.UPDATED, ProcessingType.UPDATE,
+						ticket.getGithubIssueNumber(), ticket.getGithubIssueUrl(), r.errorCode(), r.errorMessage(), false, false);
+			} else if (!"UPDATED".equals(r.status()) || r.errorCode() != null) {
+				recordCommentFailure(ticket, r.errorMessage() != null ? r.errorMessage() : "알림 댓글 결과를 확인하지 못했습니다.");
+			} else {
+				ticket.recordPublishResult(TicketStatus.UPDATED, ProcessingType.UPDATE,
+						ticket.getGithubIssueNumber(), ticket.getGithubIssueUrl(), null, null, false, false);
+			}
+			return;
+		}
         ProcessingType executed = parse(r.processingType());
-        // 저장 칸 이름은 githubIssueUrl이지만 Notion 대상은 만든 페이지 URL을 여기에 담는다(스키마와 API는 그대로).
-        String url = r.notionPageUrl() != null ? r.notionPageUrl() : r.githubIssueUrl();
+        // 저장 칸 이름은 githubIssueUrl이지만 Notion 대상은 만든 페이지 URL을, Slack 대상은 게시한 메시지 URL을 담는다(스키마는 그대로).
+        String url = r.notionPageUrl() != null ? r.notionPageUrl() : r.messageUrl() != null ? r.messageUrl() : r.githubIssueUrl();
         switch (r.status() == null ? "" : r.status()) {
-            case "PUBLISHED" -> ticket.recordPublishResult(TicketStatus.PUBLISHED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), false, false);
+            // Slack 공지는 Agent가 POSTED로 알려 준다. 티켓 상태로는 발행됨이다.
+            case "PUBLISHED", "POSTED" -> ticket.recordPublishResult(TicketStatus.PUBLISHED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), false, false);
             case "LINKED" -> ticket.recordPublishResult(TicketStatus.LINKED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), false, false);
             // 본문은 갱신됐지만 알림 댓글만 실패한 경우처럼 errorCode가 함께 올 수 있다. 갱신됨으로 두고 사유를 남긴다.
             case "UPDATED" -> ticket.recordPublishResult(TicketStatus.UPDATED, executed, r.githubIssueNumber(), url, r.errorCode(), r.errorMessage(), retryable(r), false);
+			case "SKIPPED" -> ticket.recordPublishResult(TicketStatus.SKIPPED, executed, null, null,
+					null, r.errorMessage() != null ? r.errorMessage() : "발행하지 않음", false, false);
             case "UNKNOWN" -> ticket.recordPublishResult(TicketStatus.FAILED, executed, r.githubIssueNumber(), url,
                     r.errorCode() != null ? r.errorCode() : "RESULT_UNKNOWN", r.errorMessage(), retryable(r), true);
             default -> ticket.recordPublishResult(TicketStatus.FAILED, executed, null, null,
                     r.errorCode() != null ? r.errorCode() : "PUBLISH_FAILED", r.errorMessage(), retryable(r), false);
         }
     }
+
+	private void recordCommentFailure(TaskItem ticket, String message) {
+		ticket.recordPublishResult(TicketStatus.UPDATED, ProcessingType.UPDATE,
+				ticket.getGithubIssueNumber(), ticket.getGithubIssueUrl(), "COMMENT_FAILED", message, true, false);
+	}
 
     private static boolean retryable(PublishGateway.Item r) {
         return Boolean.TRUE.equals(r.retryable());
@@ -234,6 +301,7 @@ public class PublishService {
                 count(list, TicketStatus.PUBLISHED),
                 count(list, TicketStatus.LINKED),
                 count(list, TicketStatus.UPDATED),
+				count(list, TicketStatus.SKIPPED),
                 count(list, TicketStatus.FAILED),
                 count(list, TicketStatus.PUBLISHING));
     }
@@ -251,7 +319,8 @@ public class PublishService {
                 i.getId(), i.getTitle(), i.getTicketStatus(), i.getProcessingType(), project.getId(), project.getName(),
                 i.getGithubIssueNumber(), i.getGithubIssueUrl(), code, waiting ? null : i.getErrorMessage(),
                 PublishFailureCategory.of(code),
-                !waiting && i.isPublishRetryable(), !waiting && i.isPublishOutcomeUnknown());
+                // 결과 모름은 카드와 같은 기준(지난 결과 모름 포함)으로 내려준다. Notion/Slack 차단 실패도 결과 모름으로 보인다.
+                !waiting && i.canRetryPublish(), !waiting && i.getTicketStatus() == TicketStatus.FAILED && i.mustRecheckOnPublish(), i.getPublishTarget());
     }
 
     // 담당자가 카드에서 고친 내용(contentJson)과 처리 유형을 그대로 보낸다. 발행 본문은 Agent가 이 내용으로 조립한다.
@@ -277,6 +346,7 @@ public class PublishService {
             @Schema(description = "발행됨", requiredMode = Schema.RequiredMode.REQUIRED, example = "1") int published,
             @Schema(description = "기존 이슈에 연결됨", requiredMode = Schema.RequiredMode.REQUIRED, example = "1") int linked,
             @Schema(description = "기존 이슈 갱신됨", requiredMode = Schema.RequiredMode.REQUIRED, example = "0") int updated,
+			@Schema(description = "외부 발행 생략", requiredMode = Schema.RequiredMode.REQUIRED, example = "0") int skipped,
             @Schema(description = "실패", requiredMode = Schema.RequiredMode.REQUIRED, example = "1") int failed,
             @Schema(description = "결과를 기다리는 중", requiredMode = Schema.RequiredMode.REQUIRED, example = "0") int publishing) {}
 
@@ -293,5 +363,6 @@ public class PublishService {
             @Schema(description = "실패 사유", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) String errorMessage,
             @Schema(description = "실패 사유 분류. REPOSITORY_PERMISSION이면 PM이 프로젝트 설정에서 저장소 권한을 풀어야 하므로 화면이 프로젝트 설정으로 안내한다. 사유가 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, allowableValues = {"REPOSITORY_PERMISSION", "OTHER"}, example = "REPOSITORY_PERMISSION") PublishFailureCategory failureCategory,
             @Schema(description = "다시 시도해도 되는 실패인지", requiredMode = Schema.RequiredMode.REQUIRED) boolean retryable,
-            @Schema(description = "요청은 갔지만 결과를 모르는 경우. 다시 시도하기 전에 GitHub에서 확인해야 한다", requiredMode = Schema.RequiredMode.REQUIRED) boolean outcomeUnknown) {}
+            @Schema(description = "요청은 갔지만 결과를 모르는 경우. 다시 시도하기 전에 발행 대상 도구에서 확인해야 한다", requiredMode = Schema.RequiredMode.REQUIRED) boolean outcomeUnknown,
+            @Schema(description = "발행 대상. githubIssueUrl에는 대상에 따라 GitHub 이슈, Notion 페이지, Slack 메시지 URL이 담긴다. 이 필드가 생기기 전에 끝난 묶음은 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "GITHUB") PublishTarget publishTarget) {}
 }

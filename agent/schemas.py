@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 # ---------------------------------------------------------------- API 입력 (백엔드 → Agent, camelCase)
@@ -119,6 +119,17 @@ class PublishTicket(CamelModel):
     publish_target: PublishTarget = Field("GITHUB", description="GitHub 이슈, Notion 페이지 또는 회의 결과 Slack 공지")
     slack_members: list[dict[str, str]] = Field(default_factory=list, description="name과 slack_user_id가 있는 연결 완료 Slack 사용자. 공지 멘션에만 쓴다")
     review_status: Literal["CONFIRMED"] = Field(description="백엔드는 CONFIRMED 티켓만 보낸다")
+    retry_comment_only: bool = Field(False, description="본문 갱신은 이미 완료됨. 기존 UPDATE 알림 댓글만 표식 확인 후 재전송한다")
+
+    @model_validator(mode="after")
+    def validate_comment_retry(self) -> PublishTicket:
+        if self.retry_comment_only and (
+            self.publish_target != "GITHUB"
+            or self.processing_type != "UPDATE"
+            or self.target_issue_number is None
+        ):
+            raise ValueError("댓글 재전송은 대상 이슈가 있는 GitHub UPDATE 티켓만 가능합니다")
+        return self
 
 
 class PublishBatchRequest(CamelModel):
@@ -129,7 +140,7 @@ class PublishBatchRequest(CamelModel):
 class PublishItemResult(CamelModel):
     ticket_id: str
     processing_type: ProcessingType = Field(description="발행 직전 재대조 뒤 실제 실행한 유형")
-    status: Literal["PUBLISHED", "LINKED", "UPDATED", "POSTED", "FAILED", "UNKNOWN"]
+    status: Literal["PUBLISHED", "LINKED", "UPDATED", "POSTED", "SKIPPED", "FAILED", "UNKNOWN"]
     github_issue_number: int | None = None
     github_issue_url: str | None = None
     comment_url: str | None = Field(None, description="LINK 댓글 또는 UPDATE 알림 댓글 URL")

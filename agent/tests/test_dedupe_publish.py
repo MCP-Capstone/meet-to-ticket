@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import pytest
 
-from conftest import FakePublisher, FakeReporter, make_request
+from conftest import PUBLISHED_10MIN, FakePublisher, FakeReporter, make_request
 from publisher import DryRunPublisher, build_issue_body, dedupe_link
 from runner import run
 from test_dedupe import FakeToolChat, ToolLLM, by_key, run_case
@@ -41,8 +41,8 @@ async def test_same_open_issue_is_linked_not_created(settings):
     assert i.reason == "기존 이슈 #12과 같은 작업이라 새로 만들지 않음"
     assert i.content_json["dedupe"]["linked_existing"] is True
     assert all("work_key: 10m1-a1 " not in c["body"] for c in pub.calls)  # 새 이슈를 만들지 않음
-    assert len(pub.calls) == 5
-    assert result.summary["published"] == 6 and result.summary["linked"] == 1
+    assert len(pub.calls) == len(PUBLISHED_10MIN) - 1  # 연결한 a1만 빠진다
+    assert result.summary["published"] == len(PUBLISHED_10MIN) and result.summary["linked"] == 1
     # 백엔드 검증 조건: 생성 성공은 번호 > 0, 프로젝트 저장소의 github.com https URL
     url = urlparse(i.github_issue_url)
     assert i.action == "CREATE" and url.scheme == "https" and url.netloc == "github.com"
@@ -71,7 +71,7 @@ async def test_other_relations_publish_new_with_link(settings, relation, number,
     assert i.publish_status == "SUCCEEDED" and i.github_issue_number not in (7, 12)
     body = body_of(pub, "10m1-a1")
     assert "## 관련" in body and line in body
-    assert len(pub.calls) == 6 and result.summary["linked"] == 0
+    assert len(pub.calls) == len(PUBLISHED_10MIN) and result.summary["linked"] == 0
 
 
 async def test_no_decision_publishes_without_link(settings):
@@ -98,14 +98,14 @@ async def test_new_issues_are_indexed(settings):
     created = sorted(i.github_issue_number for i in result.items if i.publish_status == "SUCCEEDED")
     assert sorted(c["number"] for c in index.calls) == [n for n in created if n != 12]  # 연결한 이슈는 색인하지 않음
     assert all(c["owner"] == "o" and c["repo"] == "r" for c in index.calls)  # 도구에 고정한 저장소
-    assert result.metrics["dedupe"]["indexed"] == 5
+    assert result.metrics["dedupe"]["indexed"] == len(PUBLISHED_10MIN) - 1
 
 
 async def test_index_failure_keeps_publish_result(settings):
     tools, _ = make_tools(index_tool=FakeMcpTool(error="[EMBEDDING_ERROR] 임베딩 실패"))
     result, pub = await run_case(settings, FakeToolChat(), tools=tools)
     published = [i for i in result.items if i.publish_status == "SUCCEEDED"]
-    assert len(published) == 6 and all(i.content_json["dedupe"]["indexed"] is False for i in published)
+    assert len(published) == len(PUBLISHED_10MIN) and all(i.content_json["dedupe"]["indexed"] is False for i in published)
     assert result.metrics["dedupe"]["indexed"] == 0 and result.error_code is None
 
 
@@ -171,14 +171,14 @@ async def test_same_meeting_twice_links_instead_of_creating(settings):
     first = await run(make_request(), settings, llm=ToolLLM(TitleChat()), publisher=pub,
                       reporter=FakeReporter(), issue_tools=tools)
     created = {i.work_key: i.github_issue_number for i in first.items if i.publish_status == "SUCCEEDED"}
-    assert len(created) == 6 and first.summary["linked"] == 0 and len(index.titles) == 6
+    assert set(created) == set(PUBLISHED_10MIN) and first.summary["linked"] == 0 and len(index.titles) == len(PUBLISHED_10MIN)
 
     again = make_request().model_copy(update={"task_id": "task-again"})  # 같은 회의록, 새 작업
     second = await run(again, settings, llm=ToolLLM(TitleChat()), publisher=pub,
                        reporter=FakeReporter(), issue_tools=tools)
     linked = {i.work_key: i.github_issue_number for i in second.items if i.publish_status == "SUCCEEDED"}
     assert linked == created  # 첫 실행에서 만든 이슈로 연결
-    assert len(pub.calls) == 6 and second.summary["linked"] == 6  # 새 이슈는 생기지 않음
+    assert len(pub.calls) == len(PUBLISHED_10MIN) and second.summary["linked"] == len(PUBLISHED_10MIN)  # 새 이슈는 생기지 않음
 
 
 async def test_slow_index_does_not_block_publish(settings, monkeypatch):
@@ -196,5 +196,5 @@ async def test_slow_index_does_not_block_publish(settings, monkeypatch):
     monkeypatch.setattr(nodes, "INDEX_TIMEOUT_SECONDS", 0.01)
     tools, _ = make_tools(index_tool=SlowIndex())
     result, _ = await run_case(settings, FakeToolChat(), tools=tools)
-    assert SlowIndex.calls == 6 and result.metrics["dedupe"]["indexed"] == 0
-    assert sum(1 for i in result.items if i.publish_status == "SUCCEEDED") == 6
+    assert SlowIndex.calls == len(PUBLISHED_10MIN) and result.metrics["dedupe"]["indexed"] == 0
+    assert sum(1 for i in result.items if i.publish_status == "SUCCEEDED") == len(PUBLISHED_10MIN)

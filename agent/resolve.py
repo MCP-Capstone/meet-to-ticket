@@ -29,22 +29,35 @@ def split_names(raw: str) -> list[str]:
 class Assignees:
     names: list[str]
     logins: list[str]
-    unresolved: list[str]
+    unresolved: list[str]  # GitHub 로그인을 못 정한 이름 (멤버 불일치 + 계정 없음). 본문의 "계정 미매핑" 표기
+    unmatched: list[str] = field(default_factory=list)  # 어떤 멤버와도 이름이 맞지 않은 이름. 담당자를 정할 수 없다
+    ambiguous: list[str] = field(default_factory=list)  # 같은 이름의 멤버가 여럿이라 누구인지 정할 수 없는 이름
 
 
 def map_assignees(names: list[str], members: list[ProjectMember]) -> Assignees:
-    by_name = {m.name.strip(): m for m in members}
+    by_name: dict[str, list[ProjectMember]] = {}
+    for m in members:
+        by_name.setdefault(m.name.strip(), []).append(m)
     logins: list[str] = []
     unresolved: list[str] = []
+    unmatched: list[str] = []
+    ambiguous: list[str] = []
     for name in names:
-        member = by_name.get(name)
+        matched = by_name.get(name, [])
+        member = matched[0] if len(matched) == 1 else None
+        if not matched:
+            unmatched.append(name)
+        elif len(matched) > 1:
+            # 동명이인은 백엔드 AssigneeResolver처럼 담당자를 정하지 않는다
+            ambiguous.append(name)
         login = (member.github_name or "").strip() if member else ""
         if login:
             if login not in logins:
                 logins.append(login)
         else:
             unresolved.append(name)
-    return Assignees(names=names, logins=logins, unresolved=unresolved)
+    return Assignees(names=names, logins=logins, unresolved=unresolved, unmatched=unmatched,
+                     ambiguous=ambiguous)
 
 
 # ---------------------------------------------------------------- 기한
@@ -63,6 +76,40 @@ class Due:
         return value if value == self.text else f"{value} (원문: {self.text})"
 
 
+# 연도가 있는 숫자 날짜: 2026-10-31, 2026.10.31, 2026. 10. 31., 2026/10/31 (구분자는 한 종류로 통일)
+_FULL_DATE = re.compile(r"(?<!\d)(\d{4})\s*([-./])\s*(\d{1,2})\s*\2\s*(\d{1,2})(?!\d)")
+_KO_DATE = re.compile(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일")
+# 연도 없는 숫자 날짜: 10. 31., 10. 31, 10. 31일, 10.31, 10/31. 시각(10:30), 버전(1.2.3, v1.2),
+# 소수(2.5배, 1.5주)는 제외한다. "1.5일"처럼 붙여 쓴 소수 + 일은 기간으로 보고, "10. 31일"처럼 띄우면 날짜로 본다
+_MONTH_DAY = re.compile(
+    r"(?<![A-Za-z\d.:/-])(\d{1,2})(\s*[./]\s*)(\d{1,2})(?!\d|[.:/]\d|%|배|시간|주|개월|년)"
+)
+
+
+def _month_day(text: str) -> tuple[int, int] | None:
+    for m in _MONTH_DAY.finditer(text):
+        if text[m.end():m.end() + 1] == "일" and m.group(2) == ".":
+            continue  # 1.5일: 기간
+        return int(m.group(1)), int(m.group(3))
+    return None
+
+
+def _make_date(year: int, month: int, day: int) -> date | None:
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _infer_year(month: int, day: int, meeting_date: date | None) -> date | None:
+    """연도 없는 날짜는 회의 연도로 보고, 회의일보다 180일 넘게 과거면 다음 해로 넘긴다."""
+    base_year = meeting_date.year if meeting_date else date.today().year
+    found = _make_date(base_year, month, day)
+    if found and meeting_date and (meeting_date - found).days > 180:
+        found = _make_date(base_year + 1, month, day)
+    return found
+
+
 def parse_due(raw: str, meeting_date: date | None) -> Due:
     text = (raw or "").strip()
     due = Due(text=text)
@@ -70,21 +117,16 @@ def parse_due(raw: str, meeting_date: date | None) -> Due:
         return due
 
     found: date | None = None
-    m = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", text)
-    if m:
-        found = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-    else:
-        m = re.search(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일", text)
-        if m:
-            base_year = meeting_date.year if meeting_date else date.today().year
-            month, day = int(m.group(1)), int(m.group(2))
-            found = date(base_year, month, day)
-            if meeting_date and (meeting_date - found).days > 180:
-                found = date(base_year + 1, month, day)
-        elif meeting_date and "오늘" in text:
-            found = meeting_date
-        elif meeting_date and "내일" in text:
-            found = meeting_date + timedelta(days=1)
+    if m := _FULL_DATE.search(text):
+        found = _make_date(int(m.group(1)), int(m.group(3)), int(m.group(4)))
+    elif m := _KO_DATE.search(text):
+        found = _infer_year(int(m.group(1)), int(m.group(2)), meeting_date)
+    elif md := _month_day(text):
+        found = _infer_year(md[0], md[1], meeting_date)
+    elif meeting_date and "오늘" in text:
+        found = meeting_date
+    elif meeting_date and "내일" in text:
+        found = meeting_date + timedelta(days=1)
     if found is None:
         return due
     due.date = found.isoformat()

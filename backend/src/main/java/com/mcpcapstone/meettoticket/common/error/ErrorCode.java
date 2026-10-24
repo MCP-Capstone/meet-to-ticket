@@ -21,6 +21,7 @@ public enum ErrorCode {
 	DUPLICATE_PROJECT_REPOSITORY(HttpStatus.CONFLICT, "이미 다른 프로젝트에 등록된 GitHub 저장소입니다."),
 	PROJECT_NAME_MISMATCH(HttpStatus.BAD_REQUEST, "프로젝트 이름이 일치하지 않습니다."),
 	PROJECT_ANALYSIS_IN_PROGRESS(HttpStatus.CONFLICT, "처리 중인 회의록이 있어 삭제할 수 없습니다. 처리가 끝난 뒤 다시 시도해 주세요."),
+	PROJECT_REINDEX_IN_PROGRESS(HttpStatus.CONFLICT, "재색인이 진행 중인 프로젝트는 삭제할 수 없습니다. 재색인이 끝난 뒤 다시 시도해 주세요."),
 	MEMBER_USER_NOT_FOUND(HttpStatus.BAD_REQUEST, "가입하지 않은 사용자가 멤버에 포함되어 있습니다."),
 	PROJECT_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "프로젝트 멤버가 아닌 사용자입니다."),
 	LAST_PROJECT_ADMIN(HttpStatus.CONFLICT, "관리자는 1명 이상 있어야 합니다. 다른 멤버를 먼저 관리자로 지정해 주세요."),
@@ -36,6 +37,7 @@ public enum ErrorCode {
 	TICKET_NOT_FOUND(HttpStatus.NOT_FOUND, "티켓을 찾을 수 없습니다."),
 	TICKET_ASSIGNEE_REQUIRED(HttpStatus.FORBIDDEN, "티켓 담당자만 수정하거나 상태를 바꿀 수 있습니다."),
 	TICKET_STATUS_CONFLICT(HttpStatus.CONFLICT, "현재 티켓 상태에서는 할 수 없는 작업입니다."),
+	PUBLISH_RETRY_NOT_ALLOWED(HttpStatus.CONFLICT, "자동 재시도할 수 없는 실패입니다. 오류 원인이나 프로젝트 설정을 해결한 뒤 티켓을 수정/재승인해 주세요."),
 	TICKET_UPLOADER_REQUIRED(HttpStatus.FORBIDDEN, "회의록을 올린 사람만 대표 담당을 지정할 수 있습니다."),
 	MEETING_REVIEW_INCOMPLETE(HttpStatus.CONFLICT, "해당 회의의 내 티켓을 모두 확인 또는 거절한 뒤 발행해 주세요."),
 	PUBLISH_TARGET_UNSUPPORTED(HttpStatus.CONFLICT, "현재 일괄 발행은 GitHub 티켓만 지원합니다."),
@@ -43,7 +45,8 @@ public enum ErrorCode {
 	NO_CONFIRMED_TICKETS(HttpStatus.CONFLICT, "발행할 확인된 티켓이 없습니다."),
 	PUBLISH_BATCH_NOT_FOUND(HttpStatus.NOT_FOUND, "발행 요청을 찾을 수 없습니다."),
 	PROCESSING_TYPE_TARGET_MISMATCH(HttpStatus.BAD_REQUEST, "GitHub 이외 대상은 신규 발행만 할 수 있습니다."),
-	EXISTING_ISSUE_REQUIRED(HttpStatus.BAD_REQUEST, "연결이나 갱신할 열린 기존 이슈가 없습니다. 신규 발행으로 바꿔 주세요.");
+	EXISTING_ISSUE_REQUIRED(HttpStatus.BAD_REQUEST, "연결이나 갱신할 열린 기존 이슈가 없습니다. 신규 발행으로 바꿔 주세요."),
+	PUBLISH_TARGET_LOCKED(HttpStatus.CONFLICT, "결과를 모르는 발행이 있어 발행 대상을 바꿀 수 없습니다. 먼저 결과를 확인하세요.");
 
 	private final HttpStatus status;
 	private final String message;

@@ -8,6 +8,7 @@ import type {
   PublishStarted,
   PublishBatchResult,
   TicketEditRequest,
+  TicketOutcomeResolution,
   TicketPublicationRequest,
   TicketPublicationPreview,
   TicketAction,
@@ -66,6 +67,12 @@ export const realApi = {
   // 실패한 티켓 하나를 다시 발행한다. 202는 접수이고 결과는 내 티켓을 다시 조회해 확인한다.
   retryTicket: (ticketId: string) =>
     request<PublishStarted>(`/tickets/${encodeURIComponent(ticketId)}/retry`, { method: 'POST' }),
+  retryTicketComment: (ticketId: string) =>
+    request<PublishStarted>(`/tickets/${encodeURIComponent(ticketId)}/retry-comment`, { method: 'POST' }),
+
+  // 결과 모름 실패를 담당자가 대상 도구에서 확인한 결과로 정리한다 (#280).
+  resolveTicketOutcome: (ticketId: string, body: TicketOutcomeResolution) =>
+    request<MyTicket>(`/tickets/${encodeURIComponent(ticketId)}/resolve-outcome`, { method: 'POST', body: JSON.stringify(body) }),
 
   // 내 프로젝트 목록과 백엔드 실행 모드(MOCK / LIVE)
   listProjects: () => request<ProjectList>('/projects'),

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { rolldown } from 'rolldown'
 async function bundle(path) {
-  const build = await rolldown({ input: new URL(path, import.meta.url).pathname, platform: 'node' })
+  const build = await rolldown({ input: fileURLToPath(new URL(path, import.meta.url)), platform: 'node' })
   const result = await build.generate({ format: 'esm' })
   await build.close()
   return import(`data:text/javascript;base64,${Buffer.from(result.output[0].code).toString('base64')}`)

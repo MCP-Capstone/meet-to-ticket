@@ -13,6 +13,9 @@ public interface PublishGateway {
     // 접수에 실패하면 AgentException. 실행 모드가 MOCK이면 접수와 함께 모의 결과를 바로 돌려준다.
     Optional<Result> submit(Request request);
 
+	// 콜백이 유실돼도 완료 결과만 가져온다. 이 경로로 발행을 재실행하지 않는다.
+	default Optional<Result> status(String batchId) { return Optional.empty(); }
+
     String mode();
 
     record Request(String batchId, List<Ticket> tickets) {}
@@ -33,7 +36,8 @@ public interface PublishGateway {
             String publishTarget,
             // Slack 공지 멘션 대상. SLACK 대상일 때만 채운다.
             List<SlackMember> slackMembers,
-            String reviewStatus) {}
+			String reviewStatus,
+			boolean retryCommentOnly) {}
 
     record Project(Long projectId, String name, String githubOwner, String githubRepo, String notionPageUrl, String slackChannelId) {}
 
@@ -48,7 +52,8 @@ public interface PublishGateway {
             String errorCode,
             String errorMessage) {}
 
-    // status: PUBLISHED, LINKED, UPDATED, FAILED, UNKNOWN. NOTION 대상은 notionPageId, notionPageUrl로 만든 페이지를 알려 준다.
+    // status: PUBLISHED, LINKED, UPDATED, POSTED, FAILED, UNKNOWN. NOTION 대상은 notionPageId, notionPageUrl로 만든 페이지를,
+    // SLACK 대상은 POSTED와 messageUrl로 게시한 메시지를 알려 준다.
     record Item(
             String ticketId,
             String processingType,
@@ -61,5 +66,6 @@ public interface PublishGateway {
             String errorMessage,
             Boolean retryable,
             String notionPageId,
-            String notionPageUrl) {}
+            String notionPageUrl,
+            String messageUrl) {}
 }

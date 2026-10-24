@@ -11,7 +11,8 @@ from typing import Any
 
 import httpx
 
-from common import INVALID_ARGUMENT, env, make_http_client, tool_error
+from common import INVALID_ARGUMENT, env, make_http_client, request_with_outcome, tool_error
+from mcp.server.mcpserver.exceptions import ToolError
 
 API_BASE = "https://slack.com/api"
 CHANNEL_ID = re.compile(r"^[CG][A-Z0-9]{8,}$")
@@ -84,7 +85,7 @@ def raw_request(client: httpx.Client, method: str, path: str, **kwargs: Any) -> 
     일부 API 오류(users_not_found, channel_not_found)는 호출자가 연결 상태 결과로 바꿔야 하므로
     이 함수를 별도로 둔다.
     """
-    resp = client.request(method, path, **kwargs)
+    resp = request_with_outcome(client, method, path, **kwargs)
     _raise_http_error(resp)
     try:
         data = resp.json()
@@ -249,8 +250,13 @@ def post_message(
     posted = request(client, "POST", "/chat.postMessage", json={"channel": channel_id, "text": rendered})
     timestamp = posted.get("ts") or (posted.get("message") or {}).get("ts")
     if not timestamp:
-        raise tool_error(SLACK_ERROR, "Slack API 응답에 메시지 시각이 없습니다")
-    link = request(client, "GET", "/chat.getPermalink", params={"channel": channel_id, "message_ts": timestamp})
+        raise tool_error("RESULT_UNKNOWN", "Slack 게시 응답에 메시지 시각이 없어 결과 확인이 필요합니다")
+    try:
+        link = request(client, "GET", "/chat.getPermalink", params={"channel": channel_id, "message_ts": timestamp})
+        if not link.get("permalink"):
+            raise tool_error(SLACK_ERROR, "메시지 링크가 없습니다")
+    except (ToolError, httpx.HTTPError) as exc:
+        raise tool_error("RESULT_UNKNOWN", f"Slack 메시지는 게시됐지만 링크를 확인하지 못했습니다. 채널 {channel_id}, 시각 {timestamp} 확인 필요: {exc}") from exc
     return {
         "status": "posted",
         "channel_id": channel_id,

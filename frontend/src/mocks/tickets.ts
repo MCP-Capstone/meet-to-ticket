@@ -1,13 +1,13 @@
-import type { MyTicket, MyTicketList, TicketAction, TicketEditRequest, TicketPublicationRequest, TicketDedupe, TicketPublicationPreview, User } from '../api/types'
+import type { MyTicket, MyTicketList, TicketAction, TicketEditRequest, TicketOutcomeResolution, TicketPublicationRequest, TicketDedupe, TicketPublicationPreview, User } from '../api/types'
 import { ApiRequestError } from '../api/client'
 import type { PublishBatchResult } from '../api/types'
-import { publishSelection } from '../batchPublish'
+import { publishSelection, safePublishUrl } from '../batchPublish'
 import { canUseExistingIssue } from '../ticketPublication'
 import { validMeetingDate } from '../meetingInput'
 import { listMockMembers, listMockProjects } from './projects'
 
 type StoredTicket = MyTicket & { assigneeUserId: number; backlog?: Omit<TicketPublicationPreview['backlog'], 'description'> }
-const KEY = 'mock-my-tickets-v2'
+const KEY = 'mock-my-tickets-v3' // v3: 실패 정보 resolution, checkUrl과 publishTargetLocked 추가 (#280)
 const fail = (status: number, code: string, message: string) => new ApiRequestError(status, { code, message })
 function read(user: User): StoredTicket[] {
   const raw = sessionStorage.getItem(KEY)
@@ -17,11 +17,13 @@ function read(user: User): StoredTicket[] {
   const members = listMockMembers(project.projectId, user)
   const owner = members.find((member) => member.userId === 1)
   if (!owner) return []
-  const statuses: MyTicket['status'][] = ['PENDING_REVIEW', 'PENDING_REVIEW', 'CONFIRMED', 'REJECTED', 'FAILED', 'FAILED']
-  const titles = ['CSV 빈 결과 오류 수정', '다운로드 완료 안내 개선', '파일명 날짜 형식 정리', '내보내기 도움말 작성', '내보내기 권한 오류 처리', '대용량 CSV 분할 다운로드']
+  const statuses: MyTicket['status'][] = ['PENDING_REVIEW', 'PENDING_REVIEW', 'CONFIRMED', 'REJECTED', 'FAILED', 'FAILED', 'FAILED']
+  const titles = ['CSV 빈 결과 오류 수정', '다운로드 완료 안내 개선', '파일명 날짜 형식 정리', '내보내기 도움말 작성', '내보내기 권한 오류 처리', '대용량 CSV 분할 다운로드', 'CSV 점검 회의 공지']
   const failures: Record<number, MyTicket['publishFailure']> = {
-    4: { errorCode: 'GITHUB_FORBIDDEN', errorMessage: 'GitHub 저장소 권한이 없습니다.', failureCategory: 'REPOSITORY_PERMISSION', retryable: true, outcomeUnknown: false },
-    5: { errorCode: 'RESULT_UNKNOWN', errorMessage: '요청은 보냈지만 결과를 받지 못했습니다.', failureCategory: 'OTHER', retryable: true, outcomeUnknown: true },
+    4: { errorCode: 'GITHUB_FORBIDDEN', errorMessage: 'GitHub 저장소 권한이 없습니다.', failureCategory: 'REPOSITORY_PERMISSION', retryable: false, outcomeUnknown: false, resolution: 'RETRY', checkUrl: null },
+    5: { errorCode: 'RESULT_UNKNOWN', errorMessage: '요청은 보냈지만 결과를 받지 못했습니다.', failureCategory: 'OTHER', retryable: true, outcomeUnknown: true, resolution: 'RETRY', checkUrl: 'https://github.com/example/meet-to-ticket/issues' },
+    // Slack, Notion은 이미 반영됐는지 자동으로 확인할 수 없어 확인 결과를 남겨야 한다 (#280)
+    6: { errorCode: 'SLACK_VERIFY_REQUIRED', errorMessage: '이전 Slack 공지 결과를 알 수 없어 다시 보내지 않았습니다.', failureCategory: 'OTHER', retryable: false, outcomeUnknown: true, resolution: 'MANUAL_CHECK', checkUrl: 'https://slack.com/app_redirect?channel=C0EXAMPLE' },
   }
   // TASK-032: 화면 확인용 예시. 실제 GitHub 이슈를 조회하지 않는다.
   const dedupeBase: TicketDedupe = { judged: true, skipped: null, relation: 'UNRELATED', issue: null, overlap: false, reason: '기존 업무와 관계없는 새로운 업무입니다.', before: null, after: null, changedByRecheck: false }
@@ -35,7 +37,7 @@ function read(user: User): StoredTicket[] {
   ]
   const seed: StoredTicket[] = statuses.map((status, index) => ({
     ticketId: `21000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`, title: titles[index], status,
-    publishTarget: index === 3 ? 'NOTION' : 'GITHUB', processingType: index === 1 ? 'UPDATE' : index === 2 ? 'LINK' : 'CREATE', dedupe: dedupes[index], publishFailure: failures[index] ?? null,
+    publishTarget: index === 3 ? 'NOTION' : index === 6 ? 'SLACK' : 'GITHUB', processingType: index === 1 ? 'UPDATE' : index === 2 ? 'LINK' : 'CREATE', dedupe: dedupes[index], publishFailure: failures[index] ?? null, publishTargetLocked: Boolean(failures[index]?.outcomeUnknown),
     projectId: project.projectId, projectName: project.name, meetingId: 2101, meetingTitle: 'CSV 내보내기 점검 회의',
     taskId: '21000000-0000-4000-8000-000000000100', createdAt: '2026-10-23T10:00:00+09:00',
     backlog: { tasks: [`${titles[index]}에 필요한 상세 작업을 구현한다.`], acceptanceCriteria: ['정상 및 오류 상황을 검증한다.'], evidenceQuotes: ['회의에서 해당 작업을 진행하기로 했다.'], openQuestions: index === 0 ? ['빈 결과 안내 문구를 확인한다.'] : [] },
@@ -70,7 +72,7 @@ function owned(user: User, ticketId: string) {
 export function editMockTicket(user: User, ticketId: string, body: TicketEditRequest) {
   const { tickets, ticket } = owned(user, ticketId)
   if (ticket.status !== 'PENDING_REVIEW') throw fail(409, 'TICKET_STATUS_CONFLICT', '검토 대기에서만 수정할 수 있습니다.')
-  if (!Object.keys(body).length || (body.description !== undefined && (!body.description.trim() || body.description.length > 4000))) throw fail(400, 'VALIDATION_FAILED', '본문과 수정 항목을 확인해 주세요.')
+  if (!Object.keys(body).length || (body.title !== undefined && (!body.title.trim() || body.title.length > 255)) || (body.description !== undefined && (!body.description.trim() || body.description.length > 4000))) throw fail(400, 'VALIDATION_FAILED', '제목과 수정 항목을 확인해 주세요.')
   if (body.due && ((body.due.text?.length ?? 0) > 200 || (body.due.date && !validMeetingDate(body.due.date)) || (body.due.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(body.due.time)))) throw fail(400, 'VALIDATION_FAILED', '기한 형식을 확인해 주세요.')
   if (body.assigneeMemberId !== undefined) {
     const member = listMockMembers(ticket.projectId, user).find((m) => m.projectMemberId === body.assigneeMemberId && m.userId !== null)
@@ -78,6 +80,7 @@ export function editMockTicket(user: User, ticketId: string, body: TicketEditReq
     ticket.assignee = { projectMemberId: member.projectMemberId, name: member.name }
     ticket.assigneeUserId = member.userId!
   }
+  if (body.title !== undefined) ticket.title = body.title.trim()
   if (body.description !== undefined) ticket.description = body.description.trim()
   if (body.due) ticket.due = { ...body.due, text: body.due.text?.trim() || null }
   write(tickets)
@@ -87,6 +90,7 @@ export function changeMockTicketPublication(user: User, ticketId: string, body: 
   const { tickets, ticket } = owned(user, ticketId)
   if (ticket.status !== 'PENDING_REVIEW') throw fail(409, 'TICKET_STATUS_CONFLICT', '검토 대기에서만 수정할 수 있습니다.')
   if (!['GITHUB', 'NOTION', 'SLACK'].includes(body.publishTarget) || !['CREATE', 'LINK', 'UPDATE'].includes(body.processingType)) throw fail(400, 'VALIDATION_FAILED', '발행 대상과 처리 유형을 확인해 주세요.')
+  if (ticket.publishTargetLocked && body.publishTarget !== ticket.publishTarget) throw fail(409, 'PUBLISH_TARGET_LOCKED', '결과를 모르는 발행이 있어 발행 대상을 바꿀 수 없습니다. 먼저 결과를 확인하세요.')
   if (body.publishTarget !== 'GITHUB' && body.processingType !== 'CREATE') throw fail(400, 'PROCESSING_TYPE_TARGET_MISMATCH', 'Notion/Slack은 신규 생성만 가능합니다.')
   if (body.processingType !== 'CREATE' && !canUseExistingIssue(ticket)) throw fail(400, 'EXISTING_ISSUE_REQUIRED', '열린 기존 이슈가 필요합니다.')
   ticket.publishTarget = body.publishTarget
@@ -101,18 +105,66 @@ export function changeMockTicket(user: User, ticketId: string, action: TicketAct
   const rules = { confirm: ['PENDING_REVIEW', 'CONFIRMED'], reject: ['PENDING_REVIEW', 'REJECTED'], reopen: ['CONFIRMED', 'PENDING_REVIEW'], restore: ['REJECTED', 'PENDING_REVIEW'], revise: ['FAILED', 'PENDING_REVIEW'] } as const
   const [from, to] = rules[action]
   if (ticket.status !== from) throw fail(409, 'TICKET_STATUS_CONFLICT', '현재 상태에서 할 수 없는 작업입니다.')
+  if (action === 'revise' && ticket.publishFailure?.resolution === 'MANUAL_CHECK') throw fail(409, 'TICKET_STATUS_CONFLICT', '확인 결과를 먼저 남겨 주세요.')
   ticket.status = to
-  if (action === 'revise') ticket.publishFailure = null
+  // 결과 모름은 수정으로 되돌려도 남아 발행 대상을 잠근다 (백엔드 previousOutcomeUnknown과 같음)
+  if (action === 'revise') { ticket.publishTargetLocked = ticket.publishTargetLocked || Boolean(ticket.publishFailure?.outcomeUnknown); ticket.publishFailure = null }
   write(tickets)
   return view(ticket)
 }
 export function retryMockTicket(user: User, ticketId: string) {
   const { tickets, ticket } = owned(user, ticketId)
   if (ticket.status !== 'FAILED') throw fail(409, 'TICKET_STATUS_CONFLICT', '실패한 티켓만 다시 시도할 수 있습니다.')
-  ticket.status = 'PUBLISHED'
+  if (ticket.publishFailure?.resolution === 'MANUAL_CHECK') throw fail(409, 'TICKET_STATUS_CONFLICT', '확인 결과를 먼저 남겨 주세요.')
+  if (!ticket.publishFailure?.retryable) throw fail(409, 'PUBLISH_RETRY_NOT_ALLOWED', '오류 원인을 해결한 뒤 수정/재승인해 주세요.')
+  return queueMockRetry(user, tickets, ticket)
+}
+
+export function retryMockTicketComment(user: User, ticketId: string) {
+  const { tickets, ticket } = owned(user, ticketId)
+  if (ticket.status !== 'UPDATED' || ticket.publishTarget !== 'GITHUB' || ticket.publishFailure?.errorCode !== 'COMMENT_FAILED')
+    throw fail(409, 'TICKET_STATUS_CONFLICT', '알림 댓글 실패 티켓만 다시 보낼 수 있습니다.')
+  return queueMockRetry(user, tickets, ticket)
+}
+
+function queueMockRetry(user: User, tickets: StoredTicket[], ticket: StoredTicket) {
+  const batchId = crypto.randomUUID()
+  const batches = readBatches()
+  batches.push({ userId: user.userId, result: {
+    batchId, status: 'RUNNING', executionMode: 'MOCK', createdAt: new Date().toISOString(), finishedAt: null,
+    summary: { total: 1, published: 0, linked: 0, updated: 0, skipped: 0, failed: 0, publishing: 1 },
+    tickets: [{ ticketId: ticket.ticketId, title: ticket.title, status: 'PUBLISHING', processingType: ticket.processingType,
+      projectId: ticket.projectId, projectName: ticket.projectName, githubIssueNumber: null,
+      githubIssueUrl: null, errorCode: null, errorMessage: null, failureCategory: null,
+      retryable: false, outcomeUnknown: false, publishTarget: ticket.publishTarget }],
+  } })
+  sessionStorage.setItem(BATCH_KEY, JSON.stringify(batches))
+  ticket.status = 'PUBLISHING'
   ticket.publishFailure = null
   write(tickets)
-  return { batchId: crypto.randomUUID(), count: 1 }
+  return { batchId, count: 1 }
+}
+
+export function resolveMockTicketOutcome(user: User, ticketId: string, body: TicketOutcomeResolution) {
+  const { tickets, ticket } = owned(user, ticketId)
+  // 백엔드와 같이 재대조할 수 없는 대상(Notion, Slack)의 결과 모름 실패만 받는다. 반영 링크는 목업 카드에 표시할 칸이 없어 저장하지 않는다.
+  if (ticket.status !== 'FAILED' || ticket.publishFailure?.resolution !== 'MANUAL_CHECK') throw fail(409, 'TICKET_STATUS_CONFLICT', '확인 결과가 필요한 실패 티켓이 아닙니다.')
+  if (body.applied && body.url && !safePublishUrl(body.url.trim(), ticket.publishTarget)) throw fail(400, 'VALIDATION_FAILED', '입력값을 확인해 주세요.')
+  ticket.publishTargetLocked = false
+  if (body.applied) {
+    ticket.status = 'PUBLISHED'
+    ticket.githubIssueUrl = body.url ? safePublishUrl(body.url.trim(), ticket.publishTarget) : null
+    ticket.publishFailure = null
+  } else {
+    // 백엔드처럼 결과 모름 자체의 실패만 '반영되지 않음' 사유로 바꾸고, 설정 오류 사유는 남긴다.
+    // outcomeUnknown은 지난 결과 모름까지 포함하므로 판정에 쓰지 않고 오류 코드로 본다.
+    const failure = ticket.publishFailure
+    ticket.publishFailure = ['RESULT_UNKNOWN', 'RESULT_TIMEOUT', 'RESULT_MISSING', 'NOTION_VERIFY_REQUIRED', 'SLACK_VERIFY_REQUIRED'].includes(failure.errorCode ?? '')
+      ? { errorCode: 'VERIFIED_NOT_APPLIED', errorMessage: '대상 도구에 반영되지 않은 것을 확인했습니다. 다시 시도하세요.', failureCategory: 'OTHER', retryable: true, outcomeUnknown: false, resolution: 'RETRY', checkUrl: null }
+      : { ...failure, outcomeUnknown: false, resolution: 'RETRY', checkUrl: null }
+  }
+  write(tickets)
+  return view(ticket)
 }
 
 const BATCH_KEY = 'mock-publish-batches-v1'
@@ -129,8 +181,8 @@ export function publishMockTickets(user: User, projectId: number, meetingId: num
   const batchId = crypto.randomUUID()
   const result: PublishBatchResult = {
     batchId, status: 'RUNNING', executionMode: 'MOCK', createdAt: new Date().toISOString(), finishedAt: null,
-    summary: { total: ids.size, published: 0, linked: 0, updated: 0, failed: 0, publishing: ids.size },
-    tickets: selection.confirmed.map((ticket) => ({ ticketId: ticket.ticketId, title: ticket.title, status: 'PUBLISHING', processingType: ticket.processingType, projectId, projectName: ticket.projectName, githubIssueNumber: null, githubIssueUrl: null, errorCode: null, errorMessage: null, failureCategory: null, retryable: false, outcomeUnknown: false })),
+    summary: { total: ids.size, published: 0, linked: 0, updated: 0, skipped: 0, failed: 0, publishing: ids.size },
+    tickets: selection.confirmed.map((ticket) => ({ ticketId: ticket.ticketId, title: ticket.title, status: 'PUBLISHING', processingType: ticket.processingType, projectId, projectName: ticket.projectName, githubIssueNumber: null, githubIssueUrl: null, errorCode: null, errorMessage: null, failureCategory: null, retryable: false, outcomeUnknown: false, publishTarget: ticket.publishTarget })),
   }
   const batches = readBatches()
   batches.push({ userId: user.userId, result })
@@ -152,7 +204,7 @@ function settleMockBatches(user: User) {
     for (const entry of result.tickets) {
       entry.status = entry.processingType === 'LINK' ? 'LINKED' : entry.processingType === 'UPDATE' ? 'UPDATED' : 'PUBLISHED'
       const ticket = tickets.find((t) => t.ticketId === entry.ticketId && t.assigneeUserId === user.userId)
-      if (ticket?.status === 'PUBLISHING') { ticket.status = entry.status; ticket.publishFailure = null }
+      if (ticket?.status === 'PUBLISHING') { ticket.status = entry.status; ticket.publishFailure = null; ticket.publishTargetLocked = false }
     }
     result.summary.publishing = 0
     result.summary.published = result.tickets.filter((t) => t.status === 'PUBLISHED').length

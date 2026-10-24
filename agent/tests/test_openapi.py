@@ -14,7 +14,7 @@ def test_agent_openapi_matches_implemented_routes():
         doc = client.get("/openapi.json").json()
     assert set(doc["paths"]) == {
         "/runs", "/runs/{task_id}", "/runs/{task_id}/history", "/projects/check-members",
-        "/publication-preview", "/projects/check-connections", "/projects/reindex", "/projects/reindex/{job_id}", "/publish", "/health",
+        "/publication-preview", "/projects/check-connections", "/projects/reindex", "/projects/reindex/{job_id}", "/projects/drop-index", "/publish", "/publish/{batch_id}", "/health",
     }
     assert not doc.get("security")  # 현 구현에 없는 API 키 인증을 문서에 가장하지 않음
     post = doc["paths"]["/runs"]["post"]

@@ -43,7 +43,7 @@ class Settings:
     rag_enabled: bool = False           # rag-mcp(기존 이슈 색인·검색)를 쓸지. 끄면 중복 판단 없이 발행
     rag_mcp_url: str = "http://127.0.0.1:8002/mcp"
     rag_sync_timeout_seconds: int = 30  # 실행마다 색인 갱신(sync_issues)을 기다리는 시간
-    context_timeout_seconds: int = 30   # 맥락(Notion 기획 문서, 기존 이슈 수)을 불러오는 시간 한도. 넘으면 맥락 없이 진행
+    context_timeout_seconds: int = 120  # GitHub/Notion 조회의 실제 소요 시간을 포함하며, 넘으면 읽은 부분까지 사용
     tool_result_max_chars: int = 2000   # 모델에게 넘기는 도구 결과 길이 한도
     dedupe_model: str = "gpt-5.4-mini"  # 중복 판단(도구 고르기) 모델. 판단이 중요해 검수와 같은 모델
     dedupe_max_tool_calls: int = 4      # 티켓 하나에 모델이 부를 수 있는 도구 호출 수
@@ -66,6 +66,13 @@ class Settings:
     # 기본은 초안 저장에서 멈추고, 담당자가 확인한 티켓만 일괄 발행한다 (기획_v16, TASK-012)
     publish_on_run: bool = False
     fallback_publish: bool = True       # 보완 한도 초과 시 기본 초안으로 발행할지 (False면 NEEDS_CHECK)
+    # publish_on_run을 켜려면 환경과 무관하게 명시적 승인(allow_auto_publish)이 함께 있어야 한다 (validate_settings)
+    allow_auto_publish: bool = False
+
+
+def context_timeout_seconds() -> int:
+    """프로젝트 맥락 조회 전체 한도(초). Settings와 맥락 수집기가 같은 값을 쓰게 한 곳에서 읽는다."""
+    return _int("CONTEXT_TIMEOUT_SECONDS", 120)
 
 
 def _str(name: str, default: str) -> str:
@@ -74,8 +81,21 @@ def _str(name: str, default: str) -> str:
     return raw or default
 
 
-def load_settings() -> Settings:
-    return Settings(
+class SettingsError(RuntimeError):
+    """기동을 막아야 하는 안전하지 않은 설정."""
+
+
+def validate_settings(settings: Settings) -> None:
+    """사람 확인 없는 자동 발행(PUBLISH_ON_RUN)은 환경과 무관하게 ALLOW_AUTO_PUBLISH 승인 없이 쓰지 못한다 (fail-closed).
+
+    DRY_RUN이면 외부에 쓰지 않으므로 막지 않는다 (평가 실행기가 cli --dry-run을 쓴다).
+    """
+    if settings.publish_on_run and not settings.dry_run and not settings.allow_auto_publish:
+        raise SettingsError("PUBLISH_ON_RUN=true는 ALLOW_AUTO_PUBLISH=true 승인 없이 사용할 수 없습니다 (DRY_RUN=true면 예외)")
+
+
+def load_settings(validate: bool = True) -> Settings:
+    settings = Settings(
         openai_model=_str("OPENAI_MODEL", "gpt-5.4-nano"),
         review_model=_str("OPENAI_REVIEW_MODEL", "gpt-5.4-mini"),
         reasoning_effort=_str("OPENAI_REASONING_EFFORT", "none"),
@@ -85,7 +105,7 @@ def load_settings() -> Settings:
         rag_enabled=_bool("RAG_ENABLED", False),
         rag_mcp_url=_str("RAG_MCP_URL", "http://127.0.0.1:8002/mcp"),
         rag_sync_timeout_seconds=_int("RAG_SYNC_TIMEOUT_SECONDS", 30),
-        context_timeout_seconds=_int("CONTEXT_TIMEOUT_SECONDS", 30),
+        context_timeout_seconds=context_timeout_seconds(),
         tool_result_max_chars=_int("TOOL_RESULT_MAX_CHARS", 2000),
         dedupe_model=_str("OPENAI_DEDUPE_MODEL", "gpt-5.4-mini"),
         dedupe_max_tool_calls=_int("DEDUPE_MAX_TOOL_CALLS", 4),
@@ -106,4 +126,8 @@ def load_settings() -> Settings:
         dry_run=_bool("DRY_RUN", False),
         publish_on_run=_bool("PUBLISH_ON_RUN", False),
         fallback_publish=_bool("FALLBACK_PUBLISH", True),
+        allow_auto_publish=_bool("ALLOW_AUTO_PUBLISH", False),
     )
+    if validate:
+        validate_settings(settings)
+    return settings

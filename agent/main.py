@@ -8,6 +8,7 @@
 - GET  /runs/{task_id}/history : 노드별 실행 기록 (checkpointer)
 - POST /projects/reindex      : GitHub 이슈 전체 RAG 재색인 접수
 - GET  /projects/reindex/{job_id} : 재색인 진행·결과 조회
+- POST /projects/drop-index  : 프로젝트 저장소 RAG 색인 삭제
 - GET  /health
 
 이슈를 발행한 taskId를 다시 POST하면 다시 실행하지 않고 저장된 결과를 돌려준다 (runner.stored_result).
@@ -25,6 +26,7 @@ from fastapi.responses import JSONResponse
 from config import load_env, load_settings  # noqa: E402
 
 load_env()
+load_settings()  # 승인(ALLOW_AUTO_PUBLISH) 없는 자동 발행 설정이면 기동하지 않는다
 from reporter import BackendReporter  # noqa: E402
 from runner import history, run, run_publish_batch, stored_result  # noqa: E402
 from permissions import check_members  # noqa: E402
@@ -166,6 +168,15 @@ async def publish_confirmed(req: PublishBatchRequest):
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return {"batchId": req.batch_id, "status": "ACCEPTED"}
+
+
+@app.get("/publish/{batch_id}", tags=["분석 실행"], operation_id="getPublishBatch")
+async def get_publish_batch(batch_id: str):
+    """결과 콜백 실패 시 Backend가 결과만 다시 조회한다. 발행을 실행하지 않는다."""
+    result = _publish_jobs.get(batch_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="없는 batch_id입니다")
+    return result
 
 
 @app.post(

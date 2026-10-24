@@ -149,7 +149,7 @@ export interface AnalysisProgress {
   step: ProgressStep
   // issues, notionDocs는 기존 이슈 색인이나 Notion이 꺼져 있거나 불러오지 못하면 null.
   // 맥락을 불러오기 전에 먼저 null로 한 번 오고, 불러온 뒤 값이 채워져 다시 온다
-  context?: { members: number; issues: number | null; notionDocs: number | null }
+  context?: { members: number; issues: number | null; notionDocs: number | null; warnings?: string[] }
   extraction?: { todos: number; decisions: number; openQuestions: number }
   // 중복 판단이 꺼져 있으면 오지 않는다
   dedupe?: { done: number; total: number; linked: number }
@@ -214,6 +214,7 @@ export interface TaskItemContent {
 }
 
 export interface TaskItem {
+  publishTarget?: PublishTarget | null
   itemId: string
   workKey: string | null
   title: string
@@ -253,7 +254,7 @@ export interface TaskItemList {
 
 // 기획 4.2 티켓 상태
 export type TicketStatus =
-  | 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'PUBLISHING' | 'REJECTED' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'FAILED'
+  | 'ASSIGNEE_REQUIRED' | 'PENDING_REVIEW' | 'CONFIRMED' | 'PUBLISHING' | 'REJECTED' | 'PUBLISHED' | 'LINKED' | 'UPDATED' | 'SKIPPED' | 'FAILED'
 export type ProcessingType = 'CREATE' | 'LINK' | 'UPDATE'
 export type PublishTarget = 'GITHUB' | 'SLACK' | 'NOTION'
 
@@ -311,6 +312,10 @@ export interface PublishFailure {
   failureCategory: 'REPOSITORY_PERMISSION' | 'OTHER' | null
   retryable: boolean
   outcomeUnknown: boolean
+  // 실패를 푸는 방법. MANUAL_CHECK면 다시 시도 대신 대상 도구에서 확인한 결과를 남겨야 한다 (#280)
+  resolution: 'RETRY' | 'MANUAL_CHECK'
+  // 결과 모름일 때 반영 여부를 확인하러 갈 곳 (저장소 이슈 목록, Notion 기획 페이지, Slack 채널)
+  checkUrl: string | null
 }
 export interface PublishStarted { batchId: string; count: number }
 // GET /tickets/me의 읽기 전용 중복 판단 정보 (TASK-032).
@@ -326,6 +331,8 @@ export interface TicketDedupe {
   changedByRecheck: boolean
 }
 export interface MyTicket {
+  githubIssueNumber?: number | null
+  githubIssueUrl?: string | null
   ticketId: string
   title: string
   status: TicketStatus
@@ -343,6 +350,8 @@ export interface MyTicket {
   due: TicketDue
   assignee: { projectMemberId: number; name: string } | null
   publishFailure: PublishFailure | null
+  // 결과를 모르는 발행이 남아 발행 대상을 바꿀 수 없는지 (#280). 본문 수정은 된다
+  publishTargetLocked: boolean
 }
 export interface MyTicketList {
   counts: { pendingReview: number; confirmed: number; rejected: number; failed: number }
@@ -352,14 +361,21 @@ export interface TicketPublicationRequest {
   publishTarget: PublishTarget
   processingType: ProcessingType
 }
+// 결과 모름 실패를 대상 도구에서 확인한 결과. applied=false면 다시 시도할 수 있는 실패로 바뀐다 (#280).
+export interface TicketOutcomeResolution {
+  applied: boolean
+  url?: string | null
+}
 export interface TicketEditRequest {
+  title?: string
   description?: string
   assigneeMemberId?: number
   due?: TicketDue
 }
 
 // TASK-033·047: 발행 접수와 결과 조회는 별도 요청이다.
-export interface PublishResultEntry extends PublishFailure {
+// 발행 묶음 결과(백엔드 PublishService.Entry)에는 resolution이 없다.
+export interface PublishResultEntry extends Omit<PublishFailure, 'resolution' | 'checkUrl'> {
   ticketId: string
   title: string
   status: TicketStatus
@@ -367,7 +383,10 @@ export interface PublishResultEntry extends PublishFailure {
   projectId: number
   projectName: string
   githubIssueNumber: number | null
+  // 대상에 따라 GitHub 이슈, Notion 페이지, Slack 메시지 URL이다
   githubIssueUrl: string | null
+  // 이 필드가 생기기 전에 끝난 묶음은 null이며 GitHub로 본다
+  publishTarget: PublishTarget | null
 }
 export interface PublishBatchResult {
   batchId: string
@@ -375,7 +394,7 @@ export interface PublishBatchResult {
   executionMode: ExecutionMode
   createdAt: string
   finishedAt: string | null
-  summary: { total: number; published: number; linked: number; updated: number; failed: number; publishing: number }
+  summary: { total: number; published: number; linked: number; updated: number; skipped: number; failed: number; publishing: number }
   tickets: PublishResultEntry[]
 }
 

@@ -73,6 +73,12 @@ public class ProjectReindexService {
         return refresh(projectId, userId);
     }
 
+    /** 프로젝트 삭제 전에 확인한다. 상태 조회와 같은 규칙으로 멈춘 RUNNING을 먼저 정리해 삭제가 계속 막히지 않게 한다. */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public boolean isRunning(Long projectId) {
+        return refresh(projectId, null).status() == ReindexStatus.RUNNING;
+    }
+
     private ReindexData refresh(Long projectId, Long userId) {
         ProjectReindex current = tx.execute(status -> reindexes.findByProjectId(projectId).orElse(null));
         if (current == null || current.getStatus() != ReindexStatus.RUNNING) return load(projectId);

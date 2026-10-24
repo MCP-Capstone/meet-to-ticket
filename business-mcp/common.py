@@ -40,6 +40,18 @@ def make_http_client(
     return httpx.Client(base_url=base_url, headers=headers, timeout=HTTP_TIMEOUT, transport=transport)
 
 
+def request_with_outcome(client: httpx.Client, method: str, path: str, **kwargs) -> httpx.Response:
+    """쓰기 전 연결 실패와, 쓰기 이후 결과 불명을 MCP 직렬화 뒤에도 구분한다."""
+    try:
+        return client.request(method, path, **kwargs)
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+        raise tool_error("MCP_UNAVAILABLE", f"외부 API 요청 전 연결 실패: {exc}") from exc
+    except httpx.RequestError as exc:
+        if method.upper() in {"POST", "PATCH", "PUT", "DELETE"}:
+            raise tool_error("RESULT_UNKNOWN", f"외부 쓰기 요청 후 응답을 확인하지 못했습니다: {exc}") from exc
+        raise
+
+
 def titled(annotations: ToolAnnotations, title: str) -> ToolAnnotations:
     """공통 어노테이션에 도구 제목만 붙인다."""
     return annotations.model_copy(update={"title": title})

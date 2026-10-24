@@ -178,9 +178,13 @@ async def report_context_started(req: RunRequest, reporter: Any) -> None:
 
 
 async def sync_index(tools: IssueTools, settings: Settings) -> dict[str, Any] | None:
-    """실행마다 1회 색인을 최신 상태로 맞춘다 (바뀐 이슈만). 시간 안에 끝나지 않으면 건너뛴다."""
+    """실행마다 1회 색인을 최신 상태로 맞춘다 (바뀐 이슈만). 시간 안에 끝나지 않으면 건너뛴다.
+
+    분석 직전에 만든 이슈가 GitHub 목록에 늦게 보여 중복 판단을 놓치지 않도록, 변경 없음이면 한 번 더 확인한다.
+    발행 전 재대조(recheck)는 대기 비용을 피하려고 이 확인을 쓰지 않는다.
+    """
     try:
-        return await asyncio.wait_for(tools.sync(), timeout=settings.rag_sync_timeout_seconds)
+        return await asyncio.wait_for(tools.sync(recheck_empty=True), timeout=settings.rag_sync_timeout_seconds)
     except asyncio.TimeoutError:
         log.warning("색인 갱신이 %s초 안에 끝나지 않아 건너뜀", settings.rag_sync_timeout_seconds)
         return None
@@ -203,14 +207,18 @@ async def run_publish_batch(
         else:
             github = await github_tools(settings)
             publisher = make_mcp_publisher(github)
-    if settings.rag_enabled and llm is None:
+    needs_recheck = any(t.publish_target == "GITHUB" and not t.retry_comment_only for t in request.tickets)
+    if settings.rag_enabled and needs_recheck and llm is None:
         from llm import OpenAILLM
         llm = OpenAILLM(settings)
 
     # 재대조는 같은 저장소 묶음마다 sync_issues 한 번을 수행한다.
+    # GitHub 티켓만 대조한다. Slack·Notion은 기존 GitHub 이슈와 연결할 수 없고 항상 신규 발행이다 (#297)
     prepared = list(request.tickets)
     by_repo: dict[tuple[str, str], list[int]] = {}
     for index, ticket in enumerate(prepared):
+        if ticket.publish_target != "GITHUB" or ticket.retry_comment_only:
+            continue
         by_repo.setdefault((ticket.project.github_owner, ticket.project.github_repo), []).append(index)
     indexed: dict[tuple[str, str], IssueTools] = {}
     if settings.rag_enabled:

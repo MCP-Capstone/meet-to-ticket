@@ -22,12 +22,12 @@ public class MockPublishGateway implements PublishGateway {
                 request.tickets().stream()
                         .map(t -> new Item(
                                 t.ticketId(), t.processingType(),
-                                switch (t.processingType()) {
+                                "SLACK".equals(t.publishTarget()) ? "POSTED" : switch (t.processingType()) {
                                     case "LINK" -> "LINKED";
                                     case "UPDATE" -> "UPDATED";
                                     default -> "PUBLISHED";
                                 },
-                                null, null, null, List.of(), null, null, false, null, null))
+                                null, null, null, List.of(), null, null, false, null, null, null))
                         .toList();
         return Optional.of(new Result(request.batchId(), "SUCCEEDED", Map.of("total", items.size()), items, null, null));
     }

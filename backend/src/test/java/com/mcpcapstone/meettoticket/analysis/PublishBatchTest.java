@@ -115,6 +115,53 @@ class PublishBatchTest {
 		return ticket(p, member, title, TicketStatus.CONFIRMED, "{\"description\":\"본문\",\"dedupe\":null}");
 	}
 
+	@Test
+	void 결과_콜백이_없어도_조회로_배치를_종료하며_발행은_재실행하지_않는다() throws Exception {
+		TaskItem ticket = confirmed(project, "콜백 복구");
+		UUID id = publish(null);
+		var item = new PublishGateway.Item(ticket.getId().toString(), "CREATE", "PUBLISHED",
+				19, "https://github.com/owner/repo/issues/19", null, List.of(), null, null, false, null, null, null);
+		when(gateway.status(id.toString())).thenReturn(Optional.of(
+				new PublishGateway.Result(id.toString(), "SUCCEEDED", Map.of(), List.of(item), null, null)));
+		publishService.reconcileRunning();
+		assertThat(batches.findById(id).orElseThrow().getStatus()).isEqualTo(PublishBatchStatus.SUCCEEDED);
+		assertThat(items.findById(ticket.getId()).orElseThrow().getTicketStatus()).isEqualTo(TicketStatus.PUBLISHED);
+		verify(gateway, times(1)).submit(any());
+	}
+
+	// 실행 중인 묶음을 n개 만든다. 발행 한 번이 확인된 티켓 전부를 가져가므로 티켓 하나씩 발행한다.
+	private void startBatches(int n) throws Exception {
+		for (int i = 0; i < n; i++) {
+			confirmed(project, "조회 대상 " + i);
+			publish(null);
+		}
+	}
+
+	@Test
+	void Agent에_닿지_않으면_그_주기의_결과_조회를_바로_멈춘다() throws Exception {
+		startBatches(2);
+		when(gateway.status(any())).thenThrow(new AgentException(true));
+		publishService.reconcileRunning();
+		// 묶음마다 타임아웃을 기다리지 않도록 첫 실패에서 멈춘다.
+		verify(gateway, times(1)).status(any());
+	}
+
+	@Test
+	void 한_묶음의_반영_오류는_다른_묶음의_조회를_막지_않는다() throws Exception {
+		startBatches(2);
+		when(gateway.status(any())).thenThrow(new IllegalStateException("반영 실패"));
+		publishService.reconcileRunning();
+		verify(gateway, atLeast(2)).status(any());
+	}
+
+	@Test
+	void 한_주기에_조회하는_묶음_수를_제한한다() throws Exception {
+		startBatches(12);
+		when(gateway.status(any())).thenReturn(Optional.empty());
+		publishService.reconcileRunning();
+		verify(gateway, times(10)).status(any());
+	}
+
 	private UUID publish(Long projectId) throws Exception {
 		var req = post("/api/tickets/publish").session(session);
 		if (projectId != null) req.param("projectId", String.valueOf(projectId));
@@ -168,21 +215,38 @@ class PublishBatchTest {
 	}
 
 	@Test
-	void Slack_발행_대상은_보내지_않고_확인_상태로_둔다() throws Exception {
+	void Slack_공지는_GitHub_티켓과_함께_보내고_게시한_메시지_URL을_저장한다() throws Exception {
 		TaskItem github = confirmed(project, "GitHub");
 		TaskItem slack = confirmed(project, "Slack 공지");
 		var slackItem = items.findById(slack.getId()).orElseThrow();
 		ReflectionTestUtils.setField(slackItem, "publishTarget", PublishTarget.SLACK);
 		items.save(slackItem);
 
-		publish(null);
+		UUID batch = publish(null);
 
 		var captor = ArgumentCaptor.forClass(PublishGateway.Request.class);
 		verify(gateway).submit(captor.capture());
-		assertThat(captor.getValue().tickets()).extracting(PublishGateway.Ticket::ticketId).containsExactly(github.getId().toString());
-		assertThat(stateOf(slack)).isEqualTo(TicketStatus.CONFIRMED);
-		// 보낼 수 있는 티켓이 없으면 담을 것이 없다
-		mvc.perform(post("/api/tickets/publish").session(session)).andExpect(status().isConflict());
+		assertThat(captor.getValue().tickets()).extracting(PublishGateway.Ticket::ticketId)
+				.containsExactlyInAnyOrder(github.getId().toString(), slack.getId().toString());
+		assertThat(stateOf(slack)).isEqualTo(TicketStatus.PUBLISHING);
+
+		// Agent는 Slack 공지를 POSTED와 messageUrl로 알려 준다 (TASK-051)
+		report(batch, """
+				{"batchId":"%s","status":"SUCCEEDED","summary":{"PUBLISHED":1,"POSTED":1},"items":[
+				 {"ticketId":"%s","processingType":"CREATE","status":"PUBLISHED","githubIssueNumber":7,
+				  "githubIssueUrl":"https://github.com/owner/repo/issues/7","droppedLabels":[],"retryable":false},
+				 {"ticketId":"%s","processingType":"CREATE","status":"POSTED",
+				  "messageUrl":"https://team.slack.com/archives/C0123ABCD/p1","retryable":false}]}"""
+				.formatted(batch, github.getId(), slack.getId()));
+
+		var saved = items.findById(slack.getId()).orElseThrow();
+		assertThat(saved.getTicketStatus()).isEqualTo(TicketStatus.PUBLISHED);
+		assertThat(saved.getGithubIssueUrl()).isEqualTo("https://team.slack.com/archives/C0123ABCD/p1");
+		mvc.perform(get("/api/publish-batches/{id}", batch).session(session))
+				.andExpect(jsonPath("$.status").value("SUCCEEDED"))
+				.andExpect(jsonPath("$.summary.published").value(2))
+				.andExpect(jsonPath("$.tickets[?(@.ticketId=='%s')].publishTarget".formatted(slack.getId())).value("SLACK"))
+				.andExpect(jsonPath("$.tickets[?(@.ticketId=='%s')].publishTarget".formatted(github.getId())).value("GITHUB"));
 	}
 
 	@Test
@@ -290,6 +354,25 @@ class PublishBatchTest {
 				{"batchId":"%s","status":"FAILED","items":[{"ticketId":"%s","processingType":"CREATE","status":"FAILED","errorCode":"X"}]}"""
 				.formatted(batch, a.getId()));
 		assertThat(stateOf(a)).isEqualTo(TicketStatus.PUBLISHED);
+	}
+
+	@Test
+	void 발행을_생략한_결과는_성공이나_실패가_아닌_생략으로_저장한다() throws Exception {
+		TaskItem item = confirmed(project, "발행 생략");
+		UUID batch = publish(null);
+
+		report(batch, """
+				{"batchId":"%s","status":"SUCCEEDED","summary":{"SKIPPED":1},"items":[
+				 {"ticketId":"%s","processingType":"CREATE","status":"SKIPPED",
+				  "errorMessage":"발행하지 않음: 외부 시스템에 변경을 만들지 않았습니다.","retryable":false}]}"""
+				.formatted(batch, item.getId()));
+
+		assertThat(stateOf(item)).isEqualTo(TicketStatus.SKIPPED);
+		assertThat(items.findById(item.getId()).orElseThrow().getGithubIssueUrl()).isNull();
+		mvc.perform(get("/api/publish-batches/{id}", batch).session(session))
+				.andExpect(jsonPath("$.status").value("SUCCEEDED"))
+				.andExpect(jsonPath("$.summary.skipped").value(1))
+				.andExpect(jsonPath("$.summary.published").value(0));
 	}
 
 	@Test
@@ -547,7 +630,7 @@ class PublishBatchTest {
 	}
 
 	@Test
-	void 회의_필터의_잘못된_입력과_다른_프로젝트와_지원하지_않는_도구를_거절한다() throws Exception {
+	void 회의_필터의_잘못된_입력과_다른_프로젝트를_거절한다() throws Exception {
 		TaskItem a = confirmed(project, "도구 검증");
 		var meetingId = meetingId(a).toString();
 		mvc.perform(post("/api/tickets/publish").session(session).param("meetingId", "invalid"))
@@ -557,12 +640,23 @@ class PublishBatchTest {
 		mvc.perform(post("/api/tickets/publish").session(session).param("meetingId", meetingId)
 				.param("projectId", newProject().getId().toString()).param("ticketIds", a.getId().toString()))
 				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("NO_CONFIRMED_TICKETS"));
+		verify(gateway, never()).submit(any());
+	}
+
+	@Test
+	void 회의별_발행도_Slack_공지를_함께_보낸다() throws Exception {
+		TaskItem a = confirmed(project, "회의 Slack 공지");
 		var item = items.findById(a.getId()).orElseThrow();
 		ReflectionTestUtils.setField(item, "publishTarget", PublishTarget.SLACK);
 		items.save(item);
-		mvc.perform(post("/api/tickets/publish").session(session).param("meetingId", meetingId).param("ticketIds", a.getId().toString()))
-				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PUBLISH_TARGET_UNSUPPORTED"));
-		verify(gateway, never()).submit(any());
+
+		mvc.perform(post("/api/tickets/publish").session(session)
+						.param("meetingId", meetingId(a).toString()).param("ticketIds", a.getId().toString()))
+				.andExpect(status().isAccepted());
+
+		var captor = ArgumentCaptor.forClass(PublishGateway.Request.class);
+		verify(gateway).submit(captor.capture());
+		assertThat(captor.getValue().tickets()).extracting(PublishGateway.Ticket::publishTarget).containsExactly("SLACK");
 	}
 
 }

@@ -96,7 +96,7 @@ public class ProjectController {
         return service.update(projectId, request, userId);
     }
 
-    @Operation(operationId = "deleteProject", summary = "프로젝트 삭제", description = "관리자만 할 수 있고, 프로젝트 이름을 입력해 확인한다. 멤버, 회의 기록, 분석 작업과 티켓을 지우고, 이미 발행한 GitHub 이슈, Slack 메시지, Notion 페이지는 그대로 둔다. 처리 중인 회의록이 있으면 409.")
+    @Operation(operationId = "deleteProject", summary = "프로젝트 삭제", description = "관리자만 할 수 있고, 프로젝트 이름을 입력해 확인한다. 멤버, 회의 기록, 분석 작업과 티켓을 지우고, 이미 발행한 GitHub 이슈, Slack 메시지, Notion 페이지는 그대로 둔다. 처리 중인 회의록이 있거나 재색인이 진행 중이면 409.")
     @ApiResponse(responseCode = "204", description = "삭제 완료")
     @ApiResponse(responseCode = "400", description = "이름 미입력 (VALIDATION_FAILED) 또는 이름 불일치 (PROJECT_NAME_MISMATCH)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_PROJECT_NAME_MISMATCH)))
@@ -104,8 +104,9 @@ public class ProjectController {
                     examples = @ExampleObject(value = ApiExamples.ERROR_UNAUTHORIZED)))
     @ApiResponse(responseCode = "403", description = "프로젝트 소속 아님 (PROJECT_ACCESS_DENIED) 또는 관리자 아님 (PROJECT_ADMIN_REQUIRED)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                     examples = @ExampleObject(value = ApiExamples.ERROR_PROJECT_ADMIN_REQUIRED)))
-    @ApiResponse(responseCode = "409", description = "처리 중인 회의록이 있음", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
-                    examples = @ExampleObject(value = ApiExamples.ERROR_PROJECT_ANALYSIS_IN_PROGRESS)))
+    @ApiResponse(responseCode = "409", description = "처리 중인 회의록이 있음 (PROJECT_ANALYSIS_IN_PROGRESS) 또는 재색인 진행 중 (PROJECT_REINDEX_IN_PROGRESS)", content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                    examples = {@ExampleObject(name = "PROJECT_ANALYSIS_IN_PROGRESS", value = ApiExamples.ERROR_PROJECT_ANALYSIS_IN_PROGRESS),
+                            @ExampleObject(name = "PROJECT_REINDEX_IN_PROGRESS", value = ApiExamples.ERROR_PROJECT_REINDEX_IN_PROGRESS)}))
     @DeleteMapping("/api/projects/{projectId}")
     public ResponseEntity<Void> delete(
             @Parameter(description = "프로젝트 ID", example = "1", required = true) @PathVariable Long projectId,

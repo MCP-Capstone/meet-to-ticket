@@ -40,12 +40,16 @@ public class MyTicketService {
         JsonNode content = json.read(i.getContentJson());
         JsonNode due = content.path("due");
         var assignee = i.getAssignee();
+		boolean showFailure = i.getTicketStatus() == TicketStatus.FAILED
+				|| (i.getTicketStatus() == TicketStatus.UPDATED && i.getPublishErrorCode() != null);
         return new Ticket(
                 i.getId(),
                 i.getTitle(),
                 i.getTicketStatus(),
                 i.getProcessingType(),
                 i.getPublishTarget(),
+				i.getGithubIssueNumber(),
+				i.getGithubIssueUrl(),
                 dedupe(content.path("dedupe"), i, meeting.getProject()),
                 meeting.getProject().getId(),
                 meeting.getProject().getName(),
@@ -56,13 +60,26 @@ public class MyTicketService {
                 content.path("description").asText(null),
                 new Due(blankToNull(due.path("text").asText(null)), date(due.path("date").asText(null)), blankToNull(due.path("time").asText(null))),
                 assignee == null ? null : new Assignee(assignee.getId(), assignee.getName()),
-                i.getTicketStatus() == TicketStatus.FAILED ? failure(i) : null);
+				showFailure ? failure(i, meeting.getProject()) : null,
+                i.mustRecheckOnPublish());
     }
 
     // 실패 카드가 다시 시도할지, 먼저 GitHub를 확인할지 안내하는 데 쓴다.
-    private static PublishFailure failure(TaskItem i) {
+    private static PublishFailure failure(TaskItem i, com.mcpcapstone.meettoticket.project.Project project) {
         return new PublishFailure(i.getPublishErrorCode(), i.getErrorMessage(), PublishFailureCategory.of(i.getPublishErrorCode()),
-                i.isPublishRetryable(), i.mustRecheckOnPublish());
+                i.canRetryPublish(), i.mustRecheckOnPublish(), PublishResolution.of(i),
+                i.mustRecheckOnPublish() ? checkUrl(i.getPublishTarget(), project) : null);
+    }
+
+    // 결과 모름일 때 담당자가 반영 여부를 확인하러 갈 곳 (#280). 프로젝트 설정에 있는 값만 쓰고, 없으면 null.
+    private static String checkUrl(PublishTarget target, com.mcpcapstone.meettoticket.project.Project project) {
+        return switch (target) {
+            case GITHUB -> project.getGithubOwner() == null || project.getGithubRepo() == null ? null
+                    : "https://github.com/%s/%s/issues".formatted(project.getGithubOwner(), project.getGithubRepo());
+            case NOTION -> blankToNull(project.getNotionPageUrl());
+            case SLACK -> project.getSlackChannelId() == null || project.getSlackChannelId().isBlank() ? null
+                    : "https://slack.com/app_redirect?channel=" + java.net.URLEncoder.encode(project.getSlackChannelId().strip(), java.nio.charset.StandardCharsets.UTF_8);
+        };
     }
 
     // 카드가 그릴 중복 판단 결과 (REQ-026). 판단하지 않았거나 건너뛰었으면 judged=false.
@@ -113,6 +130,8 @@ public class MyTicketService {
             @Schema(description = "티켓 상태", requiredMode = Schema.RequiredMode.REQUIRED, example = "PENDING_REVIEW") TicketStatus status,
             @Schema(description = "처리 유형. 신규 발행 CREATE, 기존 이슈 연결 LINK, 갱신 UPDATE", requiredMode = Schema.RequiredMode.REQUIRED, example = "CREATE") ProcessingType processingType,
             @Schema(description = "발행 대상. GitHub 이외는 처리 유형이 항상 CREATE", requiredMode = Schema.RequiredMode.REQUIRED, example = "GITHUB") PublishTarget publishTarget,
+			@Schema(description = "실제 발행한 GitHub 이슈 번호. 다른 대상은 null", nullable = true) Integer githubIssueNumber,
+			@Schema(description = "발행 대상에 따른 GitHub/Notion/Slack 결과 URL", nullable = true) String githubIssueUrl,
             @Schema(description = "기존 이슈 중복 판단 결과 (읽기 전용)", requiredMode = Schema.RequiredMode.REQUIRED) Dedupe dedupe,
             @Schema(description = "프로젝트 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1") Long projectId,
             @Schema(description = "프로젝트 이름", requiredMode = Schema.RequiredMode.REQUIRED, example = "CSV 내보내기") String projectName,
@@ -123,14 +142,17 @@ public class MyTicketService {
             @Schema(description = "티켓 본문(작업 내용). 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "CSV 내보내기에서 결과가 비면 오류가 난다.") String description,
             @Schema(description = "기한", requiredMode = Schema.RequiredMode.REQUIRED) Due due,
             @Schema(description = "담당 멤버. 담당 지정 필요 상태면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) Assignee assignee,
-            @Schema(description = "발행 실패 사유. 실패 상태가 아니면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) PublishFailure publishFailure) {}
+			@Schema(description = "발행 실패 또는 갱신 알림 댓글 실패 사유. 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) PublishFailure publishFailure,
+            @Schema(description = "발행 대상을 바꿀 수 없는지. 결과를 모르는 발행이 남아 있으면 true이고, 그 대상에서 결론을 낼 때까지 발행 대상 변경은 409 PUBLISH_TARGET_LOCKED다. 본문 수정은 할 수 있다", requiredMode = Schema.RequiredMode.REQUIRED, example = "false") boolean publishTargetLocked) {}
 
     public record PublishFailure(
             @Schema(description = "실패 사유 코드 (예: GITHUB_FORBIDDEN)", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "GITHUB_RATE_LIMIT") String errorCode,
             @Schema(description = "실패 사유", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "잠시 후 다시 시도하세요.") String errorMessage,
             @Schema(description = "실패 분류. REPOSITORY_PERMISSION이면 PM이 프로젝트 설정에서 저장소 권한을 풀어야 한다", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "OTHER") PublishFailureCategory failureCategory,
             @Schema(description = "다시 시도해도 되는 실패인지", requiredMode = Schema.RequiredMode.REQUIRED, example = "true") boolean retryable,
-            @Schema(description = "요청은 갔지만 결과를 모르는 경우(이전 시도 포함). 다시 시도하기 전에 GitHub에서 확인해야 한다", requiredMode = Schema.RequiredMode.REQUIRED, example = "false") boolean outcomeUnknown) {}
+            @Schema(description = "요청은 갔지만 결과를 모르는 경우(이전 시도 포함). 다시 시도하기 전에 GitHub에서 확인해야 한다", requiredMode = Schema.RequiredMode.REQUIRED, example = "false") boolean outcomeUnknown,
+            @Schema(description = "실패를 푸는 방법. RETRY면 다시 시도(결과 모름이면 Agent가 재대조), MANUAL_CHECK면 재대조할 수 없는 대상(Notion, Slack)의 결과 모름이라 다시 시도 대신 확인 결과(POST /api/tickets/{ticketId}/resolve-outcome)를 남겨야 한다", requiredMode = Schema.RequiredMode.REQUIRED, example = "RETRY") PublishResolution resolution,
+            @Schema(description = "결과 모름일 때 반영 여부를 확인하러 갈 곳. GitHub 저장소 이슈 목록, Notion 기획 페이지, Slack 채널. 결과 모름이 아니거나 프로젝트 설정에 없으면 null", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, example = "https://www.notion.so/plan") String checkUrl) {}
 
     public record Dedupe(
             @Schema(description = "중복 판단을 했는지. false면 카드에 \"중복 판단 안 됨\"을 표시", requiredMode = Schema.RequiredMode.REQUIRED, example = "true") boolean judged,
