@@ -129,7 +129,7 @@
 - Slack 공지 일괄 발행은 backend(`PublishService.publishable`)와 Agent(`batch_publish.py` SLACK 분기)에 구현되어 있다.
 - #291: HTTP 연결/풀 확보 실패처럼 미전송이 확인되는 경우만 `MCP_UNAVAILABLE`로 분류한다(langchain-mcp-adapters가 ExceptionGroup으로 감싸도 안쪽을 본다). 쓰기 요청의 읽기/쓰기/연결 종료 오류는 MCP에서 `[RESULT_UNKNOWN]`으로 전달하고 Agent가 `UNKNOWN`으로 보존한다. 단계가 불명인 Agent 쓰기 예외도 보수적으로 `UNKNOWN`이다. Slack 게시 후 링크 조회 실패는 확인 대상으로 남긴다. Notion 페이지 생성 후 나머지 본문 추가가 4xx로 거절되면 만든 페이지를 보관 처리하고 원래 오류로 실패시키며, 시간 초과/5xx/보관 실패처럼 모호하면 확인 대상으로 남긴다.
 - 재시도 제한과 알림 댓글 복구 경로는 2.3을 참고한다 (#291).
-- 댓글 표식은 이번 수정 이후의 UPDATE 알림에 포함된다. 과거 표식 없는 댓글은 같은 회의의 알림 문구로 찾는다. Agent 재시작/장시간 실행과 겹치는 경쟁 조건의 정확히 한 번 처리는 보장하지 않는다. DB 예약/멱등성 복구 작업(#263)은 별도 범위다.
+- 댓글 표식은 이번 수정 이후의 UPDATE 알림에 포함된다. 과거 표식 없는 댓글은 같은 회의의 알림 문구로 찾는다. Agent 재시작/장시간 실행과 겹치는 경쟁 조건의 정확히 한 번 처리는 보장하지 않는다. DB 멱등키와 예약 기록은 [발행 기록과 멱등키](publications.md)(#263 PR1)가 맡고, 멈춘 예약의 복구 워커는 PR2 범위다.
 - 해소됨: Slack 메시지 링크는 Agent가 MCP 응답의 `permalink`를 읽어 `message_url`로 저장한다 (`batch_publish.py`). Notion/Slack 결과 불명 뒤 재발행 차단과 수동 확인 해소 흐름(`resolve-outcome`)은 2.3에 있다.
 - 결과 화면 링크 허용 도메인은 `frontend/src/batchPublish.ts`의 `safePublishUrl`이 대상별로 검사한다.
 
