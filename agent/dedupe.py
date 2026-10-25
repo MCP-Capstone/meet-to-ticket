@@ -34,10 +34,12 @@ Relation = Literal["SAME", "CHANGE", "RELATED", "UNRELATED"]
 
 
 class Decision(BaseModel):
+    # reason을 relation보다 먼저 둔다: 모델은 인자를 앞에서부터 쓰므로, 근거를 먼저 쓰고 그 결론대로 판정해야 판정과 근거가 어긋나지 않는다 (#344)
+    reason: str = Field(description="판정 전에 먼저 쓴다. 기존 이슈가 다루는 요소와 새 작업이 바꾸는 요소가 같은지, 어떤 점이 같고 다른지 한두 문장")
     relation: Relation = Field(
-        description="SAME: 같은 대상에 같은 변경 / CHANGE: 같은 대상, 다른 방향·값 / RELATED: 같은 영역의 다른 작업 / UNRELATED: 관계 없음")
+        description="SAME: 같은 대상에 같은 변경 / CHANGE: 같은 요소에서 기존 이슈 본문에 적힌 값/방향을 다르게 바꿈 / RELATED: 기존 이슈가 만들거나 바꾸는 대상(같은 기능/데이터)을 직접 다루는 다른 작업(같은 화면의 다른 요소는 UNRELATED) / "
+                    "UNRELATED: 다루는 대상이 다르거나 후보가 없음. 같은 화면이나 단어가 겹치는 것만으로는 관계가 아님")
     issue_number: int | None = Field(None, description="관계가 있는 기존 이슈 번호. 도구 결과에서 본 번호만. UNRELATED면 비움")
-    reason: str = Field(description="어떤 이슈의 어떤 점이 같고 다른지 한두 문장")
     before: str | None = Field(None, description="CHANGE일 때만: 기존 이슈의 값이나 방향 (예: 버튼 모양 네모)")
     after: str | None = Field(None, description="CHANGE일 때만: 새 작업의 값이나 방향 (예: 버튼 모양 세모)")
 
@@ -47,6 +49,20 @@ class JudgeState(TypedDict):
     calls: list[str]            # 지금까지 부른 조회 도구 이름 (한도 계산)
     decision: dict | None
     stopped: str | None         # 판단 없이 끝난 이유
+
+
+def _read_decision(args: dict[str, Any]) -> Decision:
+    """제출 인자를 Decision으로 읽는다. reason만 빠졌으면 판정은 버리지 않고 사유를 비워 둔다.
+
+    reason을 relation 앞에 둔 뒤로 모델이 드물게 reason을 빼고 제출한다. 사유가 없다고 판정까지 버리면
+    중복 판단이 건너뛰어져 같은 작업이 새로 발행된다 (#344).
+    """
+    try:
+        return Decision(**args)
+    except ValidationError as exc:
+        if all(e["type"] == "missing" and e["loc"] == ("reason",) for e in exc.errors()):
+            return Decision(**{**args, "reason": ""})
+        raise
 
 
 def _submit_tool() -> Any:
@@ -76,7 +92,7 @@ def build_judge_graph(chat: Any, tools: list[Any], *, max_calls: int, max_same: 
         submit = next((c for c in tool_calls if c["name"] == SUBMIT), None)
         if submit is not None:
             try:
-                return {"messages": [ai], "decision": Decision(**submit["args"]).model_dump()}
+                return {"messages": [ai], "decision": _read_decision(submit["args"]).model_dump()}
             except ValidationError:
                 return {"messages": [ai], "stopped": "invalid_decision"}
         if not tool_calls:

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Any
 
 import config
@@ -133,3 +135,45 @@ class ProjectContextTools:
                 log.warning(warning)
                 warnings.append(warning)
         return result_ctx
+
+
+# --context로 맥락을 넣을 때 Notion 루트 페이지 자리에 두는 값. 가짜 list_pages는 이 값을 보지 않는다
+STATIC_CONTEXT_ROOT = "static-context"
+
+
+class StaticTool:
+    """고정 값을 돌려주는 읽기 도구. MCP 도구의 ainvoke만 흉내 낸다."""
+
+    def __init__(self, answer: Any):
+        self._answer = answer
+
+    async def ainvoke(self, args: dict[str, Any]) -> str:
+        return json.dumps(self._answer(args), ensure_ascii=False)
+
+
+def static_context_tools(path: Path) -> tuple[dict[str, Any], bool]:
+    """맥락 JSON({"issues": [...], "notionDocs": [{page_id, title, url, markdown}]})을 맥락 조회 도구로 바꾼다.
+
+    MCP 서버와 Notion 없이 같은 맥락으로 여러 번 실행해 맥락 반영을 평가하려고 쓴다.
+    두 번째 값은 Notion 문서가 있는지(있어야 요청에 Notion 페이지를 지정해 문서를 읽는다).
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    docs = {d["page_id"]: d for d in data.get("notionDocs", [])}
+    if len(docs) != len(data.get("notionDocs", [])):
+        raise ValueError(f"맥락 JSON에 같은 page_id가 두 번 이상 있습니다: {path}")
+
+    def read_page(args: dict[str, Any]) -> dict[str, Any]:
+        # 실제 read_page처럼 max_chars로 자르고 잘렸는지 표시한다
+        doc = docs[args["page_url_or_id"]]
+        limit = int(args.get("max_chars") or 0)
+        text = doc.get("markdown", "")
+        cut = 0 < limit < len(text)
+        return {**doc, "markdown": text[:limit] if cut else text, "truncated": cut or bool(doc.get("truncated"))}
+
+    tools = {
+        "list_issues": StaticTool(lambda args: {"issues": data.get("issues", [])[:int(args.get("limit") or 20)]}),
+        "list_pages": StaticTool(lambda _args: {"pages": [{"page_id": d["page_id"], "title": d["title"]}
+                                                          for d in docs.values()]}),
+        "read_page": StaticTool(read_page),
+    }
+    return tools, bool(docs)

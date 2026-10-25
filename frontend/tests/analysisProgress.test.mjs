@@ -27,7 +27,7 @@ test('단계가 아직 없거나 알 수 없는 값이면 실행 단계를 지�
   for (const progress of [null, undefined, {}, { step: 'FUTURE_STEP' }]) {
     const running = task('RUNNING', progress, 'PUBLISHING')
     assert.deepEqual(progressStates(running), ['unknown', 'unknown', 'unknown', 'unknown'])
-    assert.equal(progressHeading(running), '회의록을 처리하고 있습니다')
+    assert.equal(progressHeading(running), '회의록을 처리하고 있어요')
     assert.doesNotMatch(progressHeading(running), /발행|대기/)
   }
 })

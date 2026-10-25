@@ -133,6 +133,13 @@ public final class ApiExamples {
               "message": "티켓 담당자만 수정하거나 상태를 바꿀 수 있습니다."
             }""";
 
+    public static final String ERROR_PUBLISH_RETRY_TOO_SOON = """
+            {
+              "code": "PUBLISH_RETRY_TOO_SOON",
+              "message": "지난 발행으로 GitHub 이슈가 이미 만들어졌는지 확인하려면 조금 더 기다려야 합니다. 몇 분 뒤 다시 시도해 주세요."
+            }
+            """;
+
     public static final String ERROR_TICKET_STATUS_CONFLICT = """
             {
               "code": "TICKET_STATUS_CONFLICT",

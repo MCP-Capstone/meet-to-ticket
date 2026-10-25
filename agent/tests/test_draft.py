@@ -102,6 +102,20 @@ def test_draft_references_are_limited_to_loaded_context_documents():
     assert t["references"] == [{"title": "API 운영 기준", "url": "https://www.notion.so/api-guide"}]
 
 
+def test_reference_without_document_content_in_text_is_dropped():
+    """문서 제목만 적고 배경/설명에 그 내용이 없으면 참고 문서에서 뺀다 (#335)."""
+    docs = [{"title": "감사 로그 기획", "url": "https://www.notion.so/audit",
+             "markdown": "# 감사 로그 기획\n\n감사 로그는 연 1회 개인정보보호 점검에 대응하기 위한 화면이다."},
+            {"title": "첨부 파일 정책", "url": "https://www.notion.so/files",
+             "markdown": "# 첨부 파일 정책\n\n업로드 파일은 한 개당 최대 50MB까지 허용한다."}]
+    source = "감사 로그 화면에 기간 필터를 추가한다. 업로드 오류 메시지를 보여 준다."
+    t = new_ticket(ExtractedTodo(work_key="k", action="할 일"), [], None, "llm")
+    d = draft(background="감사 로그 화면에서 날짜별 조회가 안 된다는 문의가 있다. 이 화면은 연 1회 개인정보보호 점검에 대응하기 위한 것이다.",
+              description="기간 필터를 추가한다.", reference_titles=["감사 로그 기획", "첨부 파일 정책"])
+    AgentNodes._apply_draft(t, d, [], source, [], context_docs=docs)
+    assert t["references"] == [{"title": "감사 로그 기획", "url": "https://www.notion.so/audit"}]
+
+
 async def test_result_has_issue_body(settings):
     nodes = AgentNodes(FakeLLM(), FakePublisher(), FakeReporter(), settings)
     state, _ = await run_review(nodes, make_state())
