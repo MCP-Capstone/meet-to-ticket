@@ -1,10 +1,10 @@
 import type { AnalysisProgress, AnalysisTask, ProgressStep } from './api/types'
 
 export const progressSteps: { step: ProgressStep; label: string; doing: string }[] = [
-  { step: 'CONTEXT', label: '맥락 파악', doing: '프로젝트의 맥락을 파악하고 있습니다' },
-  { step: 'EXTRACTING', label: '티켓 추출', doing: '회의록에서 티켓 초안을 작성하고 있습니다' },
-  { step: 'DEDUPING', label: '중복 검수', doing: '기존 이슈와 겹치는 업무를 확인하고 있습니다' },
-  { step: 'DISPATCHING', label: '담당자에게 전송', doing: '담당자에게 전달할 초안을 정리하고 있습니다' },
+  { step: 'CONTEXT', label: '맥락 파악', doing: '프로젝트 맥락을 불러오고 있어요' },
+  { step: 'EXTRACTING', label: '티켓 추출', doing: '회의록에서 티켓 초안을 만들고 있어요' },
+  { step: 'DEDUPING', label: '기존 이슈 확인', doing: '기존 이슈와 겹치는 업무를 확인하고 있어요' },
+  { step: 'DISPATCHING', label: '담당자에게 전송', doing: '담당자에게 보낼 초안을 정리하고 있어요' },
 ]
 
 export type ProgressState = 'waiting' | 'active' | 'done' | 'unknown' | 'stopped'
@@ -18,12 +18,12 @@ export function progressIndex(task: AnalysisTask | null) {
 }
 
 export function progressHeading(task: AnalysisTask | null) {
-  if (!task) return '진행 상황을 불러오고 있습니다'
-  if (task.status === 'QUEUED') return '분석 순서를 기다리고 있습니다'
-  if (task.status === 'COMPLETED') return '처리가 완료되어 결과를 불러오고 있습니다'
-  if (task.status === 'FAILED') return '처리가 실패했습니다. 결과를 확인하고 있습니다'
-  if (task.status === 'PARTIALLY_FAILED') return '일부 항목에 문제가 있어 결과를 확인하고 있습니다'
-  return progressSteps[progressIndex(task)]?.doing ?? '회의록을 처리하고 있습니다'
+  if (!task) return '진행 상황을 불러오고 있어요'
+  if (task.status === 'QUEUED') return '분석 순서를 기다리고 있어요'
+  if (task.status === 'COMPLETED') return '처리가 끝나 결과를 불러오고 있어요'
+  if (task.status === 'FAILED') return '처리하지 못했어요. 결과를 확인하고 있어요'
+  if (task.status === 'PARTIALLY_FAILED') return '일부 항목에 문제가 있어 결과를 확인하고 있어요'
+  return progressSteps[progressIndex(task)]?.doing ?? '회의록을 처리하고 있어요'
 }
 
 // 작업 종료만으로 모든 단계가 성공했거나 실행됐다고 판단하지 않는다.

@@ -1,19 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { api, ApiRequestError } from '../api'
 import type { MyTicket } from '../api'
-import { meetingGroups, publishSelection } from '../batchPublish'
-import { PublishBatchResult } from './PublishBatchResult'
+import { registeredAt, singleLineLabel } from '../displayText'
+import { publishSelection } from '../batchPublish'
+import { publishSummary, usePublishBatch } from '../hooks/usePublishBatch'
+import { Spinner } from './Spinner'
+import { Toast } from './Toast'
 
 interface Props {
+  // 한 회의의 내 티켓. 발행은 회의 단위로 하고, 내 티켓을 모두 확인·거절해야 열린다.
   tickets: MyTicket[]
   busy: boolean
   dirty: boolean
   onLock: (value: boolean) => void
   onRefresh: () => Promise<boolean>
+  children: ReactNode
 }
-export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh }: Props) {
+
+/** 회의 묶음: 머리에 진행 막대와 발행 버튼을 두고, 아래에 티켓을 놓는다. */
+export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh, children }: Props) {
   const [selection, setSelection] = useState<MyTicket[] | null>(null)
-  const [batchId, setBatchId] = useState<string | null>(null)
+  const [published, setPublished] = useState<{ id: string; started: number } | null>(null)
   const [sending, setSending] = useState(false)
   const [uncertain, setUncertain] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -22,7 +30,9 @@ export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh }: Pr
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { if (selection) dialog.current?.showModal(); else dialog.current?.close() }, [selection])
-  const done = useCallback(() => { void onRefresh() }, [onRefresh])
+  const [toast, setToast] = useState<string | null>(null)
+  // 발행 결과는 따로 목록을 그리지 않는다. 버튼에서 진행을 보여 주고, 끝나면 목록을 새로 불러와 각 티켓 줄이 결과로 바뀐다.
+  const batch = usePublishBatch(published, (result) => { setPublished(null); setToast(publishSummary(result)); void onRefresh() })
   async function publish() {
     if (!selection || lock.current || dirty || uncertain) return
     lock.current = true
@@ -33,7 +43,7 @@ export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh }: Pr
       const first = selection[0]
       const result = await api.publishTickets(first.projectId, first.meetingId, selection.map((t) => t.ticketId))
       if (!mounted.current) return
-      setBatchId(result.batchId)
+      setPublished({ id: result.batchId, started: Date.now() })
       setSelection(null)
       // 접수 성공 이후에는 목록 조회가 실패해도 POST를 다시 보내지 않는다.
       await onRefresh()
@@ -51,24 +61,40 @@ export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh }: Pr
       if (mounted.current) { setSending(false); onLock(false) }
     }
   }
-  return <>
-    <section className="card" aria-label="회의별 일괄 발행"><h2>회의별 발행</h2><p className="muted">이 회의의 내 티켓을 모두 확인 또는 거절한 뒤, 확인한 티켓만 발행합니다. 다른 담당자의 검토를 기다릴 필요는 없습니다.</p>
-      {dirty && <p className="notice">수정 중인 티켓을 저장하거나 취소한 뒤 발행하세요.</p>}
-      {error && <p className="error" role="alert">{error}</p>}
-      {uncertain && <p className="notice">이미 접수됐을 수 있어 재발행을 막았습니다. 목록을 새로고침하고 발행 대상 도구에 반영됐는지 확인하세요.</p>}
-      <ul className="publish-groups">{meetingGroups(tickets).map((group) => {
-        const state = publishSelection(group.tickets)
-        return <li key={group.key}><div><strong>{group.first.meetingTitle}</strong><p className="muted">{group.first.projectName} · 회의 #{group.first.meetingId} · 검토 대기 {state.pending}건 · 확인 {state.confirmed.length}건 · 거절 {state.rejected}건</p>
-          {state.reason && <p className="muted" id={`publish-reason-${group.key}`}>{state.reason}</p>}</div>
-          <button type="button" className="primary" disabled={busy || dirty || sending || uncertain || Boolean(state.reason)} aria-describedby={state.reason ? `publish-reason-${group.key}` : undefined} onClick={() => { setError(null); setSelection(state.confirmed) }}>확인한 {state.confirmed.length}건 발행</button>
-        </li>
-      })}</ul>
-    </section>
+  const first = tickets[0]
+  const state = publishSelection(tickets)
+  const decided = tickets.length - state.pending
+  const ready = !state.reason
+  // 발행에 실패해 확인이 필요한 티켓만 남았으면 '승인한 티켓 없음' 대신 그 일을 알려 준다.
+  const needsCheck = tickets.filter((ticket) => ticket.status === 'FAILED' || (ticket.status === 'UPDATED' && ticket.publishFailure)).length
+  const reasonText = batch.running ? (batch.slowNotice ?? '발행하고 있어요') : ready ? '모두 확인했어요' : !state.pending && !state.confirmed.length && needsCheck ? `발행 확인 필요 ${needsCheck}건` : state.reason
+  const reasonId = `publish-reason-${first.projectId}-${first.meetingId}`
+  const created = registeredAt(first.createdAt)
+  // 수정 중에는 안내 상자를 띄우지 않고(레이아웃이 밀리지 않게) 버튼만 잠근 뒤 이유는 툴팁으로 알린다.
+  const disabled = busy || dirty || sending || uncertain || batch.running || !ready
+  return <section className="card meeting-group" aria-label={`${singleLineLabel(first.meetingTitle)} 회의`}>
+    <header className="meeting-group-head">
+      <div className="meeting-group-title">
+        <h3>{singleLineLabel(first.meetingTitle)}</h3>
+        <p className="muted">{created ? `${created} 등록 · ` : ''}내 티켓 {tickets.length}건</p>
+      </div>
+      <div className="meeting-group-publish">
+        <span id={reasonId} className={ready ? 'meeting-group-ready' : 'muted'}>{reasonText}</span>
+        <span className="meeting-group-meter" aria-label={`${tickets.length}건 중 ${decided}건 확인`}><span><i style={{ width: `${tickets.length ? (decided / tickets.length) * 100 : 0}%` }} /></span>{decided}/{tickets.length}</span>
+        <button type="button" className="primary" disabled={disabled} aria-describedby={reasonId} title={dirty ? '수정 중인 티켓을 저장하거나 취소하면 발행할 수 있어요' : undefined} onClick={() => { setError(null); setSelection(state.confirmed) }}>
+          {batch.running ? <><Spinner size="sm" label="발행 중" /> 발행 중… {batch.elapsedText}</> : `승인한 ${state.confirmed.length}건 발행`}
+        </button>
+      </div>
+    </header>
+    {error && <p className="error meeting-group-alert" role="alert">{error}</p>}
+    {uncertain && <p className="notice meeting-group-alert">이미 접수됐을 수 있어 재발행을 막았습니다. 목록을 새로고침하고 발행 대상 도구에 반영됐는지 확인하세요.</p>}
+    {batch.error && <p className="error meeting-group-alert" role="alert">{batch.error} 발행은 다시 보내지 않고 결과만 조회해요. <button type="button" className="link" onClick={batch.retry}>결과 다시 조회</button></p>}
+    <Toast message={toast} onDone={() => setToast(null)} />
+    {children}
     <dialog ref={dialog} className="publish-dialog" aria-labelledby="publish-confirm-title" onCancel={(event) => { if (sending) event.preventDefault(); else setSelection(null) }}>
       <h2 id="publish-confirm-title">티켓을 발행할까요?</h2>
-      {selection && <><p>{selection[0].projectName} / {selection[0].meetingTitle}</p><p>확인한 {selection.length}건을 발행합니다. 거절한 티켓은 제외됩니다.</p><ul>{selection.map((t) => <li key={t.ticketId}>{t.title}</li>)}</ul></>}
+      {selection && <><p>{selection[0].projectName} / {singleLineLabel(selection[0].meetingTitle)}</p><p>승인한 {selection.length}건을 발행합니다. 거절한 티켓은 제외됩니다.</p><p className="muted">GitHub 티켓은 발행 직전에 중복 여부를 다시 확인합니다.</p><p className="publish-target-summary">{(['GITHUB', 'NOTION', 'SLACK'] as const).map(target => { const count = selection.filter(item => item.publishTarget === target).length; return count ? `${target === 'GITHUB' ? 'GitHub' : target === 'NOTION' ? 'Notion' : 'Slack'} ${count}건` : null }).filter(Boolean).join(' · ')}</p><ul>{selection.map((t) => <li key={t.ticketId}>{singleLineLabel(t.title, '제목 없음')}</li>)}</ul></>}
       <div className="ticket-actions"><button type="button" className="secondary" disabled={sending} onClick={() => setSelection(null)}>취소</button><button type="button" className="primary" disabled={sending || dirty} onClick={() => void publish()}>{sending ? '접수 중...' : '발행하기'}</button></div>
     </dialog>
-    {batchId && <PublishBatchResult key={batchId} batchId={batchId} onDone={done} onClose={() => setBatchId(null)} />}
-  </>
+  </section>
 }

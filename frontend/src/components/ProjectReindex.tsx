@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
-import type { ProjectReindex } from '../api'
+import type { ProjectReindex as Reindex } from '../api'
 import { Spinner } from './Spinner'
 
 interface Props {
@@ -8,27 +8,22 @@ interface Props {
   canEdit: boolean
 }
 
-const labels = {
-  RUNNING: '재색인 중',
-  SUCCEEDED: '최신 색인 완료',
-  FAILED: '재색인 실패',
-} as const
+const message = (e: unknown) => e instanceof Error ? e.message : '기존 이슈 상태를 확인하지 못했습니다.'
+const displayTime = (value: string | null) => value ? new Date(value).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : null
 
-const message = (e: unknown) => e instanceof Error ? e.message : '재색인 상태를 확인하지 못했습니다.'
-
-const displayTime = (value: string | null) => value ? new Date(value).toLocaleString('ko-KR') : '아직 실행하지 않음'
-
-/** 프로젝트 설정에서만 보이는 RAG 색인 제어. 실행 중인 경우에만 짧게 폴링한다. */
+/**
+ * 중복 확인에 쓰는 기존 GitHub 이슈 목록(RAG 색인)을 전부 다시 불러온다.
+ * 분석할 때마다 바뀐 이슈는 자동으로 반영되므로, GitHub에서 이슈를 지우거나 옮겨 결과가 어긋날 때만 쓴다.
+ */
 export function ProjectReindex({ projectId, canEdit }: Props) {
-  const [data, setData] = useState<ProjectReindex | null>(null)
+  const [data, setData] = useState<Reindex | null>(null)
   const [loading, setLoading] = useState(true)
   const [requesting, setRequesting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const result = await api.getProjectReindex(projectId)
-      setData(result)
+      setData(await api.getProjectReindex(projectId))
       setError(null)
     } catch (e) {
       setError(message(e))
@@ -63,32 +58,26 @@ export function ProjectReindex({ projectId, canEdit }: Props) {
   }
 
   const running = data?.status === 'RUNNING'
+  const count = data?.indexCount ?? data?.total ?? null
+  const lastSynced = displayTime(data?.lastSyncedAt ?? null)
   return (
-    <section className="card project-reindex" aria-labelledby="reindex-title">
-      <div className="card-header">
+    <div className="project-reindex" role="group" aria-labelledby="reindex-title">
+      <div className="project-reindex-row">
         <div>
-          <h2 id="reindex-title">기존 이슈 색인</h2>
-          <p className="muted">GitHub 이슈 전체를 다시 읽어 중복 이슈 판단용 색인을 갱신합니다.</p>
+          <strong id="reindex-title">기존 이슈</strong>
+          <p className="muted">
+            {loading ? '불러오는 중...'
+              : running ? <span className="inline-status" role="status"><Spinner size="sm" label="기존 이슈 불러오는 중" /> 기존 이슈를 다시 불러오고 있어요.</span>
+                : lastSynced ? `${count !== null ? `${count}건 · ` : ''}${lastSynced} 기준` : '아직 불러오지 않았어요.'}
+          </p>
         </div>
-        {data?.status && <span className={`badge ${data.status === 'FAILED' ? 'failed' : data.status === 'SUCCEEDED' ? 'linked' : 'mock'}`}>
-          {labels[data.status]}
-        </span>}
-      </div>
-      {loading ? <p className="inline-status"><Spinner size="sm" label="색인 상태 불러오는 중" /> 색인 상태를 불러오는 중...</p> : <>
-        <p className="muted">마지막 완료: {displayTime(data?.lastSyncedAt ?? null)}</p>
-        {data?.status === 'SUCCEEDED' && <p className="project-success" role="status">
-          이슈 {data.indexCount ?? data.total ?? 0}건 색인됨{data.indexed !== null && data.indexed !== undefined ? ` · 이번 갱신 ${data.indexed}건` : ''}
-        </p>}
-        {running && <p className="inline-status" role="status"><Spinner size="sm" label="재색인 중" /> {data.progressMessage ?? 'GitHub 이슈를 다시 색인하고 있습니다.'}</p>}
-        {data?.status === 'FAILED' && <p className="error" role="alert">{data.errorMessage ?? '재색인에 실패했습니다.'}</p>}
-        {error && <p className="error" role="alert">{error}</p>}
-      </>}
-      <div className="project-actions">
-        <button type="button" className="secondary" onClick={() => void load()} disabled={loading || requesting}>상태 새로고침</button>
-        {canEdit && <button type="button" className="primary" onClick={() => void request()} disabled={loading || requesting || running}>
-          {requesting || running ? <><Spinner size="sm" label="재색인 요청 중" /> {running ? '재색인 중...' : '요청 중...'}</> : '다시 색인'}
+        {canEdit && <button type="button" className="secondary" onClick={() => void request()} disabled={loading || requesting || running}>
+          {requesting ? '요청 중...' : '다시 불러오기'}
         </button>}
       </div>
-    </section>
+      <p className="muted hint">분석할 때마다 바뀐 이슈는 자동으로 반영돼요. GitHub에서 이슈를 지우거나 옮긴 뒤 결과가 어긋날 때만 눌러 주세요.</p>
+      {data?.status === 'FAILED' && <p className="error" role="alert">{data.errorMessage ?? '기존 이슈를 불러오지 못했습니다.'}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
+    </div>
   )
 }

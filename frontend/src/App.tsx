@@ -2,19 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import { AnalysisProgress } from './components/AnalysisProgress'
 import { AuthForm } from './components/AuthForm'
 import { DispatchResult } from './components/DispatchResult'
-import { ResultList } from './components/ResultList'
 import { MyTickets } from './components/MyTickets'
 import { ProjectEditor } from './components/ProjectEditor'
 import { ProjectList } from './components/ProjectList'
 import { Spinner } from './components/Spinner'
-import { Stepper } from './components/Stepper'
+import { Toast } from './components/Toast'
+import { WorkspaceNavigation } from './components/WorkspaceNavigation'
 import { UploadForm } from './components/UploadForm'
-import { api, ApiRequestError, onUnauthorized, useMock } from './api'
-import type { AnalysisTask, ExecutionMode, Meeting, MeetingAnalysisInput, Project, ProjectDetail, ProjectSummary, ProjectMember, TaskItemList, User } from './api'
+import { api, ApiRequestError, onUnauthorized } from './api'
+import type { AnalysisTask, Meeting, MeetingAnalysisInput, Project, ProjectDetail, ProjectSummary, ProjectMember, TaskItemList, User } from './api'
 
 type Step = 'upload' | 'analyzing' | 'result'
 
-const stepIndex = { upload: 0, analyzing: 1, result: 2 } as const
 
 const toMessage = (e: unknown) => (e instanceof Error ? e.message : '알 수 없는 오류가 발생했습니다.')
 
@@ -31,7 +30,8 @@ function App() {
   const logoutPending = useRef(false)
   // 401 처리기 안에서 최신 로그인 상태를 보려고 ref에도 둔다.
   const loggedIn = useRef(false)
-  const [page, setPage] = useState<'workflow' | 'project-list' | 'project-editor' | 'my-tickets'>('workflow')
+  // 로그인 직후에는 작업자가 가장 자주 처리하는 '내 티켓'을 바로 보여 준다.
+  const [page, setPage] = useState<'workflow' | 'project-list' | 'project-editor' | 'my-tickets'>('my-tickets')
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [editorProjectId, setEditorProjectId] = useState<number | null>(null)
@@ -50,8 +50,8 @@ function App() {
     setProject(next)
     setProjectSelectionNotice(null)
   }
-  const [members, setMembers] = useState<ProjectMember[]>([])
-  const [executionMode, setExecutionMode] = useState<ExecutionMode | null>(null)
+  // 멤버 조회는 프로젝트 접근 확인을 겸한다. 화면에 쓰던 참여자 이름 표시는 결과 화면에서 뺐다.
+  const [, setMembers] = useState<ProjectMember[]>([])
   const [projectError, setProjectError] = useState<string | null>(null)
   const [step, setStep] = useState<Step>('upload')
   const [meeting, setMeeting] = useState<Meeting | null>(null)
@@ -99,7 +99,6 @@ function App() {
       try {
         const list = await api.listProjects()
         if (cancelled || version !== projectListRequest.current) return
-        setExecutionMode(list.executionMode)
         setProjects(list.projects)
         const first = list.projects[0]
         if (!first) {
@@ -124,8 +123,6 @@ function App() {
     }
   }, [user])
 
-  const toNames = (ids: number[]) => ids.map((id) => members.find((m) => m.projectMemberId === id)?.name ?? `#${id}`)
-
   const handleProjectChange = (projectId: number) => {
     const selected = projects.find((item) => item.projectId === projectId)
     if (!selected || startLock.current) return
@@ -149,7 +146,6 @@ function App() {
       const list = await api.listProjects()
       if (version !== projectListRequest.current) return
       setProjects(list.projects)
-      setExecutionMode(list.executionMode)
       // 재조회 중 바뀐 선택도 응답 시점의 최신 선택값으로 확인한다.
       const current = selectedProject.current
       const updated = list.projects.find((item) => item.projectId === current?.projectId)
@@ -192,11 +188,11 @@ function App() {
       const res = await api.requestMeetingAnalysis(projectId, input)
       if (epoch !== runEpoch.current) return
       activeRunId.current = res.taskId
-      setExecutionMode(res.executionMode)
       // 접수 완료 후 메타데이터 조회가 실패해도 새 처리 요청을 보내지 않는다.
       setMeeting({
         meetingId: res.meetingId, projectId, meetingDate: input.meetingDate,
-        title: input.title?.trim() || input.file?.name.replace(/\.[^.]+$/, '') || `${input.meetingDate} 회의`,
+        // 회의명은 백엔드가 분석·저장한 값만 보여 준다. 입력 파일명이나 날짜로 임의 제목을 만들지 않는다.
+        title: input.title?.trim() || '',
         participantIds: [], originalFilename: input.file?.name ?? '', readyForAnalysis: true,
       })
       setTaskId(res.taskId)
@@ -263,7 +259,7 @@ function App() {
       reset()
       selectProject(null)
       setProjects([])
-      setPage('workflow')
+      setPage('my-tickets')
       setProjectSavedMessage(null)
       setMembers([])
       setUser(null)
@@ -275,6 +271,7 @@ function App() {
     setAuthNotice(null)
     setProjectError(null)
     setProjectsLoading(true)
+    setPage('my-tickets')
     setUser(loggedInUser)
   }
 
@@ -289,7 +286,7 @@ function App() {
       reset()
       selectProject(null)
       setProjects([])
-      setPage('workflow')
+      setPage('my-tickets')
       setProjectSavedMessage(null)
       setMembers([])
       setUser(null)
@@ -323,30 +320,37 @@ function App() {
     }
   }
 
+  const pageTitle = page === 'my-tickets' ? '내 티켓' : page === 'workflow' ? '회의록 등록' : page === 'project-list' ? '프로젝트 관리' : '프로젝트 설정'
+
   return (
-    <main className={`container${page === 'project-list' ? ' project-workspace' : ''}`}>
-      <header className="header">
-        <div>
-          <h1>meet-to-ticket</h1>
-          <p className="muted">{project ? project.name : '회의록에서 할 일을 찾아 GitHub 이슈로 발행합니다.'}</p>
-        </div>
-        <div className="header-side">
-          {useMock && <span className="badge mock">MOCK</span>}
-          {executionMode === 'MOCK' && user && (
-            <span className="badge mock" title="백엔드가 Agent 없이 모의 응답으로 동작 중입니다.">
-              모의 실행
-            </span>
-          )}
-          {user && (
-            <>
-              <span className="user-name">{user.name}님</span>
-              <button className="link" onClick={handleLogout} disabled={projectSaving || projectDeleting || ticketBusy || starting || loggingOut}>
-                {loggingOut ? '로그아웃 중...' : '로그아웃'}
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+    <main className={`app-shell${user ? ' is-authenticated' : ''}${page === 'project-list' ? ' project-workspace' : ''}`}>
+      {user && <WorkspaceNavigation page={page} name={user.name}
+        disabled={{ tickets: projectSaving || projectDeleting || starting || step === 'analyzing' || ticketBusy || loggingOut, meeting: projectSaving || projectDeleting || ticketBusy || loggingOut, projects: step === 'analyzing' || starting || projectSaving || projectDeleting || ticketBusy || loggingOut }}
+        logoutDisabled={projectSaving || projectDeleting || ticketBusy || starting || loggingOut} loggingOut={loggingOut} onLogout={() => void handleLogout()}
+        onNavigate={next => { if (!canLeaveTickets()) return false; setPage(next); if (next === 'project-list') void refreshProjects(); return true }} />}
+
+
+      {user && <div className="workspace-frame">
+        <header className="workspace-topbar" aria-label="작업 공간 상단바">
+          <p className="workspace-context"><span>Meet-to-Ticket</span><span aria-hidden="true">/</span><strong>{pageTitle}</strong></p>
+          <div className="workspace-account">
+            <span className="avatar" aria-hidden="true">{user.name.slice(0, 1)}</span>
+            <strong>{user.name}</strong>
+            <button type="button" className="workspace-logout" disabled={projectSaving || projectDeleting || ticketBusy || starting || loggingOut} onClick={() => void handleLogout()}>{loggingOut ? '로그아웃 중...' : '로그아웃'}</button>
+          </div>
+        </header>
+      </div>}
+      <section className="app-content">
+        <header className="header">
+          <div className="page-title">
+            <h1>{user ? pageTitle : 'Meet-to-Ticket'}</h1>
+            {user && page === 'project-list' && <span className="page-count" aria-label={`프로젝트 ${projects.length}개`}>{projects.length}</span>}
+            {!user && <p className="muted">회의록에서 후속 작업을 만들고, 검토 후 발행하세요.</p>}
+          </div>
+          <div className="header-side">
+            {user && page === 'project-list' && <button type="button" className="primary" disabled={projectsLoading || projectDeleting || loggingOut} onClick={() => { setEditorProjectId(null); setProjectSavedMessage(null); setPage('project-editor') }}>프로젝트 추가</button>}
+          </div>
+        </header>
 
       {user && logoutError && (
         <div role="alert">
@@ -375,19 +379,7 @@ function App() {
 
       {user === null && <AuthForm onLogin={handleLogin} notice={authNotice} />}
 
-      {user && (
-        <nav className="workspace-nav" aria-label="서비스 메뉴">
-          <button type="button" aria-current={page === 'workflow' ? 'page' : undefined} disabled={projectSaving || projectDeleting || ticketBusy || loggingOut} onClick={() => { if (canLeaveTickets()) setPage('workflow') }}>회의록 업로드</button>
-          <button type="button" aria-current={page === 'project-list' || page === 'project-editor' ? 'page' : undefined} disabled={step === 'analyzing' || starting || projectSaving || projectDeleting || ticketBusy || loggingOut} onClick={() => {
-            if (!canLeaveTickets()) return
-            setPage('project-list')
-            void refreshProjects()
-          }}>프로젝트</button>
-          <button type="button" aria-current={page === 'my-tickets' ? 'page' : undefined} disabled={projectSaving || projectDeleting || starting || step === 'analyzing' || ticketBusy || loggingOut} onClick={() => setPage('my-tickets')}>내 티켓</button>
-        </nav>
-      )}
-
-      {user && page === 'my-tickets' && <MyTickets projects={projects} projectsLoading={projectsLoading} onBusyChange={setTicketBusy} onDirtyChange={setTicketDirty}
+      {user && page === 'my-tickets' && <MyTickets onBusyChange={setTicketBusy} onDirtyChange={setTicketDirty}
         onOpenProjectSettings={(projectId) => { setEditorProjectId(projectId); setProjectSavedMessage(null); setPage('project-editor') }} />}
 
       {user && page === 'project-list' && <ProjectList projects={projects} loading={projectsLoading} error={projectError}
@@ -396,19 +388,8 @@ function App() {
         onDeleted={handleProjectDeleted} onBusyChange={setProjectDeleting} />}
 
       {user && page === 'project-editor' && <>
-        <button type="button" className="link" disabled={projectSaving} onClick={() => { setPage('project-list'); void refreshProjects() }}>프로젝트 목록으로</button>
-        <div className="project-toolbar">
-          <label>편집할 프로젝트
-            <select value={editorProjectId ?? ''} disabled={projectSaving} onChange={(e) => {
-              setEditorProjectId(e.target.value === '' ? null : Number(e.target.value))
-              setProjectSavedMessage(null)
-            }}>
-              <option value="">새 프로젝트 등록</option>
-              {projects.map((item) => <option key={item.projectId} value={item.projectId}>{item.name}</option>)}
-            </select>
-          </label>
-        </div>
-        {projectSavedMessage && <p className="project-success" role="status">{projectSavedMessage}</p>}
+        <button type="button" className="back-button" disabled={projectSaving} onClick={() => { setPage('project-list'); void refreshProjects() }}>프로젝트 목록</button>
+        <Toast message={projectSavedMessage} onDone={() => setProjectSavedMessage(null)} />
         {projectError && <p className="error" role="alert">{projectError}</p>}
         <ProjectEditor key={editorProjectId ?? 'new'} projectId={editorProjectId}
           onSaved={handleProjectSaved} onSavingChange={setProjectSaving} onChange={() => setProjectSavedMessage(null)} onCancel={() => { setPage('project-list'); void refreshProjects() }} />
@@ -420,7 +401,6 @@ function App() {
 
       {user && page === 'workflow' && (
         <>
-          <Stepper current={stepIndex[step]} />
 
           {error && <p className="error" role="alert">{error}</p>}
           {meetingNotice && <p className="notice" role="status">{meetingNotice}</p>}
@@ -448,15 +428,11 @@ function App() {
             <>
               {/* 기획_v16: 티켓을 담당자별로 보낸 결과 (TASK-023·024·025) */}
               <DispatchResult taskId={taskId} meeting={meeting} onUploadAnother={reset} />
-              {/* Agent 처리 상세 (Phase 1 결과 형식). 검수 지적·경고를 항목별로 볼 때 연다 */}
-              <details className="result-detail">
-                <summary>Agent 처리 상세</summary>
-                <ResultList meeting={meeting} participants={toNames(meeting.participantIds)} result={result} />
-              </details>
             </>
           )}
         </>
       )}
+      </section>
     </main>
   )
 }

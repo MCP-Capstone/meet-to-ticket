@@ -97,7 +97,7 @@
 
 ### 3.3 현재 구현과 차이
 
-- 화면은 4종으로 합치지 않고 내부 상태 라벨을 그대로 쓴다 (`TicketCard.tsx`: 담당 지정 필요, 검토 대기, 확인, 거절, 발행 중, 발행됨, 연결됨, 갱신됨, 발행 생략, 실패). 백엔드는 `displayStatus`를 이미 주므로 화면은 필요할 때 이 값으로 바꿀 수 있고, 이 문서가 대응 기준이다.
+- 화면은 4종으로 합치지 않고 내부 상태 라벨을 그대로 쓴다 (`displayText.ts`의 `ticketStatusLabel`: 담당 지정 필요, 검토 대기, 승인됨, 거절됨, 발행 중, 발행됨, 연결됨, 갱신됨, 발행 생략, 발행 확인 필요). 백엔드는 `displayStatus`를 이미 주므로 화면은 필요할 때 이 값으로 바꿀 수 있고, 이 문서가 대응 기준이다.
 - `displayStatus`는 티켓 응답(`MyTicketService.Ticket`: 내 티켓, 전송 결과, 티켓 동작 응답)에만 있다. 발행 묶음 결과의 티켓 항목(`PublishService.Entry`)에는 아직 없다.
 - 결과 화면은 묶음 요약(`Summary`)에서 발행됨/연결됨/갱신됨/실패/발행 중을 따로 센다.
 - 묶음(`PublishBatchStatus`)은 `RUNNING`, `SUCCEEDED`, `PARTIAL_FAILED`, `FAILED`이며 티켓 상태와 별개다.

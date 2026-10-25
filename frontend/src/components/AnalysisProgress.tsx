@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AnalysisTask } from '../api'
 import { useAnalysisPolling } from '../hooks/useAnalysisPolling'
-import { progressDetails, progressHeading, progressIndex, progressStateLabels, progressStates, progressSteps } from '../analysisProgress'
+import { progressHeading, progressStates, progressSteps } from '../analysisProgress'
 import { Spinner } from './Spinner'
 
 interface Props {
@@ -24,14 +24,27 @@ function useElapsed(startedAt: string | undefined) {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
 }
 
+// 진행 중이면 서버가 보낸 숫자로 지금 하는 일을 한 문장으로 말한다. 숫자가 아직 없거나 대기·종료면 기본 문구를 쓴다.
+const count = (value: number | null | undefined) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+function statusText(task: AnalysisTask | null) {
+  const p = task?.progress
+  if (task?.status !== 'RUNNING' || !p) return progressHeading(task)
+  if (p.step === 'CONTEXT') {
+    const parts = [count(p.context?.issues) !== null && `기존 이슈 ${count(p.context?.issues)}개`, count(p.context?.members) !== null && `멤버 ${count(p.context?.members)}명`, count(p.context?.notionDocs) !== null && `Notion 문서 ${count(p.context?.notionDocs)}개`].filter(Boolean)
+    return parts.length ? `프로젝트 맥락을 불러왔어요 · ${parts.join(', ')}` : '프로젝트 맥락을 불러오고 있어요'
+  }
+  if (p.step === 'EXTRACTING') return count(p.extraction?.todos) !== null ? `회의록에서 할 일 ${count(p.extraction?.todos)}건을 찾았어요` : '회의록에서 할 일을 찾고 있어요'
+  if (p.step === 'DEDUPING') {
+    const done = count(p.dedupe?.done), total = count(p.dedupe?.total), linked = count(p.dedupe?.linked)
+    return total ? `기존 이슈와 비교하고 있어요 · ${done ?? 0}/${total}${linked ? ` · 연결 ${linked}건` : ''}` : '기존 이슈와 비교하고 있어요'
+  }
+  if (p.step === 'DISPATCHING') return count(p.extraction?.todos) !== null ? `티켓 ${count(p.extraction?.todos)}건을 담당자에게 보내고 있어요` : '담당자에게 보내고 있어요'
+  return progressHeading(task)
+}
+
 export function AnalysisProgress({ taskId, meetingTitle, onFinish, onCancel }: Props) {
   const { task, error } = useAnalysisPolling(taskId, onFinish)
   const elapsed = useElapsed(task?.createdAt)
-
-  const states = progressStates(task)
-  const details = progressDetails(task?.progress)
-  const contextWarnings = task?.progress?.context?.warnings ?? []
-  const missingProgress = task?.status === 'RUNNING' && progressIndex(task) < 0
 
   if (error) {
     return (
@@ -45,39 +58,19 @@ export function AnalysisProgress({ taskId, meetingTitle, onFinish, onCancel }: P
     )
   }
 
+  // 단계 이름 목록 대신 지금 하는 일 한 문장과 몇 번째 단계인지만 보여 준다.
+  const states = progressStates(task)
+  const active = states.indexOf('active')
   return (
     <section className="card progress">
-      <Spinner label="처리 상태 확인 중" />
-      <div>
-        <h2 aria-live="polite">{progressHeading(task)}</h2>
-        <p className="muted">
-          <strong>{meetingTitle}</strong> / 경과 {elapsed}
-        </p>
+      <Spinner label="티켓 초안 만드는 중" />
+      <h2>티켓 초안을 만들고 있어요</h2>
+      <p className="progress-status" aria-live="polite">{statusText(task)}</p>
+      <div className="progress-bar" role="progressbar" aria-label="처리 단계" aria-valuemin={0} aria-valuemax={progressSteps.length} aria-valuenow={active < 0 ? states.filter((state) => state === 'done').length : active + 1}>
+        {states.map((state, i) => <span key={progressSteps[i].step} className={state} />)}
       </div>
-
-      {missingProgress && <p className="muted" role="status">상세 진행 단계를 확인할 수 없어 작업 상태를 계속 확인하고 있습니다.</p>}
-
-      <ol className="progress-steps" aria-label="회의록 처리 단계">
-        {progressSteps.map(({ step, label }, i) => {
-          const state = states[i]
-          return (
-            <li key={step} className={state} aria-current={state === 'active' ? 'step' : undefined}>
-              <span className="dot" aria-hidden="true">{state === 'done' ? '✓' : state === 'stopped' ? '!' : i + 1}</span>
-              <span className="progress-step-label">{label}</span>
-              <span className="progress-step-state">{progressStateLabels[state]}</span>
-            </li>
-          )
-        })}
-      </ol>
-
-      {details.length > 0 && <div className="progress-details" aria-label="처리 세부 정보">
-        {details.map(({ title, values }) => <section key={title}>
-          <h3>{title}</h3>
-          <dl>{values.map(({ label, value }) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-        </section>)}
-      </div>}
-      {contextWarnings.length > 0 && <div className="notice" role="status"><p>프로젝트 맥락 수집 안내</p><ul>{contextWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
-      <p className="muted hint">진행 상황은 2초마다 갱신됩니다. 초안 생성 완료는 티켓 발행 완료를 의미하지 않습니다.</p>
+      <p className="muted">{meetingTitle} · 경과 {elapsed}</p>
+      <p className="muted progress-note">창을 닫아도 계속 처리되고, 끝나면 담당자의 내 티켓으로 들어가요.</p>
     </section>
   )
 }

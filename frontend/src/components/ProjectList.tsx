@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import type { ConnectionStatus, ProjectSummary } from '../api'
 import { Spinner } from './Spinner'
+import { Toast } from './Toast'
 
 interface Props {
   projects: ProjectSummary[]
@@ -30,7 +31,7 @@ export function ProjectList({ projects, loading, error, onReload, onCreate, onEd
       <h2 id="project-list-title">프로젝트</h2>
       <button ref={createButton} type="button" className="primary" disabled={loading} onClick={onCreate}>새 프로젝트</button>
     </div>
-    {notice && <p className="project-success" role="status">{notice}</p>}
+    <Toast message={notice} onDone={() => setNotice(null)} />
     {error && <div role="alert"><p className="error">{error}</p><button type="button" disabled={loading} onClick={onReload}>다시 불러오기</button></div>}
     {loading ? <Spinner label="프로젝트를 불러오는 중" /> : !error && <>
       {projects.length === 0 ? <div className="card project-empty"><h3>아직 소속된 프로젝트가 없어요</h3><p className="muted">새 프로젝트를 만들거나 프로젝트 관리자에게 멤버 추가를 요청하세요.</p></div> :
@@ -40,11 +41,11 @@ export function ProjectList({ projects, loading, error, onReload, onCreate, onEd
             <thead><tr><th scope="col">이름</th><th scope="col">GitHub 저장소</th><th scope="col">연결</th><th scope="col">멤버</th><th scope="col">최근 회의</th><th scope="col">관리</th></tr></thead>
             <tbody>{projects.map((project) => <tr key={project.projectId}>
               <th scope="row">{project.name}</th>
-              <td className="project-repository">{project.githubOwner}/{project.githubRepo}</td>
-              <td><div className="project-connections"><Connection tool="GitHub" status={project.connections.github} /><Connection tool="Notion" status={project.connections.notion} /><Connection tool="Slack" status={project.connections.slack} /></div></td>
-              <td>{project.memberCount}명</td>
-              <td className="project-date">{project.lastMeetingDate ? <time dateTime={project.lastMeetingDate}>{project.lastMeetingDate}</time> : <span className="muted">없음</span>}</td>
-              <td>{project.canEdit ? <div className="project-row-actions"><button type="button" aria-label={`${project.name} 편집`} onClick={() => onEdit(project.projectId)}>편집</button><button type="button" className="danger" aria-label={`${project.name} 삭제`} onClick={() => { setNotice(null); setDeleting(project) }}>삭제</button></div> : <span className="muted">관리자만 관리</span>}</td>
+              <td data-label="저장소" className="project-repository">{project.githubOwner}/{project.githubRepo}</td>
+              <td data-label="도구 연결"><div className="project-connections"><Connection tool="GitHub" status={project.connections.github} /><Connection tool="Notion" status={project.connections.notion} /><Connection tool="Slack" status={project.connections.slack} /></div></td>
+              <td data-label="멤버">{project.memberCount}명</td>
+              <td data-label="최근 회의" className="project-date">{project.lastMeetingDate ? <time dateTime={project.lastMeetingDate}>{project.lastMeetingDate}</time> : <span className="muted">없음</span>}</td>
+              <td data-label="관리">{project.canEdit ? <div className="project-row-actions"><button type="button" aria-label={`${project.name} 편집`} onClick={() => onEdit(project.projectId)}>편집</button><button type="button" className="danger" aria-label={`${project.name} 삭제`} onClick={() => { setNotice(null); setDeleting(project) }}>삭제</button></div> : <span className="muted">관리자만 관리</span>}</td>
             </tr>)}</tbody>
           </table>
         </div>}
@@ -101,7 +102,6 @@ function DeleteProjectDialog({ project, onCancel, onDeleted, onBusyChange }: {
       <ul id="project-delete-description">
         <li>회의 처리 기록과 티켓(검토 대기 포함), 멤버 정보가 삭제돼요.</li>
         <li>이미 발행한 GitHub 이슈, Slack 메시지, Notion 페이지는 그대로 남아요.</li>
-        <li>기존 이슈 색인은 현재 삭제 대상에 포함되지 않아요.</li>
       </ul>
       <label htmlFor="project-delete-name">확인을 위해 프로젝트 이름을 입력하세요</label>
       <input autoFocus id="project-delete-name" autoComplete="off" value={name} placeholder={project.name} disabled={busy} onChange={(event) => setName(event.target.value)} />
