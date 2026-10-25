@@ -5,7 +5,7 @@ import { Spinner } from './Spinner'
 import { Toast } from './Toast'
 import { TicketCard } from './TicketCard'
 import { BatchPublishFlow } from './BatchPublishFlow'
-import { singleLineLabel, ticketStatusLabel } from '../displayText'
+import { registeredAt, singleLineLabel, ticketStatusLabel } from '../displayText'
 import { safePublishUrl } from '../batchPublish'
 
 interface Props {
@@ -31,7 +31,8 @@ function groupMeetings(tickets: MyTicket[]) {
   const groups = new Map<string, MyTicket[]>()
   for (const ticket of tickets) groups.set(meetingKey(ticket), [...(groups.get(meetingKey(ticket)) ?? []), ticket])
   return [...groups.entries()].map(([key, items]) => ({ key, tickets: items, active: activeMeeting(items) }))
-    .sort((x, y) => Number(y.tickets.some(needsAction)) - Number(x.tickets.some(needsAction)) || latest(y.tickets).localeCompare(latest(x.tickets)))
+    // 확인·거절할 때마다 회의 순서가 바뀌지 않게 최근 등록한 회의부터 고정된 순서로 둔다.
+    .sort((x, y) => latest(y.tickets).localeCompare(latest(x.tickets)))
 }
 function projectsOf(tickets: MyTicket[]) {
   const projects = new Map<number, { projectId: number; name: string; todo: number }>()
@@ -257,14 +258,15 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
       <div className="meeting-groups" aria-busy={busy}>
         {view === 'active' && visibleMeetings.map((meeting) => <BatchPublishFlow key={meeting.key} tickets={meeting.tickets} busy={busy || Boolean(error)} dirty={hasDirty} onLock={publishLock} onRefresh={load}>
           <ul className="meeting-tickets">
-            {[...meeting.tickets].sort((x, y) => Number(needsAction(y)) - Number(needsAction(x))).map((ticket) => ticketItem(ticket, expanded(ticket)))}
+            {/* 확인해도 자리는 그대로 두고 접히기만 한다. */}
+            {meeting.tickets.map((ticket) => ticketItem(ticket, expanded(ticket)))}
           </ul>
         </BatchPublishFlow>)}
         {view === 'done' && visibleMeetings.map((meeting) => {
           const open = openMeetings.has(meeting.key)
           return <section key={meeting.key} className="card meeting-group" aria-label={`${singleLineLabel(meeting.tickets[0].meetingTitle)} 회의`}>
             <header className="meeting-group-head">
-              <div className="meeting-group-title"><h3>{singleLineLabel(meeting.tickets[0].meetingTitle)}</h3><p className="muted">내 티켓 {meeting.tickets.length}건</p></div>
+              <div className="meeting-group-title"><h3>{singleLineLabel(meeting.tickets[0].meetingTitle)}</h3><p className="muted">{registeredAt(meeting.tickets[0].createdAt) ? `${registeredAt(meeting.tickets[0].createdAt)} 등록 · ` : ''}내 티켓 {meeting.tickets.length}건</p></div>
               <div className="meeting-group-publish">
                 {statusSummary(meeting.tickets).map((kind) => <span key={kind.label} className={`badge ticket-status ${kind.tone}`}>{kind.label} {kind.count}</span>)}
                 <button type="button" className="link" aria-expanded={open} onClick={() => toggle(setOpenMeetings, meeting.key)}>{open ? '접기' : '펼치기'}</button>

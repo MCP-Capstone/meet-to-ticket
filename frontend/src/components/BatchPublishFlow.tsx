@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { api, ApiRequestError } from '../api'
 import type { MyTicket } from '../api'
-import { singleLineLabel } from '../displayText'
+import { registeredAt, singleLineLabel } from '../displayText'
 import { publishSelection } from '../batchPublish'
 import { PublishBatchResult } from './PublishBatchResult'
 
@@ -14,10 +14,6 @@ interface Props {
   onLock: (value: boolean) => void
   onRefresh: () => Promise<boolean>
   children: ReactNode
-}
-const shortDate = (value: string) => {
-  const date = new Date(value)
-  return Number.isFinite(date.getTime()) ? `${date.getMonth() + 1}/${date.getDate()}` : null
 }
 
 /** 회의 묶음: 머리에 진행 막대와 발행 버튼을 두고, 아래에 티켓을 놓는다. */
@@ -66,7 +62,7 @@ export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh, chil
   const decided = tickets.length - state.pending
   const ready = !state.reason
   const reasonId = `publish-reason-${first.projectId}-${first.meetingId}`
-  const created = shortDate(first.createdAt)
+  const created = registeredAt(first.createdAt)
   // 수정 중에는 안내 상자를 띄우지 않고(레이아웃이 밀리지 않게) 버튼만 잠근 뒤 이유는 툴팁으로 알린다.
   const disabled = busy || dirty || sending || uncertain || !ready
   return <section className="card meeting-group" aria-label={`${singleLineLabel(first.meetingTitle)} 회의`}>

@@ -15,3 +15,10 @@ export const ticketStatusLabel: Record<TicketStatus, string> = {
   ASSIGNEE_REQUIRED: '담당 지정 필요', PENDING_REVIEW: '검토 대기', CONFIRMED: '승인됨', REJECTED: '거절됨',
   PUBLISHING: '발행 중', PUBLISHED: '발행됨', LINKED: '연결됨', UPDATED: '갱신됨', SKIPPED: '발행 생략', FAILED: '발행 확인 필요',
 }
+
+// 같은 제목의 회의를 구분할 수 있게 회의 묶음 머리에 등록 날짜와 시각을 붙인다. 예: 10/25 14:03
+export function registeredAt(value: string) {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return null
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
