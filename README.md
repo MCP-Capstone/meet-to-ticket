@@ -159,6 +159,41 @@ docker compose down -v    # 종료 + 데이터 삭제
 - `./gradlew bootRun`은 `local` 프로파일로 실행되어 기본 자격증명을 허용한다. 프로파일 없이 jar로 실행하면 기본 자격증명/빈 내부 토큰은 기동이 거부된다.
 - 5432 포트를 이미 쓰는 로컬 PostgreSQL이 있으면 먼저 종료한다.
 
+## 평가 결과
+
+같은 평가셋 v2.1(입력 30개, 채점 단위 37문항)로 `phase1-end`(개선 전)와 develop `29a3a22`(개선 후)를 문항마다 3회 실행해 비교했다. 항상 dry-run이다. 측정 조건, 문항별 결과, 재현 명령은 [평가셋과 회귀 평가](docs/evaluation.md)에 있다.
+
+| 지표 | 개선 전 | 개선 후 | 목표 |
+|---|---|---|---|
+| 추출 정밀도 | 71.1% (101/142) | 80.3% (102/127) | 80% 이상 |
+| 중복 판단 정확도 | 83.3% (15/18) | 100.0% (18/18), 94.4% (17/18) | 90% 이상 |
+| 기한 정확도 | 17.8% (18/101) | 96.1% (98/102) | 90% 이상 |
+| 담당자 오류율 | 3.0% (3/101) | 0.0% (0/102) | 5% 이하 |
+| 업무 재현율 | 96.2% (101/105) | 97.1% (102/105) | 90% 이상 유지 |
+
+중복 판단은 11분 간격으로 돌린 두 라운드의 값이다.
+
+## 알려진 한계
+
+- 같은 평가셋으로 프롬프트를 고치고 같은 평가셋으로 다시 쟀다. 전후 수치는 이 평가셋에서의 변화이고, 처음 보는 회의록에서의 일반화는 확인하지 못했다.
+- 추출 정밀도 80.3%는 목표를 0.3%p 넘은 경계값이고 측정마다 80.3~86.4%였다. 업무 하나를 여러 티켓으로 쪼개는 초과 25건이 가장 큰 남은 문제다.
+- 중복 판단은 6문항 x 3회 = 18회라 표본이 작다. 같은 코드가 시간대에 따라 14/18에서 18/18까지 나왔다.
+- 최종 측정은 CLI 경로다. 서버 경로에서는 초안의 제목과 본문이 다른 업무의 것으로 뒤바뀌는 경우가 10회 중 3회 있었다(담당자와 기한은 맞다). 담당자가 카드를 확인하는 단계에서 걸러야 한다.
+- 운영 지표(중복 발행률, 오발행률)는 측정하지 않았다. 평가셋은 팀이 만든 가상 회의 요약이다.
+
+## 데이터 출처
+
+외부 데이터 세트는 쓰지 않았다. 평가셋, 샘플 회의록, 시험용 이슈는 모두 팀이 만든 가상 데이터이고 실제 개인정보는 없다. 출처와 이용조건 표는 [데이터 출처와 이용조건](docs/data-sources.md)에 있다. 회의 원문은 LLM 호출 때 OpenAI로 전송되므로 서비스에 올리는 회의록에는 개인정보를 넣지 않는다.
+
+## 보안과 개인정보
+
+- 비밀 값: `.env`는 `.gitignore`로 제외하고 `.env.example`만 올린다. API 키와 토큰은 이미지에 복사하지 않고 실행할 때 환경 변수로 넘긴다.
+- 프롬프트 인젝션: 회의 원문, Notion 문서, 기존 이슈를 데이터 태그로 감싸 안의 지시를 따르지 않게 하고, 초안에 원문에 없는 URL이나 명령어가 생기면 경고한다(`agent/guard.py`). 완벽한 방어는 아니다.
+- 사람이 확인한 뒤에만 발행: 담당자가 확인하지 않은 항목은 자동으로 발행되지 않고 승인 이력을 남긴다. Compose의 기본값은 `DRY_RUN=true`라 실제 이슈를 만들지 않는다.
+- 쓰기 범위 제한: 이슈를 쓸 수 있는 저장소를 `GITHUB_ALLOWED_REPOS`로 제한할 수 있다.
+- 호출 한도: LLM 호출 1회 120초, 작업 전체 600초, 회의 원문 40,000자, 중복 판단은 업무당 도구 호출 4회와 30초.
+- 운영 설정 보호: demo, local, test 이외의 프로파일에서는 기본 자격증명과 빈 내부 토큰이면 backend가 기동을 거부한다. 이 저장소의 Docker 구성은 로컬과 데모용이고 운영 배포용이 아니다.
+
 ## 문서
 
 - `docs/tech-stack.md`: 기술 스택
@@ -173,6 +208,9 @@ docker compose down -v    # 종료 + 데이터 삭제
 - `docs/api/README.md`: API 문서
 - `docs/rabbitmq-analysis.md`: RabbitMQ 분석 큐
 - `scripts/db/README.md`: 테이블, 시드 데이터, 샘플 회의록
+- `docs/evaluation.md`: 평가셋 v2.1, 회귀 평가 방법, 개선 전후 측정 결과, 평가의 한계
+- `docs/data-sources.md`: 데이터 출처와 이용조건
+- `docs/publish-e2e.md`: 발행 경로 E2E 검증 결과
 
 ## 팀 역할과 기여
 
@@ -180,9 +218,9 @@ Phase 1(Capstone)을 이어 Phase 2(Mini-project ③)를 진행한다. Phase 2 �
 
 | 이름 | Phase 1 역할 | Phase 2 역할 | R 대응 | 맡은 일 | 병합 PR |
 |---|---|---|---|---|---|
-| 강민규 | PM, Frontend | PM | | | |
-| 임나윤 | Backend | 풀스택 | | | |
-| 함주헌 | Backend | AI-Pipeline | | | |
-| 최윤경 | AI | AI-MCP | | | |
-| 박종민 | AI | AI-Agent | | | |
-| 허민규 | 기획, QA, 데이터 | Eval, Data, QA | | | |
+| 강민규 | PM, Frontend | PM | R1 PM, PO | 문제 정의와 일정, 평가 체계와 측정(#266, #329, #330), 안정성과 보안(#261~#268), 릴리즈 | [병합 PR 목록](https://github.com/MCP-Capstone/meet-to-ticket/pulls?q=is%3Apr+is%3Amerged+author%3Amingyukang5420) |
+| 임나윤 | Backend | 풀스택 | R5 Frontend, Demo | 내 티켓 화면(중복 판단 정보, 발행 본문 미리보기, 발행 대상 변경: #243, #245, #247) | [병합 PR 목록](https://github.com/MCP-Capstone/meet-to-ticket/pulls?q=is%3Apr+is%3Amerged+author%3Ajadoolim) |
+| 함주헌 | Backend | AI-Pipeline | R4 Backend, Tool | 발행 멈춤과 시간 상한(#299, #302), 발행 E2E 검증(#303), 결과 모름 재시도 수정(#336, #340) | [병합 PR 목록](https://github.com/MCP-Capstone/meet-to-ticket/pulls?q=is%3Apr+is%3Amerged+author%3Ajuhun-ham) |
+| 최윤경 | AI | AI-MCP | R3 AI Engineer (RAG, Data) | rag-mcp(#84)와 GitHub MCP(#137), 티켓 출력 형식(#307, #308)과 출력 품질 검증(#309), 프론트 검토와 발행 UX(#322) | [병합 PR 목록](https://github.com/MCP-Capstone/meet-to-ticket/pulls?q=is%3Apr+is%3Amerged+author%3A0unk0) |
+| 박종민 | AI | AI-Agent | R2 AI Engineer (흐름) | 중복 판단 정확도(#324, #337)와 기한 해석(#342) 개선, rag-mcp 연결(#92) | [병합 PR 목록](https://github.com/MCP-Capstone/meet-to-ticket/pulls?q=is%3Apr+is%3Amerged+author%3Ajongmiiin) |
+| 허민규 | 기획, QA, 데이터 | Eval, Data, QA | R6 QA, Eval | 평가 데이터와 QA | [병합 PR 목록](https://github.com/MCP-Capstone/meet-to-ticket/pulls?q=is%3Apr+is%3Amerged+author%3Aminkyu-huh) |
