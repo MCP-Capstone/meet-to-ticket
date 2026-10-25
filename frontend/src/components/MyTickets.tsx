@@ -215,28 +215,28 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
   }, [onBusyChange])
   const busy = mutating || loading
   // 조회 필터 변경 시 기존 프로젝트 카드가 잠깐 표시되지 않게 한다.
-  const ticketLine = (ticket: MyTicket) => {
+  // 펼쳐도 목록 줄은 그대로 두고(머리 역할) 아래에 내용만 붙인다.
+  const ticketItem = (ticket: MyTicket, open: boolean) => {
     const url = safePublishUrl(ticket.githubIssueUrl ?? null, ticket.publishTarget)
     const quick = ticket.status === 'CONFIRMED' ? { action: 'reopen' as const, label: '승인 취소' } : ticket.status === 'REJECTED' ? { action: 'restore' as const, label: '거절 취소' } : null
     // 줄의 빈 곳을 눌러도 펼친다. 링크·버튼을 누를 때는 그 동작만 한다.
     // 발행 완료 탭에서는 요약과 같은 말(발행·생략·거절)로 보여 준다. 연결·갱신 구분은 링크 글자에 남긴다.
     const kind = view === 'done' ? summaryKinds.find((item) => item.match(ticket)) : undefined
-    return <li key={ticket.ticketId} className="meeting-ticket-line" onClick={(event) => { if (!busy && !(event.target as HTMLElement).closest('a, button')) toggleTicket(ticket) }}>
+    return <li key={ticket.ticketId} className={open ? 'meeting-ticket-open' : undefined}>
+      <div className="meeting-ticket-line" onClick={(event) => { if (!busy && !(event.target as HTMLElement).closest('a, button')) toggleTicket(ticket) }}>
       <span className="meeting-ticket-chevron" aria-hidden="true">›</span>
       <span className={`badge ticket-status ${kind?.tone ?? ticket.status.toLowerCase()}`}>{kind?.label ?? ticketStatusLabel[ticket.status]}</span>
       <span className="meeting-ticket-tool">{targetLabel[ticket.publishTarget]}</span>
       <strong className={ticket.status === 'REJECTED' ? 'muted' : undefined}>{singleLineLabel(ticket.title, '제목 없음')}</strong>
       <span className="meeting-ticket-end">
         {url && <a href={url} target="_blank" rel="noreferrer">{ticket.status === 'LINKED' ? '기존 ' : ticket.status === 'UPDATED' ? '기존 ' : ''}{ticket.publishTarget === 'GITHUB' && ticket.githubIssueNumber ? `#${ticket.githubIssueNumber}` : linkLabel[ticket.publishTarget]}{ticket.status === 'LINKED' ? '에 연결' : ticket.status === 'UPDATED' ? ' 갱신' : ' 열기'} ↗</a>}
-        <button type="button" className="link" disabled={busy} aria-expanded={false} onClick={() => toggleTicket(ticket)}>{needsAction(ticket) ? '펼치기' : '내용 보기'}</button>
-        {quick && <button type="button" className="link" disabled={busy} onClick={() => void commit(ticket, () => api.changeTicketStatus(ticket.ticketId, quick.action), false).catch((e: unknown) => { if (!unauthorized(e)) setNotice(e instanceof Error ? e.message : '요청에 실패했습니다.') })}>{quick.label}</button>}
+        <button type="button" className="link" disabled={busy} aria-expanded={open} onClick={() => toggleTicket(ticket)}>{open ? '접기' : needsAction(ticket) ? '펼치기' : '내용 보기'}</button>
+        {quick && !open && <button type="button" className="link" disabled={busy} onClick={() => void commit(ticket, () => api.changeTicketStatus(ticket.ticketId, quick.action), false).catch((e: unknown) => { if (!unauthorized(e)) setNotice(e instanceof Error ? e.message : '요청에 실패했습니다.') })}>{quick.label}</button>}
       </span>
+      </div>
+      {open && <TicketCard ticket={ticket} busy={busy} inGroup onCommit={commit} onRefresh={load} onDirtyChange={dirtyChange} onOpenProjectSettings={(id) => void openSettings(id)} />}
     </li>
   }
-  const ticketItem = (ticket: MyTicket, expanded: boolean) => expanded
-    ? <li key={ticket.ticketId} className="meeting-ticket-open"><TicketCard ticket={ticket} busy={busy} inGroup onCommit={commit} onRefresh={load} onDirtyChange={dirtyChange} onOpenProjectSettings={(id) => void openSettings(id)}
-        onCollapse={() => toggleTicket(ticket)} /></li>
-    : ticketLine(ticket)
   return (
     <section className="my-tickets" aria-label="내 티켓">
       {projects.length > 0 && <div className="project-tabs" role="tablist" aria-label="프로젝트">

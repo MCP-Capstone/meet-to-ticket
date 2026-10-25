@@ -20,12 +20,11 @@ interface Props {
   onRefresh: () => Promise<boolean>
   onDirtyChange: (id: string, dirty: boolean) => void
   onOpenProjectSettings: (projectId: number) => void
-  // 회의 묶음 안에 놓이면 프로젝트·회의 이름은 묶음 머리에 있으므로 빼고, 접기 버튼을 둔다.
+  // 회의 묶음 안에 놓이면 제목·상태·접기는 목록 줄이 맡으므로 카드 머리를 그리지 않는다.
   inGroup?: boolean
-  onCollapse?: () => void
 }
 
-export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, onOpenProjectSettings, inGroup = false, onCollapse }: Props) {
+export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, onOpenProjectSettings, inGroup = false }: Props) {
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -151,17 +150,15 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
   const manualCheck = Boolean(failure && needsOutcomeCheck(failure))
   const tool = toolName[ticket.publishTarget]
   return (
-    <article className="card ticket-card" aria-labelledby={`ticket-${ticket.ticketId}`}>
-      <div className="card-header">
+    // 묶음 안에서는 목록 줄이 제목·상태·링크를 보여 주므로 머리를 다시 그리지 않는다.
+    <article className="card ticket-card" aria-label={inGroup ? `${ticket.title} 내용` : undefined} aria-labelledby={inGroup ? undefined : `ticket-${ticket.ticketId}`}>
+      {!inGroup && <div className="card-header">
         <div>
-          {!inGroup && <p className="muted">{ticket.projectName} · {ticket.meetingTitle}</p>}
+          <p className="muted">{ticket.projectName} · {ticket.meetingTitle}</p>
           <h3 id={`ticket-${ticket.ticketId}`}>{ticket.title}</h3>
         </div>
-        <div className="ticket-card-head-end">
-          <span className={`badge ticket-status ${ticket.status.toLowerCase()}`}>{ticketStatusLabel[ticket.status] ?? ticket.status}</span>
-          {onCollapse && <button type="button" className="link" onClick={onCollapse}>접기</button>}
-        </div>
-      </div>
+        <span className={`badge ticket-status ${ticket.status.toLowerCase()}`}>{ticketStatusLabel[ticket.status] ?? ticket.status}</span>
+      </div>}
       {failure && <div className="ticket-alert" role="alert">
         <strong>{manualCheck ? `${tool}에 반영됐는지 확인이 필요해요` : ticket.status === 'UPDATED' ? '알림 댓글을 보내지 못했어요' : '발행하지 못했어요'}</strong>
         <p>{manualCheck ? '발행 결과를 받지 못해 멈춰 두었어요. 그대로 다시 보내면 중복될 수 있어요.' : failureGuide(failure)}
@@ -171,7 +168,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
         {!manualCheck && failure.outcomeUnknown && <p>{tool}에 이미 반영됐을 수 있어요. 확인 후 다시 시도해 주세요. 새 이슈는 몇 분 뒤부터 다시 보낼 수 있어요.</p>}
         {needsPermissionFix(failure) && <p>저장소 권한은 프로젝트 관리자가 프로젝트 설정에서 확인해야 해요.</p>}
       </div>}
-      {resultUrl && <a href={resultUrl} target="_blank" rel="noreferrer">{toolName[ticket.publishTarget]}에서 발행 결과 보기 ↗</a>}
+      {resultUrl && !inGroup && <a href={resultUrl} target="_blank" rel="noreferrer">{toolName[ticket.publishTarget]}에서 발행 결과 보기 ↗</a>}
       {editing ? (
         <fieldset className="ticket-fields" disabled={busy || pending || blocked}>
           <legend className="sr-only">티켓 수정</legend>
@@ -199,13 +196,13 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
       ) : (
         <>
           {inGroup
-            ? <p className="ticket-meta-line">{[toolName[ticket.publishTarget], `담당 ${ticket.assignee?.name ?? '미지정'}`, `기한 ${[ticket.due.text, ticket.due.date, ticket.due.time].filter(Boolean).join(' · ') || '미정'}`].join(' · ')}</p>
+            ? <p className="ticket-meta-line">{[`담당 ${ticket.assignee?.name ?? '미지정'}`, `기한 ${[ticket.due.text, ticket.due.date, ticket.due.time].filter(Boolean).join(' · ') || '미정'}`].join(' · ')}</p>
             : <dl className="meeting-info">
             <dt>발행 위치</dt><dd>{toolName[ticket.publishTarget]}</dd>
             <dt>담당자</dt><dd>{ticket.assignee?.name ?? '미지정'}</dd>
             <dt>기한</dt><dd>{[ticket.due.text, ticket.due.date, ticket.due.time].filter(Boolean).join(' · ') || '미정'}</dd>
           </dl>}
-          <TicketDraft ticket={ticket} clamp={inGroup} />
+          <TicketDraft ticket={ticket} />
         </>
       )}
       {error && <p className="error" role="alert">{error}</p>}

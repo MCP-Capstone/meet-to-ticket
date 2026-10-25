@@ -1514,7 +1514,6 @@ a:hover { text-decoration: underline; }
 /* 펼친 티켓은 묶음 상자 안에서 테두리 없이 이어 붙인다(상자 안 상자 금지). */
 .meeting-ticket-open .ticket-card { margin: 0; padding: 16px 20px; border: 0; border-radius: 0; background: var(--card); box-shadow: none; }
 .meeting-ticket-open .ticket-card h3 { font-size: 15px; }
-.ticket-card-head-end { display: flex; flex-shrink: 0; align-items: center; gap: 12px; }
 .meeting-ticket-open .ticket-card > .ticket-actions { position: static; justify-content: flex-end; margin: 0; padding: 12px 0 0; border-top: 0; background: transparent; }
 .meeting-ticket-open .ticket-card .meeting-info { padding: 12px 0; }
 .meeting-ticket-open .ticket-draft { padding: 12px 0; }
@@ -1526,13 +1525,18 @@ a:hover { text-decoration: underline; }
   .meeting-ticket-end { margin-left: 0; order: 4; }
 }
 
-/* 회의 묶음 안 티켓: 정보는 한 줄, 초안은 일정 높이까지만 보이고 '전체 보기'로 펼친다. */
+/* 회의 묶음 안 티켓: 담당·기한 정보는 한 줄로 보여 준다. */
 .ticket-meta-line { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 .ticket-draft-body { display: grid; gap: 12px; }
-.ticket-draft-body.clamped { max-height: 240px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
-.ticket-draft-toggle { width: fit-content; font-size: 13px; }
 
 /* 접힌 줄은 어디를 눌러도 펼친다. */
 .meeting-ticket-line { cursor: pointer; }
 .meeting-ticket-line:hover { background: var(--bg); }
 .meeting-ticket-chevron { flex-shrink: 0; width: 12px; color: var(--muted); font-size: 16px; line-height: 1; }
+
+/* 펼친 티켓: 회의 안의 항목으로 보이게 옅은 바탕, 접힌 줄의 화살표 자리만큼 들여쓰기, 펼침 화살표(⌄)를 둔다. */
+.meeting-ticket-open { position: relative; background: var(--bg); }
+.meeting-ticket-open .meeting-ticket-chevron { transform: rotate(90deg); }
+.meeting-ticket-open .meeting-ticket-line:hover { background: transparent; }
+.meeting-ticket-open .ticket-card { padding: 0 20px 16px 42px; background: transparent; }
+@media (max-width: 720px) { .meeting-ticket-open .ticket-card { padding-left: 20px; } }
