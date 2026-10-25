@@ -61,6 +61,9 @@ export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh, chil
   const state = publishSelection(tickets)
   const decided = tickets.length - state.pending
   const ready = !state.reason
+  // 발행에 실패해 확인이 필요한 티켓만 남았으면 '승인한 티켓 없음' 대신 그 일을 알려 준다.
+  const needsCheck = tickets.filter((ticket) => ticket.status === 'FAILED' || (ticket.status === 'UPDATED' && ticket.publishFailure)).length
+  const reasonText = ready ? '모두 확인했어요' : !state.pending && !state.confirmed.length && needsCheck ? `발행 확인 필요 ${needsCheck}건` : state.reason
   const reasonId = `publish-reason-${first.projectId}-${first.meetingId}`
   const created = registeredAt(first.createdAt)
   // 수정 중에는 안내 상자를 띄우지 않고(레이아웃이 밀리지 않게) 버튼만 잠근 뒤 이유는 툴팁으로 알린다.
@@ -72,7 +75,7 @@ export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh, chil
         <p className="muted">{created ? `${created} 등록 · ` : ''}내 티켓 {tickets.length}건</p>
       </div>
       <div className="meeting-group-publish">
-        <span id={reasonId} className={ready ? 'meeting-group-ready' : 'muted'}>{ready ? '모두 확인했어요' : state.reason}</span>
+        <span id={reasonId} className={ready ? 'meeting-group-ready' : 'muted'}>{reasonText}</span>
         <span className="meeting-group-meter" aria-label={`${tickets.length}건 중 ${decided}건 확인`}><span><i style={{ width: `${tickets.length ? (decided / tickets.length) * 100 : 0}%` }} /></span>{decided}/{tickets.length}</span>
         <button type="button" className="primary" disabled={disabled} aria-describedby={reasonId} title={dirty ? '수정 중인 티켓을 저장하거나 취소하면 발행할 수 있어요' : undefined} onClick={() => { setError(null); setSelection(state.confirmed) }}>승인한 {state.confirmed.length}건 발행</button>
       </div>
