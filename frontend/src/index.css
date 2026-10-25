@@ -1606,3 +1606,5 @@ a:hover { text-decoration: underline; }
 .dispatch .summary h2 { margin: 4px 0 10px; font-size: 18px; }
 .dispatch-counts { display: flex; flex-wrap: wrap; gap: 6px; }
 .dispatch-counts:empty { display: none; }
+.progress .progress-note { font-size: 12px; }
+
