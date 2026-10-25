@@ -174,6 +174,22 @@ def test_runner_passes_context_only_to_ctx_variant_and_scores(isolated, capsys):
     assert (isolated / "results" / "context-v1" / "t" / "scores.json").is_file()
 
 
+def test_run_timeout_option_reaches_subprocess(isolated, monkeypatch):
+    import subprocess
+
+    seen = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(kwargs.get("timeout", "missing"))
+        return subprocess.CompletedProcess(cmd, 1)
+
+    monkeypatch.setattr(run_eval.subprocess, "run", fake_run)
+    base = ["--runs", "1", "--cases", "cx01_background", "--no-cache", "--force"]
+    for label, extra in (("a", []), ("b", ["--run-timeout", "45"]), ("c", ["--run-timeout", "0"])):
+        run_context.main([*base, "--label", label, *extra])
+    assert seen == [300.0, 300.0, 45.0, 45.0, None, None]  # 문항당 ctx, noctx 두 회차
+
+
 def test_cache_key_differs_between_variants_and_context_content(isolated, tmp_path):
     base = tmp_path / "ds"
     shutil.copytree(score_context.context_dir(), base)

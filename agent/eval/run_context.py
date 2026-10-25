@@ -21,8 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from . import run_eval, score_context
-from .run_eval import (_sha, code_hash, default_executor, existing_reusable, prompt_hash, prune_stale_runs, run_jobs,
-                       settings_env)
+from .run_eval import (_sha, code_hash, existing_reusable, prompt_hash, prune_stale_runs, run_jobs, settings_env)
 from .score_context import CONTEXT_VERSION, VARIANTS, context_dir, load_expect
 
 # 맥락 평가는 대조 저장소를 쓰지 않지만, RAG가 켜져 있어도 실제 저장소를 건드리지 않게 같은 저장소를 붙인다
@@ -53,7 +52,7 @@ def plan_jobs(cases: list[str], runs: int, results_dir: Path, base: Path | None 
     return jobs
 
 
-def main(argv: list[str] | None = None, executor: run_eval.Executor = default_executor) -> int:
+def main(argv: list[str] | None = None, executor: run_eval.Executor | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--label", default="latest", help=f"결과 폴더 이름: eval/results/{CONTEXT_VERSION}/<label>")
     p.add_argument("--runs", type=int, default=3, help="문항, 변형(ctx/noctx)마다 반복 횟수")
@@ -64,7 +63,9 @@ def main(argv: list[str] | None = None, executor: run_eval.Executor = default_ex
     p.add_argument("--force", action="store_true", help="이미 있는 결과 파일도 다시 실행")
     p.add_argument("--allow-backend-report", action="store_true",
                    help=".env에 BACKEND_BASE_URL이 있어도 실행 (평가 실행이 백엔드에 보고될 수 있음)")
+    run_eval.add_run_timeout_option(p)
     args = p.parse_args(argv)
+    executor = executor or run_eval.make_executor(args.run_timeout)
     if args.runs < 1:
         p.error("--runs 는 1 이상이어야 합니다")
 
