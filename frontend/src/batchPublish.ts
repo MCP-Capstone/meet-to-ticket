@@ -13,9 +13,9 @@ export function meetingGroups(tickets: MyTicket[]) {
 export function publishSelection(tickets: MyTicket[]) {
   const confirmed = tickets.filter((ticket) => ticket.status === 'CONFIRMED')
   const pending = tickets.filter((ticket) => ticket.status === 'PENDING_REVIEW' || ticket.status === 'ASSIGNEE_REQUIRED').length
-  const reason = pending ? `아직 검토하지 않은 티켓이 ${pending}건 있습니다.`
-    : tickets.some((ticket) => ticket.status === 'PUBLISHING') ? '이미 발행 중인 티켓이 있습니다.'
-    : !confirmed.length ? '발행할 승인된 티켓이 없습니다.'
+  const reason = pending ? `검토 대기 ${pending}건 남음`
+    : tickets.some((ticket) => ticket.status === 'PUBLISHING') ? '발행 중인 티켓이 있어요'
+    : !confirmed.length ? '승인한 티켓이 없어요'
     : null
   return { confirmed, pending, rejected: tickets.filter((ticket) => ticket.status === 'REJECTED').length, reason }
 }

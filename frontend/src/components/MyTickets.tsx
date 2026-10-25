@@ -6,6 +6,7 @@ import { Toast } from './Toast'
 import { TicketCard } from './TicketCard'
 import { BatchPublishFlow } from './BatchPublishFlow'
 import { singleLineLabel, ticketStatusLabel } from '../displayText'
+import { safePublishUrl } from '../batchPublish'
 
 interface Props {
   onBusyChange: (busy: boolean) => void
@@ -14,42 +15,52 @@ interface Props {
 }
 const unauthorized = (e: unknown) => e instanceof ApiRequestError && e.code === 'UNAUTHORIZED'
 const countKey = (status: MyTicket['status']) => status === 'PENDING_REVIEW' ? 'pendingReview' : status === 'CONFIRMED' ? 'confirmed' : status === 'REJECTED' ? 'rejected' : status === 'FAILED' ? 'failed' : null
-type TicketTab = 'review' | 'approved' | 'rejected'
-
-const tabLabel: Record<TicketTab, string> = {
-  review: '검토',
-  approved: '승인됨',
-  rejected: '거절됨',
-}
+type TicketView = 'active' | 'done'
 const targetLabel: Record<MyTicket['publishTarget'], string> = { GITHUB: 'GitHub 이슈', NOTION: 'Notion', SLACK: 'Slack' }
+const linkLabel: Record<MyTicket['publishTarget'], string> = { GITHUB: '이슈', NOTION: '페이지', SLACK: '메시지' }
 
-const tabTickets = (tickets: MyTicket[], tab: TicketTab) => tickets.filter((ticket) => {
-  if (tab === 'review') return ticket.status === 'PENDING_REVIEW' || ticket.status === 'ASSIGNEE_REQUIRED'
-  if (tab === 'approved') return ticket.status === 'CONFIRMED' || ticket.status === 'PUBLISHING' || ticket.status === 'PUBLISHED' || ticket.status === 'LINKED' || ticket.status === 'UPDATED' || ticket.status === 'SKIPPED' || ticket.status === 'FAILED'
-  if (tab === 'rejected') return ticket.status === 'REJECTED'
-  return false
-})
+// 사용자가 직접 처리해야 하는 티켓. 진행 중 회의에서 펼쳐 둔다.
+const needsAction = (ticket: MyTicket) => ticket.status === 'PENDING_REVIEW' || ticket.status === 'ASSIGNEE_REQUIRED' || ticket.status === 'FAILED'
+  || (ticket.status === 'UPDATED' && Boolean(ticket.publishFailure))
+// 아직 발행하지 않았거나 발행 문제를 확인해야 하는 회의는 진행 중, 나머지는 발행 완료로 본다.
+const activeMeeting = (tickets: MyTicket[]) => tickets.some((ticket) => needsAction(ticket) || ticket.status === 'CONFIRMED' || ticket.status === 'PUBLISHING')
+const meetingKey = (ticket: MyTicket) => `${ticket.projectId}:${ticket.meetingId}`
+const latest = (tickets: MyTicket[]) => tickets.reduce((max, ticket) => ticket.createdAt > max ? ticket.createdAt : max, '')
 
-const groupByProjectAndMeeting = (tickets: MyTicket[]) => {
-  const groups = new Map<string, { projectName: string; meetingTitle: string; tickets: MyTicket[] }>()
-  for (const ticket of tickets) {
-    const key = `${ticket.projectId}:${ticket.meetingId}`
-    const group = groups.get(key) ?? { projectName: ticket.projectName, meetingTitle: ticket.meetingTitle, tickets: [] }
-    group.tickets.push(ticket)
-    groups.set(key, group)
-  }
-  return [...groups.values()]
+function groupMeetings(tickets: MyTicket[]) {
+  const groups = new Map<string, MyTicket[]>()
+  for (const ticket of tickets) groups.set(meetingKey(ticket), [...(groups.get(meetingKey(ticket)) ?? []), ticket])
+  return [...groups.entries()].map(([key, items]) => ({ key, tickets: items, active: activeMeeting(items) }))
+    .sort((x, y) => Number(y.tickets.some(needsAction)) - Number(x.tickets.some(needsAction)) || latest(y.tickets).localeCompare(latest(x.tickets)))
 }
+function projectsOf(tickets: MyTicket[]) {
+  const projects = new Map<number, { projectId: number; name: string; todo: number }>()
+  for (const ticket of tickets) {
+    const project = projects.get(ticket.projectId) ?? { projectId: ticket.projectId, name: ticket.projectName, todo: 0 }
+    if (needsAction(ticket)) project.todo += 1
+    projects.set(ticket.projectId, project)
+  }
+  return [...projects.values()]
+}
+// 발행 완료 회의 요약은 사용자가 구분할 필요 없는 발행됨·연결됨·갱신됨을 '발행' 하나로 묶는다.
+const summaryKinds = [
+  { label: '발행', tone: 'published', match: (t: MyTicket) => t.status === 'PUBLISHED' || t.status === 'LINKED' || t.status === 'UPDATED' },
+  { label: '생략', tone: 'skipped', match: (t: MyTicket) => t.status === 'SKIPPED' },
+  { label: '거절', tone: 'rejected', match: (t: MyTicket) => t.status === 'REJECTED' },
+]
+const statusSummary = (tickets: MyTicket[]) => summaryKinds.map((kind) => ({ ...kind, count: tickets.filter(kind.match).length })).filter((kind) => kind.count > 0)
 
 export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }: Props) {
   const [data, setData] = useState<MyTicketList | null>(null)
-  const [tab, setTab] = useState<TicketTab>('review')
-  const [detailOpen, setDetailOpen] = useState(false)
-  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null)
+  const [projectId, setProjectId] = useState<number | null>(null)
+  const [view, setView] = useState<TicketView>('active')
+  // 처리할 티켓은 기본으로 펼치고, 사용자가 접은 것만 기억한다. 끝낸 티켓은 기본으로 접고, 펼친 것만 기억한다.
+  const [openTickets, setOpenTickets] = useState<Set<string>>(new Set())
+  const [closedTickets, setClosedTickets] = useState<Set<string>>(new Set())
+  const [openMeetings, setOpenMeetings] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [mutating, setMutating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [revision, setRevision] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [settingsFeedback, setSettingsFeedback] = useState<{ message: string; error: boolean; pending?: boolean } | null>(null)
   const settingsMessage = useRef<HTMLParagraphElement>(null)
@@ -123,16 +134,10 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
     try {
       const updated = await run()
       if (!lifecycle.current.mounted) return
-      if (!transferred && previous.status === 'PENDING_REVIEW' && (updated.status === 'CONFIRMED' || updated.status === 'REJECTED')) {
-        const next = data?.tickets.find(item => item.ticketId !== previous.ticketId && item.projectId === previous.projectId && item.meetingId === previous.meetingId && item.status === 'PENDING_REVIEW')
-        setSelectedTicketId(next?.ticketId ?? updated.ticketId)
-        if (!next) setTab(updated.status === 'CONFIRMED' || data?.tickets.some(item => item.projectId === previous.projectId && item.meetingId === previous.meetingId && item.status === 'CONFIRMED') ? 'approved' : 'rejected')
-      }
-      // 승인·거절을 취소하거나 실패한 티켓을 수정하러 되돌리면 검토 탭으로 옮겨 그대로 이어서 보게 한다.
-      if (!transferred && previous.status !== 'PENDING_REVIEW' && updated.status === 'PENDING_REVIEW') {
-        setTab('review')
-        setSelectedTicketId(updated.ticketId)
-      }
+      // 승인·거절하면 그 티켓은 한 줄로 접히고, 같은 회의의 다음 검토 티켓이 펼쳐진 채 남는다.
+      if (!transferred && (updated.status === 'CONFIRMED' || updated.status === 'REJECTED')) setOpenTickets((current) => { const next = new Set(current); next.delete(updated.ticketId); return next })
+      // 승인·거절을 취소해 다시 검토하게 되면 접어 둔 기록을 지워 펼친다.
+      if (!transferred && needsAction(updated)) setClosedTickets((current) => { const next = new Set(current); next.delete(updated.ticketId); return next })
       // 저장 성공을 먼저 반영한다. 후속 조회 실패 때문에 변경 요청을 재전송하지 않는다.
       setData((current) => {
         if (!current) return current
@@ -143,7 +148,7 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
         if (!transferred && newKey) counts[newKey] += 1
         return { counts, tickets: current.tickets.flatMap((ticket) => ticket.ticketId !== updated.ticketId ? [ticket] : transferred ? [] : [updated]) }
       })
-      setNotice(transferred ? '담당자를 변경했습니다. 해당 티켓은 새 담당자의 내 티켓으로 이동했습니다.' : updated.status === 'PENDING_REVIEW' && previous.status !== 'PENDING_REVIEW' ? '검토 탭으로 옮겼어요.' : '티켓 변경을 저장했습니다.')
+      setNotice(transferred ? '담당자를 변경했습니다. 해당 티켓은 새 담당자의 내 티켓으로 이동했습니다.' : updated.status === 'PENDING_REVIEW' && previous.status !== 'PENDING_REVIEW' ? '검토 대기로 되돌렸어요.' : '티켓 변경을 저장했습니다.')
       const refreshed = await load()
       if (!refreshed && lifecycle.current.mounted) setNotice('티켓 변경은 저장됐습니다. 최신 목록 조회에 실패했으니 목록만 다시 불러와 주세요.')
     } finally {
@@ -161,15 +166,13 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
   const canDiscard = () => !dirtyIds.current.size || window.confirm('저장하지 않은 수정을 버리고 목록을 변경할까요?')
   const current = data
   const manualRefresh = async () => {
-    if (canDiscard() && await load()) setRevision((value) => value + 1)
+    if (canDiscard()) await load()
   }
-  const changeTab = (next: TicketTab) => {
-    if (next === tab || mutationLock.current || loading || !canDiscard()) return
-    setDetailOpen(false)
-    setTab(next)
-    setSelectedTicketId(null)
-    setRevision((n) => n + 1)
-  }
+  const toggle = (setter: typeof setOpenTickets, key: string) => setter((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next })
+  const expanded = (ticket: MyTicket) => needsAction(ticket) ? !closedTickets.has(ticket.ticketId) : openTickets.has(ticket.ticketId)
+  const toggleTicket = (ticket: MyTicket) => { if (canDiscard()) toggle(needsAction(ticket) ? setClosedTickets : setOpenTickets, ticket.ticketId) }
+  const changeProject = (next: number) => { if (next !== activeProject?.projectId && !mutationLock.current && canDiscard()) { setProjectId(next); setView('active') } }
+  const changeView = (next: TicketView) => { if (next !== view && !mutationLock.current && canDiscard()) setView(next) }
   const openSettings = async (targetProjectId: number) => {
     if (mutationLock.current || loading) return
     if (dirtyIds.current.size && !window.confirm('저장하지 않은 티켓 수정을 버리고 프로젝트 설정으로 이동할까요?')) return
@@ -199,15 +202,11 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
       if (lifecycle.current.mounted) { setMutating(false); onBusyChange(false) }
     }
   }
-  const tabs: TicketTab[] = ['review', 'approved', 'rejected']
-  const activeTab = tab
-  const visibleTickets = tabTickets(current?.tickets ?? [], activeTab)
-  const ticketGroups = groupByProjectAndMeeting(visibleTickets)
-  const selectedTicket = visibleTickets.find((ticket) => ticket.ticketId === selectedTicketId) ?? visibleTickets[0] ?? null
-  const meetingContext = selectedTicket ?? current?.tickets.find(ticket => ticket.ticketId === selectedTicketId) ?? current?.tickets[0]
-  const selectedMeetingTickets = meetingContext
-    ? (current?.tickets.filter((ticket) => ticket.projectId === meetingContext.projectId && ticket.meetingId === meetingContext.meetingId) ?? [])
-    : []
+  const projects = projectsOf(current?.tickets ?? [])
+  // 처리할 일이 있는 프로젝트를 먼저 연다. 고른 프로젝트가 사라지면 첫 프로젝트로 돌아간다.
+  const activeProject = projects.find((project) => project.projectId === projectId) ?? projects.find((project) => project.todo > 0) ?? projects[0] ?? null
+  const meetings = groupMeetings((current?.tickets ?? []).filter((ticket) => ticket.projectId === activeProject?.projectId))
+  const visibleMeetings = meetings.filter((meeting) => meeting.active === (view === 'active'))
   const publishLock = useCallback((value: boolean) => {
     mutationLock.current = value
     setMutating(value)
@@ -215,42 +214,66 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
   }, [onBusyChange])
   const busy = mutating || loading
   // 조회 필터 변경 시 기존 프로젝트 카드가 잠깐 표시되지 않게 한다.
+  const ticketLine = (ticket: MyTicket) => {
+    const url = safePublishUrl(ticket.githubIssueUrl ?? null, ticket.publishTarget)
+    const quick = ticket.status === 'CONFIRMED' ? { action: 'reopen' as const, label: '승인 취소' } : ticket.status === 'REJECTED' ? { action: 'restore' as const, label: '거절 취소' } : null
+    // 줄의 빈 곳을 눌러도 펼친다. 링크·버튼을 누를 때는 그 동작만 한다.
+    // 발행 완료 탭에서는 요약과 같은 말(발행·생략·거절)로 보여 준다. 연결·갱신 구분은 링크 글자에 남긴다.
+    const kind = view === 'done' ? summaryKinds.find((item) => item.match(ticket)) : undefined
+    return <li key={ticket.ticketId} className="meeting-ticket-line" onClick={(event) => { if (!busy && !(event.target as HTMLElement).closest('a, button')) toggleTicket(ticket) }}>
+      <span className="meeting-ticket-chevron" aria-hidden="true">›</span>
+      <span className={`badge ticket-status ${kind?.tone ?? ticket.status.toLowerCase()}`}>{kind?.label ?? ticketStatusLabel[ticket.status]}</span>
+      <span className="meeting-ticket-tool">{targetLabel[ticket.publishTarget]}</span>
+      <strong className={ticket.status === 'REJECTED' ? 'muted' : undefined}>{singleLineLabel(ticket.title, '제목 없음')}</strong>
+      <span className="meeting-ticket-end">
+        {url && <a href={url} target="_blank" rel="noreferrer">{ticket.status === 'LINKED' ? '기존 ' : ticket.status === 'UPDATED' ? '기존 ' : ''}{ticket.publishTarget === 'GITHUB' && ticket.githubIssueNumber ? `#${ticket.githubIssueNumber}` : linkLabel[ticket.publishTarget]}{ticket.status === 'LINKED' ? '에 연결' : ticket.status === 'UPDATED' ? ' 갱신' : ' 열기'} ↗</a>}
+        <button type="button" className="link" disabled={busy} aria-expanded={false} onClick={() => toggleTicket(ticket)}>{needsAction(ticket) ? '펼치기' : '내용 보기'}</button>
+        {quick && <button type="button" className="link" disabled={busy} onClick={() => void commit(ticket, () => api.changeTicketStatus(ticket.ticketId, quick.action), false).catch((e: unknown) => { if (!unauthorized(e)) setNotice(e instanceof Error ? e.message : '요청에 실패했습니다.') })}>{quick.label}</button>}
+      </span>
+    </li>
+  }
+  const ticketItem = (ticket: MyTicket, expanded: boolean) => expanded
+    ? <li key={ticket.ticketId} className="meeting-ticket-open"><TicketCard ticket={ticket} busy={busy} inGroup onCommit={commit} onRefresh={load} onDirtyChange={dirtyChange} onOpenProjectSettings={(id) => void openSettings(id)}
+        onCollapse={() => toggleTicket(ticket)} /></li>
+    : ticketLine(ticket)
   return (
     <section className="my-tickets" aria-label="내 티켓">
-      {current && <div className="ticket-tabs" role="tablist" aria-label="티켓 상태별 목록">
-          {tabs.map((key) => {
-            const count = tabTickets(current.tickets, key).length
-            return <button key={key} type="button" role="tab" aria-selected={activeTab === key} className={activeTab === key ? 'active' : ''} onClick={() => changeTab(key)} disabled={busy}>{tabLabel[key]} <span>{count}</span></button>
-          })}
+      {projects.length > 0 && <div className="project-tabs" role="tablist" aria-label="프로젝트">
+        {projects.map((project) => <button key={project.projectId} type="button" role="tab" aria-selected={project.projectId === activeProject?.projectId} className={project.projectId === activeProject?.projectId ? 'active' : ''} disabled={busy} onClick={() => changeProject(project.projectId)}>
+          {singleLineLabel(project.name, '프로젝트')}{project.todo > 0 && <span>{project.todo}</span>}
+        </button>)}
       </div>}
-      {current && <div className="meeting-publish-area"><BatchPublishFlow tickets={selectedMeetingTickets} busy={busy || Boolean(error)} dirty={hasDirty} onLock={publishLock} onRefresh={load} /></div>}
+      {activeProject && <div className="ticket-tabs" role="tablist" aria-label="회의 상태">
+        {(['active', 'done'] as const).map((key) => <button key={key} type="button" role="tab" aria-selected={view === key} className={view === key ? 'active' : ''} disabled={busy} onClick={() => changeView(key)}>
+          {key === 'active' ? '진행 중' : '발행 완료'} <span>{meetings.filter((meeting) => meeting.active === (key === 'active')).length}</span>
+        </button>)}
+      </div>}
       {settingsFeedback && <p ref={settingsMessage} tabIndex={-1} className={settingsFeedback.error ? 'error ticket-settings-feedback' : 'notice ticket-settings-feedback'} role={settingsFeedback.error ? 'alert' : 'status'}>{settingsFeedback.message}</p>}
       <Toast message={notice} onDone={() => setNotice(null)} />
       {error && <div className="ticket-error" role="alert"><p className="error">{error}</p><button type="button" className="link" disabled={busy} onClick={() => void manualRefresh()}>목록 다시 시도</button></div>}
-      {loading && <p className="inline-status" role="status"><Spinner size="sm" label="내 티켓 조회 중" />내 티켓을 불러오고 있습니다.</p>}
+      {loading && !current && <p className="inline-status" role="status"><Spinner size="sm" label="내 티켓 조회 중" />내 티켓을 불러오고 있습니다.</p>}
       {current && !current.tickets.length && !loading && <p className="card empty">아직 나에게 전달된 티켓이 없습니다.</p>}
-      {current && current.tickets.length > 0 && !visibleTickets.length && !loading && <p className="card empty" role="status">이 상태의 티켓이 없습니다.</p>}
-      {current && visibleTickets.length > 0 && <div className={`ticket-workspace${detailOpen ? ' detail-open' : ''}`} aria-busy={busy}>
-        <aside className="ticket-list-panel" aria-label={`${tabLabel[activeTab]} 목록`}>
-          <div className="ticket-list-panel-heading"><strong>티켓 목록</strong><span>{visibleTickets.length}건</span></div>
-          {ticketGroups.map((group) => <section className="ticket-group" key={`${group.projectName}:${group.meetingTitle}`}>
-            <header><strong>{group.projectName}</strong><span>{singleLineLabel(group.meetingTitle)}</span><em>{group.tickets.length}</em></header>
-            {group.tickets.map((ticket) => <button type="button" key={`${ticket.ticketId}-${revision}`} className={`ticket-list-item${selectedTicket?.ticketId === ticket.ticketId ? ' selected' : ''}`} onClick={() => {
-              if (canDiscard()) { setSelectedTicketId(ticket.ticketId); setDetailOpen(true) }
-            }} disabled={busy}>
-              <strong>{singleLineLabel(ticket.title, '제목 없음')}</strong>
-              <span>{targetLabel[ticket.publishTarget]}</span>
-              <em className={`ticket-list-status ${ticket.status.toLowerCase()}`}>{ticketStatusLabel[ticket.status]}</em>
-            </button>)}
-          </section>)}
-        </aside>
-        <section className="ticket-detail-panel" aria-label="선택한 티켓 상세">
-          <button type="button" className="mobile-ticket-back" disabled={busy} onClick={() => { if (canDiscard()) setDetailOpen(false) }}>← 티켓 목록으로</button>
-          {selectedTicket && <>
-            <TicketCard key={selectedTicket.ticketId} ticket={selectedTicket} busy={busy} onCommit={commit} onRefresh={load} onDirtyChange={dirtyChange} onOpenProjectSettings={(id) => void openSettings(id)} />
-          </>}
-        </section>
-      </div>}
+      {current && current.tickets.length > 0 && !visibleMeetings.length && <p className="card empty" role="status">{view === 'active' ? '처리할 회의가 없어요. 지난 회의는 발행 완료에서 볼 수 있어요.' : '아직 발행을 마친 회의가 없어요.'}</p>}
+      <div className="meeting-groups" aria-busy={busy}>
+        {view === 'active' && visibleMeetings.map((meeting) => <BatchPublishFlow key={meeting.key} tickets={meeting.tickets} busy={busy || Boolean(error)} dirty={hasDirty} onLock={publishLock} onRefresh={load}>
+          <ul className="meeting-tickets">
+            {[...meeting.tickets].sort((x, y) => Number(needsAction(y)) - Number(needsAction(x))).map((ticket) => ticketItem(ticket, expanded(ticket)))}
+          </ul>
+        </BatchPublishFlow>)}
+        {view === 'done' && visibleMeetings.map((meeting) => {
+          const open = openMeetings.has(meeting.key)
+          return <section key={meeting.key} className="card meeting-group" aria-label={`${singleLineLabel(meeting.tickets[0].meetingTitle)} 회의`}>
+            <header className="meeting-group-head">
+              <div className="meeting-group-title"><h3>{singleLineLabel(meeting.tickets[0].meetingTitle)}</h3><p className="muted">내 티켓 {meeting.tickets.length}건</p></div>
+              <div className="meeting-group-publish">
+                {statusSummary(meeting.tickets).map((kind) => <span key={kind.label} className={`badge ticket-status ${kind.tone}`}>{kind.label} {kind.count}</span>)}
+                <button type="button" className="link" aria-expanded={open} onClick={() => toggle(setOpenMeetings, meeting.key)}>{open ? '접기' : '펼치기'}</button>
+              </div>
+            </header>
+            {open && <ul className="meeting-tickets">{meeting.tickets.map((ticket) => ticketItem(ticket, expanded(ticket)))}</ul>}
+          </section>
+        })}
+      </div>
     </section>
   )
 }

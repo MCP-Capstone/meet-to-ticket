@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { api, ApiRequestError } from '../api'
 import type { MyTicket, TicketPublicationPreview as Preview } from '../api'
 import { IssueMarkdown } from './IssueMarkdown'
@@ -8,7 +9,11 @@ import { Spinner } from './Spinner'
 const visibleBody = (body: string) => body.split('\n').filter((line) => !/^<!-- meettoticket:(link|update|update-comment) .* -->$/.test(line)).join('\n')
 
 /** 검토자가 확인할 것은 발행될 초안과 회의록 근거뿐이다. 서버에 저장된 내용을 바로 펼쳐 보여 준다. */
-export function TicketDraft({ ticket }: { ticket: MyTicket }) {
+// clamp: 회의 묶음처럼 티켓이 여러 개 펼쳐지는 곳에서는 본문을 일정 높이까지만 보여 주고 '전체 보기'로 펼친다.
+export function TicketDraft({ ticket, clamp = false }: { ticket: MyTicket; clamp?: boolean }) {
+  const [full, setFull] = useState(false)
+  const [overflow, setOverflow] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const [attempt, setAttempt] = useState(0)
   const [data, setData] = useState<{ version: string; value: Preview } | null>(null)
   const [failure, setFailure] = useState<{ version: string; message: string } | null>(null)
@@ -39,6 +44,7 @@ export function TicketDraft({ ticket }: { ticket: MyTicket }) {
   const showQuotes = quotes.length > 0 && !(body && quotes.every((quote) => body.includes(quote)))
   return <section className="ticket-draft" aria-label="발행될 초안">
     {current.publication && current.publication.targetIssueNumber !== null && <p className="muted">기존 이슈 #{current.publication.targetIssueNumber}에 {current.publication.kind === 'LINK' ? '댓글로 추가돼요' : '내용이 추가돼요'}</p>}
+    <DraftBody clamp={clamp && !full} bodyRef={bodyRef} onOverflow={setOverflow}>
     {body ? <IssueMarkdown body={body} /> : <>
       {current.backlog.description && <p className="ticket-body">{current.backlog.description}</p>}
       <BacklogSection title="상세 작업" items={current.backlog.tasks} />
@@ -48,7 +54,14 @@ export function TicketDraft({ ticket }: { ticket: MyTicket }) {
     </>}
     {current.publication?.secondaryBody && <div><h4>갱신 알림 댓글</h4><IssueMarkdown body={visibleBody(current.publication.secondaryBody)} /></div>}
     {showQuotes && <div className="ticket-draft-evidence"><h4>회의록 근거</h4><ul>{quotes.map((quote, i) => <li key={i}>{quote}</li>)}</ul></div>}
+    </DraftBody>
+    {clamp && (overflow || full) && <button type="button" className="link ticket-draft-toggle" aria-expanded={full} onClick={() => setFull((value) => !value)}>{full ? '접기' : '전체 보기'}</button>}
   </section>
+}
+function DraftBody({ clamp, bodyRef, onOverflow, children }: { clamp: boolean; bodyRef: RefObject<HTMLDivElement | null>; onOverflow: (value: boolean) => void; children: ReactNode }) {
+  // 그린 뒤 실제 높이를 재서 넘칠 때만 '전체 보기'를 보여 준다.
+  useLayoutEffect(() => { const el = bodyRef.current; if (el && clamp) onOverflow(el.scrollHeight > el.clientHeight + 1) })
+  return <div ref={bodyRef} className={`ticket-draft-body${clamp ? ' clamped' : ''}`}>{children}</div>
 }
 function BacklogSection({ title, items }: { title: string; items: string[] }) {
   return items.length ? <div><h4>{title}</h4><ul>{items.map((item, i) => <li key={i}>{item}</li>)}</ul></div> : null
