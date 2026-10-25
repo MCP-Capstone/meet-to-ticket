@@ -13,6 +13,8 @@ agent 폴더에서 (OPENAI_API_KEY 필요, LLM 비용 발생)
 agent 코드 해시, 회차 번호. 키가 같으면 LLM을 다시 부르지 않고 저장된 결과를 복사한다.
 실패한 실행과 중복 판단이 건너뛰어진 실행은 캐시하지 않는다.
 실패한 실행은 status FAILED 결과 파일로 남겨 채점의 실패 횟수에 반영한다.
+회차 하나가 --run-timeout(기본 300초)을 넘기면 그 회차만 종료하고 FAILED로 남긴 뒤 다음 회차로 넘어간다.
+같은 명령을 다시 실행하면 온전한 회차는 건너뛰고 FAILED 회차만 다시 돈다.
 
 한계: cli.py는 agent/.env를 override=True로 읽어 환경 변수를 덮어쓴다. 실행기는 .env를 고칠 수 없으므로
 실행 전에 .env를 점검해 경고하고, 백엔드 보고 주소가 있으면 --allow-backend-report 없이는 중단한다.
@@ -21,6 +23,7 @@ agent 코드 해시, 회차 번호. 키가 같으면 LLM을 다시 부르지 않
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -45,6 +48,9 @@ ENV_NAME_RE = re.compile(r'_(?:str|int|bool|list)\(\s*"([A-Z][A-Z0-9_]*)"')
 SMOKE = ("ev11_relative_due", "ev16_ambiguous_assignee", "ev21_zero_action", "ev29_prompt_injection")
 
 Executor = Callable[[list[str], Path, dict[str, str]], int]
+# 회차별 시간 제한(초). LLM 호출 하나가 수십 분 멈춰도 뒤의 회차가 기다리지 않게 한다. 0 이하면 끈다
+DEFAULT_RUN_TIMEOUT = 300.0
+TIMEOUT_EXIT_CODE = 124  # timeout(1) 관례. 시간 초과로 종료한 회차의 종료 코드
 
 
 def _sha(*parts: bytes) -> str:
@@ -172,8 +178,26 @@ def build_command(input_path: Path, members_path: Path, out_path: Path, repo: st
     return cmd
 
 
-def default_executor(cmd: list[str], cwd: Path, env: dict[str, str]) -> int:
-    return subprocess.run(cmd, cwd=cwd, env=env, check=False).returncode
+def default_executor(cmd: list[str], cwd: Path, env: dict[str, str], timeout: float | None = DEFAULT_RUN_TIMEOUT) -> int:
+    """cli.py를 한 회차 실행하고 종료 코드를 돌려준다. timeout(초)을 넘기면 자식 프로세스를 종료하고
+    TIMEOUT_EXIT_CODE를 돌려준다(run_jobs가 FAILED 결과로 남긴다). timeout이 None이거나 0 이하면 제한이 없다."""
+    limit = timeout if timeout is not None and timeout > 0 else None
+    try:
+        return subprocess.run(cmd, cwd=cwd, env=env, check=False, timeout=limit).returncode
+    except subprocess.TimeoutExpired:  # subprocess.run이 자식 프로세스를 종료하고 기다린 뒤 올린다
+        print(f"[시간 초과] 회차 제한 {limit:g}초를 넘겨 실행을 종료했습니다", file=sys.stderr)
+        return TIMEOUT_EXIT_CODE
+
+
+def make_executor(run_timeout: float | None) -> Executor:
+    """--run-timeout 값을 적용한 실행기. 0 이하나 None이면 제한이 없다."""
+    return functools.partial(default_executor, timeout=run_timeout)
+
+
+def add_run_timeout_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-timeout", type=float, default=DEFAULT_RUN_TIMEOUT, metavar="SECONDS",
+                        help=f"회차 하나의 시간 제한(초, 기본 {DEFAULT_RUN_TIMEOUT:g}). 넘으면 그 회차를 종료하고 "
+                             "FAILED로 남긴 뒤 다음 회차로 넘어간다. 0 이하면 제한 없음")
 
 
 def plan_jobs(questions: list[str], runs: int, results_dir: Path, version: str, dedupe: dict[str, Any],
@@ -259,10 +283,12 @@ def run_jobs(jobs: list[dict[str, Any]], executor: Executor = default_executor, 
         result = read_result(out) if out.exists() else None
         if code != 0 or result is None or result.get("status") != "SUCCEEDED":
             if code != 0 or result is None:
-                why = "실행 실패" if result is None else "비정상 종료"
+                why = ("시간 초과" if code == TIMEOUT_EXIT_CODE
+                       else "실행 실패" if result is None else "비정상 종료")
                 out.write_text(json.dumps(failure_result(code, why), ensure_ascii=False), encoding="utf-8")
             stats["failed"].append(name)
-            log(f"[실패] {name} (종료 코드 {code}, status {(result or {}).get('status')})")
+            note = ", 시간 초과" if code == TIMEOUT_EXIT_CODE else ""
+            log(f"[실패] {name} (종료 코드 {code}{note}, status {(result or {}).get('status')})")
             continue
         stats["ran"].append(name)
         keyfile.write_text(j["key"], encoding="utf-8")
@@ -301,7 +327,8 @@ def load_baseline(path: str | None, version: str) -> dict[str, Any] | None:
     return data
 
 
-def main(argv: list[str] | None = None, executor: Executor = default_executor) -> int:
+def main(argv: list[str] | None = None, executor: Executor | None = None) -> int:
+    """executor를 주지 않으면 --run-timeout을 적용한 기본 실행기를 쓴다(테스트는 가짜 실행기를 넘긴다)."""
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--version", default=DEFAULT_VERSION, help="평가셋 버전")
     p.add_argument("--label", default="latest", help="결과 폴더 이름: eval/results/<버전>/<label>")
@@ -318,7 +345,9 @@ def main(argv: list[str] | None = None, executor: Executor = default_executor) -
                    help=".env에 BACKEND_BASE_URL이 있어도 실행 (평가 실행이 백엔드에 보고될 수 있음)")
     p.add_argument("--agent-dir", help="cli.py를 실행할 agent 폴더 (기본: 이 저장소의 agent). "
                                        "phase1-end 같은 다른 체크아웃을 잴 때 쓴다")
+    add_run_timeout_option(p)
     args = p.parse_args(argv)
+    executor = executor or make_executor(args.run_timeout)
     agent_dir = Path(args.agent_dir).resolve() if args.agent_dir else AGENT_DIR
     if not (agent_dir / "cli.py").is_file():
         p.error(f"cli.py가 없는 agent 폴더입니다: {agent_dir}")

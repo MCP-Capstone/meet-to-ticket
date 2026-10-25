@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -346,3 +350,97 @@ def test_plan_shows_real_reuse_state(capsys):
     assert "[캐시] ev21_zero_action r1" in capsys.readouterr().out  # 키가 달라 재사용 불가, 캐시에서 복사
     run_eval.main([*argv, "--plan", "--no-cache"])
     assert "[실행] ev21_zero_action r1" in capsys.readouterr().out
+
+
+# --- 회차별 시간 제한 (--run-timeout) ---
+
+def _spy_subprocess_run(monkeypatch, returncode=0):
+    """subprocess.run을 가짜로 바꿔 넘겨받은 timeout만 기록한다. 실제 프로세스는 만들지 않는다."""
+    seen: list[object] = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(kwargs.get("timeout", "missing"))
+        return subprocess.CompletedProcess(cmd, returncode)
+
+    monkeypatch.setattr(run_eval.subprocess, "run", fake_run)
+    return seen
+
+
+def test_executor_times_out_kills_child_and_returns_124(tmp_path, capsys):
+    pidfile = tmp_path / "child.pid"
+    code = f"import os, time; open({str(pidfile)!r}, 'w').write(str(os.getpid())); time.sleep(60)"
+    start = time.monotonic()
+    rc = run_eval.default_executor([sys.executable, "-c", code], tmp_path, dict(os.environ), timeout=2)
+    assert rc == run_eval.TIMEOUT_EXIT_CODE == 124
+    assert time.monotonic() - start < 30  # 60초를 기다리지 않는다
+    assert "[시간 초과] 회차 제한 2초" in capsys.readouterr().err
+    with pytest.raises(ProcessLookupError):  # 자식 프로세스가 남아 있지 않다
+        os.kill(int(pidfile.read_text()), 0)
+
+
+def test_executor_passes_through_exit_code_within_limit(tmp_path, capsys):
+    env = dict(os.environ)
+    assert run_eval.default_executor([sys.executable, "-c", "pass"], tmp_path, env, timeout=60) == 0
+    assert run_eval.default_executor([sys.executable, "-c", "raise SystemExit(3)"], tmp_path, env, timeout=60) == 3
+    assert "시간 초과" not in capsys.readouterr().err
+
+
+def test_executor_timeout_default_and_disabled_values(tmp_path, monkeypatch):
+    seen = _spy_subprocess_run(monkeypatch)
+    env = dict(os.environ)
+    run_eval.default_executor(["x"], tmp_path, env)
+    run_eval.default_executor(["x"], tmp_path, env, timeout=45)
+    run_eval.default_executor(["x"], tmp_path, env, timeout=0)
+    run_eval.default_executor(["x"], tmp_path, env, timeout=-1)
+    run_eval.default_executor(["x"], tmp_path, env, timeout=None)
+    assert run_eval.DEFAULT_RUN_TIMEOUT == 300.0
+    assert seen == [300.0, 45, None, None, None]
+
+
+def test_run_timeout_option_default_and_off(monkeypatch):
+    seen = _spy_subprocess_run(monkeypatch, returncode=1)
+    base = ["--questions", "ev21_zero_action", "--runs", "1", "--no-cache", "--force"]
+    for extra in ([], ["--run-timeout", "45"], ["--run-timeout", "0"], ["--run-timeout", "-5"]):
+        assert run_eval.main([*base, "--label", "to", *extra]) == 1  # 가짜 실행은 결과를 안 만들어 실패로 센다
+    assert seen == [300.0, 45.0, None, None]
+
+
+def test_timed_out_run_is_failed_and_other_runs_continue(tmp_path, agent_dir):
+    class HangsOnce(FakeExecutor):
+        def __call__(self, cmd, cwd, env):
+            if "ev21_zero_action_r1" in cmd[cmd.index("--out") + 1]:
+                self.calls.append(cmd)
+                return run_eval.TIMEOUT_EXIT_CODE  # 시간 초과: 결과 파일을 못 만들고 끝남
+            return super().__call__(cmd, cwd, env)
+
+    logs: list[str] = []
+    jobs = jobs_for(tmp_path, agent_dir)  # 2문항 x 2회 = 4건, 멈춘 회차는 첫 번째
+    ex = HangsOnce()
+    stats = run_eval.run_jobs(jobs, ex, agent_dir=agent_dir, log=logs.append)
+    assert len(ex.calls) == 4  # 멈춘 회차 뒤의 회차도 모두 실행했다
+    assert stats["failed"] == ["ev21_zero_action_r1"]
+    assert stats["ran"] == ["ev21_zero_action_r2", "ev41_same_open_r1", "ev41_same_open_r2"]
+    failed = json.loads((tmp_path / "out" / "ev21_zero_action_r1.json").read_text(encoding="utf-8"))
+    assert failed["status"] == "FAILED" and failed["errorCode"] == "EVAL_EXEC_FAILED"
+    assert failed["errorMessage"] == "시간 초과 (종료 코드 124)"
+    assert "[실패] ev21_zero_action_r1 (종료 코드 124, 시간 초과, status None)" in logs
+    assert len(list((tmp_path / "cache").glob("*.json"))) == 3  # 시간 초과 회차는 캐시하지 않는다
+
+    # 같은 명령을 다시 실행하면 온전한 3건은 건너뛰고 시간 초과 회차만 다시 돈다
+    retry = FakeExecutor()
+    stats = run_eval.run_jobs(jobs, retry, agent_dir=agent_dir)
+    assert len(retry.calls) == 1 and "ev21_zero_action_r1.json" in retry.calls[0][retry.calls[0].index("--out") + 1]
+    assert len(stats["skipped"]) == 3 and stats["ran"] == ["ev21_zero_action_r1"] and not stats["failed"]
+
+
+def test_timeout_makes_main_exit_one_and_counts_failure(capsys):
+    class AlwaysTimesOut(FakeExecutor):
+        def __call__(self, cmd, cwd, env):
+            self.calls.append(cmd)
+            return run_eval.TIMEOUT_EXIT_CODE
+
+    ex = AlwaysTimesOut()
+    argv = ["--questions", "ev11_relative_due,ev21_zero_action", "--runs", "1", "--label", "to2"]
+    assert run_eval.main(argv, executor=ex) == 1
+    assert len(ex.calls) == 2  # 첫 회차가 시간 초과여도 두 번째 회차를 실행한다
+    assert "실패 2" in capsys.readouterr().out
