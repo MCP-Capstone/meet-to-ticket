@@ -169,7 +169,32 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
         {needsPermissionFix(failure) && <p>저장소 권한은 프로젝트 관리자가 프로젝트 설정에서 확인해야 해요.</p>}
       </div>}
       {resultUrl && !inGroup && <a href={resultUrl} target="_blank" rel="noreferrer">{toolName[ticket.publishTarget]}에서 발행 결과 보기 ↗</a>}
-      {editing ? (
+      {editing && inGroup ? (
+        // 묶음 안에서는 읽던 자리 그대로 바꾼다: 담당·기한 줄은 그 줄에서 고르고, 본문 자리는 입력 칸이 된다.
+        <fieldset className="ticket-fields ticket-fields-inline" disabled={busy || pending || blocked}>
+          <legend className="sr-only">티켓 수정</legend>
+          <label>제목<input aria-label="제목" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={255} /></label>
+          {/* 라벨 대신 아이콘 칩: 값만 보이고, 누르면 목록·달력·시계가 뜬다. 빈 값은 점선 칩으로 '추가'를 보여 준다. */}
+          <div className="ticket-meta-edit">
+            <label className="meta-chip" title="담당자"><MetaIcon name="user" />
+              <select aria-label="담당자" value={assignee} onChange={(e) => setAssignee(e.target.value)} disabled={membersLoading || Boolean(membersError)}>
+                {!members.some((member) => String(member.projectMemberId) === assignee) && <option value={assignee}>{ticket.assignee?.name ?? '미지정'}</option>}
+                {members.map((member) => <option key={member.projectMemberId} value={member.projectMemberId}>{member.name}</option>)}
+              </select>
+            </label>
+            <label className={`meta-chip meta-chip-text${dueText ? '' : ' empty'}`} title="기한 문구"><MetaIcon name="flag" />
+              {/* 글자 수만큼 칩이 늘어나게, 같은 글자를 숨겨 깔아 폭을 잡는다. */}
+              <span className="meta-chip-grow" data-value={dueText || '기한 문구 (예: 다음 회의 전까지)'}><input aria-label="기한 문구" value={dueText} onChange={(e) => setDueText(e.target.value)} maxLength={200} placeholder="기한 문구 (예: 다음 회의 전까지)" size={1} /></span>
+            </label>
+            <PickerChip icon="calendar" type="date" label="기한 날짜" value={dueDate} text={dueDate ? dueDateLabel(dueDate) : '날짜 추가'} onChange={setDueDate} />
+            <PickerChip icon="clock" type="time" label="기한 시각" value={dueTime} text={dueTime ? dueTimeLabel(dueTime) : '시각 추가'} onChange={setDueTime} />
+          </div>
+          {membersLoading && <p className="muted" role="status">담당자 목록을 불러오고 있습니다.</p>}
+          {membersError && <div role="alert"><p className="error">{membersError}</p><button type="button" className="link" onClick={() => void loadMembers()}>담당자 목록 다시 시도</button></div>}
+          {assigneeChanged && <p className="notice">저장하면 선택한 담당자의 내 티켓으로 이동하고 내 목록에서는 사라집니다.</p>}
+          <label>본문<textarea aria-label="본문" rows={Math.min(16, Math.max(6, description.split('\n').length + 1))} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={4000} /></label>
+        </fieldset>
+      ) : editing ? (
         <fieldset className="ticket-fields" disabled={busy || pending || blocked}>
           <legend className="sr-only">티켓 수정</legend>
           <label>제목<input aria-label="제목" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={255} /></label>
@@ -243,4 +268,36 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
       </div>
     </article>
   )
+}
+
+const metaIcons = {
+  user: <><circle cx="8" cy="5.5" r="2.6" /><path d="M2.8 13.5c.8-2.4 2.8-3.6 5.2-3.6s4.4 1.2 5.2 3.6" /></>,
+  flag: <path d="M3.5 14V2.5M3.5 3h8l-1.6 2.8 1.6 2.8h-8" />,
+  calendar: <><rect x="2.2" y="3" width="11.6" height="10.8" rx="1.6" /><path d="M2.2 6.6h11.6M5.3 1.8v2.4M10.7 1.8v2.4" /></>,
+  clock: <><circle cx="8" cy="8" r="5.8" /><path d="M8 4.8V8l2.2 1.4" /></>,
+}
+function MetaIcon({ name }: { name: keyof typeof metaIcons }) {
+  return <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{metaIcons[name]}</svg>
+}
+
+// 날짜·시각 칩: 브라우저 입력을 칩 전체에 투명하게 덮어, 칩 어디를 눌러도 달력·시계가 뜬다. 값이 있으면 ×로 비운다.
+function PickerChip({ icon, type, label, value, text, onChange }: { icon: 'calendar' | 'clock'; type: 'date' | 'time'; label: string; value: string; text: string; onChange: (value: string) => void }) {
+  return <span className={`meta-chip meta-chip-picker${value ? '' : ' empty'}`}>
+    <MetaIcon name={icon} /><span aria-hidden="true">{text}</span>
+    <input type={type} aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} onClick={(e) => { try { e.currentTarget.showPicker() } catch { /* 지원하지 않으면 기본 동작 */ } }} />
+    {value && <button type="button" className="meta-chip-clear" aria-label={`${label} 지우기`} onClick={() => onChange('')}>×</button>}
+  </span>
+}
+
+const weekdays = ['일', '월', '화', '수', '목', '금', '토']
+function dueDateLabel(value: string) {
+  const [y, m, d] = value.split('-').map(Number)
+  if (!y || !m || !d) return value
+  const date = new Date(y, m - 1, d)
+  return `${y === new Date().getFullYear() ? '' : `${y}년 `}${m}월 ${d}일 (${weekdays[date.getDay()]})`
+}
+function dueTimeLabel(value: string) {
+  const [h, min] = value.split(':').map(Number)
+  if (Number.isNaN(h) || Number.isNaN(min)) return value
+  return `${h < 12 ? '오전' : '오후'} ${h % 12 || 12}:${String(min).padStart(2, '0')}`
 }

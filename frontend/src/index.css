@@ -1540,3 +1540,23 @@ a:hover { text-decoration: underline; }
 .meeting-ticket-open .meeting-ticket-line:hover { background: transparent; }
 .meeting-ticket-open .ticket-card { padding: 0 20px 16px 42px; background: transparent; }
 @media (max-width: 720px) { .meeting-ticket-open .ticket-card { padding-left: 20px; } }
+
+/* 묶음 안 수정: 읽기 화면과 같은 자리·같은 크기로 바꾼다. 라벨은 작게, 담당·기한은 한 줄에 둔다. */
+.ticket-fields-inline { gap: 12px; padding-top: 4px; }
+.ticket-fields-inline > label { gap: 4px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.ticket-fields-inline > label > :is(input, textarea) { color: var(--text); font-size: 14px; }
+.ticket-meta-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ticket-fields .meta-chip { position: relative; display: inline-flex; flex-direction: row; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); color: var(--text); font-size: 13px; font-weight: 400; cursor: pointer; }
+.ticket-fields .meta-chip:hover, .ticket-fields .meta-chip:focus-within { border-color: var(--accent-line); background: var(--accent-soft); }
+.meta-chip svg { flex-shrink: 0; color: var(--muted); }
+.meta-chip.empty { border-style: dashed; color: var(--muted); }
+.ticket-fields .meta-chip :is(input, select) { width: auto; height: auto; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
+.ticket-fields .meta-chip select { padding-right: 16px; cursor: pointer; appearance: none; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='4' fill='%23626b78'%3E%3Cpath d='M0 0h7L3.5 4z'/%3E%3C/svg%3E") no-repeat right center; }
+.meta-chip-text input::placeholder { color: var(--muted); }
+.meta-chip-grow { display: inline-grid; max-width: 360px; }
+.meta-chip-grow::after { visibility: hidden; white-space: pre; content: attr(data-value) ' '; }
+.meta-chip-grow::after, .ticket-fields .meta-chip-grow input { grid-area: 1 / 1; min-width: 2em; overflow: hidden; }
+.ticket-fields .meta-chip-picker input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.meta-chip-clear { position: relative; z-index: 1; margin-right: -4px; padding: 0 2px; border: 0; background: none; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
+.meta-chip-clear:hover { color: var(--text); }
+@media (max-width: 560px) { .meta-chip-grow { max-width: 220px; } }
