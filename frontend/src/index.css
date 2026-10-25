@@ -905,12 +905,9 @@ button.secondary {
 }
 
 /* TASK-033·047 */
-.publish-entries { list-style: none; padding: 0; margin: 0; }
 .publish-dialog { width: min(32rem, calc(100% - 3rem)); max-height: 80vh; overflow: auto; border: 1px solid #cbd5e1; border-radius: 12px; padding: 1.5rem; color: inherit; }
 .publish-dialog::backdrop { background: rgb(15 23 42 / 45%); }
-.publish-dialog li, .publish-entries li { overflow-wrap: anywhere; }
-.publish-result { margin-top: 1rem; }
-.publish-entries > li { border-top: 1px solid #d7dee7; }
+.publish-dialog li { overflow-wrap: anywhere; }
 
 /* 프로젝트 목록과 삭제 확인 (TASK-008) */
 .container.project-workspace { max-width: 1280px; }
@@ -1438,7 +1435,7 @@ a:hover { text-decoration: underline; }
 }
 .error { border-color: var(--danger-line); background: var(--danger-soft); color: var(--danger); }
 /* 다른 상자 안에 들어간 알림은 테두리·배경 없이 글로만 보인다. */
-:is(.assign-notice, .publish-entries li, .ticket-draft, .project-reindex) :is(.notice, .error) {
+:is(.assign-notice, .ticket-draft, .project-reindex) :is(.notice, .error) {
   padding: 0; border: 0; border-radius: 0; background: transparent;
 }
 .assign-notice .notice { color: var(--text); }
@@ -1454,17 +1451,6 @@ a:hover { text-decoration: underline; }
 .ticket-actions label.check { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; margin-right: auto; font-size: 14px; font-weight: 400; cursor: pointer; }
 .ticket-actions label.check input { width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--accent); }
 
-/* 발행 결과 */
-.publish-result { display: grid; gap: 12px; margin-top: 0; padding: 20px 24px; }
-.publish-result-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.publish-result-header h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; }
-.publish-result-header p { margin: 4px 0 0; font-size: 13px; }
-.publish-result-mock { margin: 0; color: var(--muted); font-size: 12px; }
-.publish-entries > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--border); }
-.publish-entries > li > :is(.error, .notice) { grid-column: 1 / -1; font-size: 13px; }
-.publish-entry-main { display: grid; gap: 2px; min-width: 0; }
-.publish-entry-main strong { font-size: 14px; font-weight: 600; }
-.publish-entry-main a { width: fit-content; font-size: 13px; }
 
 /* 토스트 */
 .toast-region { position: fixed; right: 24px; bottom: 24px; z-index: 50; pointer-events: none; }
@@ -1519,7 +1505,6 @@ a:hover { text-decoration: underline; }
 .meeting-group-meter > span { display: block; width: 96px; height: 6px; overflow: hidden; border-radius: 3px; background: var(--border); }
 .meeting-group-meter i { display: block; height: 100%; background: var(--accent); }
 .meeting-group-alert { margin: 0 20px 12px; }
-.meeting-group > .publish-result { margin: 0 20px 16px; }
 .meeting-tickets { margin: 0; padding: 0; list-style: none; }
 .meeting-tickets > li { border-top: 1px solid var(--border); }
 .meeting-ticket-line { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 12px 20px; }
