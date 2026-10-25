@@ -77,11 +77,14 @@ export function DispatchResult({ taskId, meeting, onUploadAnother }: Props) {
     <section className="dispatch">
       <div className="card summary">
         <div>
-          <p className="muted">{meeting.title}</p>
+          <p className="muted dispatch-meeting">{meeting.title}</p>
           <h2>티켓 {counts.total - counts.assigneeRequired}건을 담당자에게 보냈어요</h2>
-          <p className="muted">
-            검토 대기 {counts.pendingReview} · 기존 이슈 연결 {counts.linked} · 담당 지정 필요 {counts.assigneeRequired}
-          </p>
+          {/* 0건인 상태는 빼고, 할 일이 남은 상태부터 상태 배지 톤으로 보여 준다. */}
+          <div className="dispatch-counts">
+            {counts.assigneeRequired > 0 && <span className="badge ticket-assignee_required">담당 지정 필요 {counts.assigneeRequired}</span>}
+            {counts.pendingReview > 0 && <span className="badge ticket-pending_review">검토 대기 {counts.pendingReview}</span>}
+            {counts.linked > 0 && <span className="badge ticket-linked">기존 이슈 연결 {counts.linked}</span>}
+          </div>
         </div>
         <button type="button" className="link" onClick={onUploadAnother}>다른 회의록 업로드</button>
       </div>

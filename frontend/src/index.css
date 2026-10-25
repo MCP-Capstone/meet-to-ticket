@@ -1600,3 +1600,9 @@ a:hover { text-decoration: underline; }
 .ticket-due-label { font-weight: 600; }
 .ticket-due-fields .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 200px); gap: 8px; }
 @media (max-width: 560px) { .ticket-due-fields .row { grid-template-columns: minmax(0, 1fr); } }
+
+/* 결과 확인 요약: 회의 제목(보조) → 결과 제목 → 남은 일 배지 */
+.dispatch .summary .dispatch-meeting { margin: 0; font-size: 13px; }
+.dispatch .summary h2 { margin: 4px 0 10px; font-size: 18px; }
+.dispatch-counts { display: flex; flex-wrap: wrap; gap: 6px; }
+.dispatch-counts:empty { display: none; }
