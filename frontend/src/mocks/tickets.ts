@@ -234,5 +234,7 @@ export function previewMockTicket(user: User, ticketId: string): TicketPublicati
     : ticket.publishTarget === 'SLACK'
       ? { kind: 'CREATE' as const, body: ticket.description ?? '', secondaryBody: null, labels: [], githubAssignees: [], targetIssueNumber: null }
       : null
-  return { ticketId, title: ticket.title, status: ticket.status, publishTarget: ticket.publishTarget, executionMode: 'MOCK', backlog, publication }
+  // 모의 회의록에는 구간 제목이 없어 근거 문장을 한 단락으로 보여 준다.
+  const evidenceExcerpts = backlog.evidenceQuotes.map((quote) => ({ heading: null, text: quote, quotes: [quote] }))
+  return { ticketId, title: ticket.title, status: ticket.status, publishTarget: ticket.publishTarget, executionMode: 'MOCK', backlog, publication, evidenceExcerpts }
 }

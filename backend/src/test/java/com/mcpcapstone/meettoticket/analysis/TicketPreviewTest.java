@@ -61,7 +61,7 @@ class TicketPreviewTest {
 		User user = users.save(new User("preview" + UUID.randomUUID(), "hash", "나윤"));
 		Project project = projects.save(new Project("미리보기", "owner", "repo" + UUID.randomUUID()));
 		ProjectMember member = members.save(new ProjectMember(project, user, "나윤", "jadoolim"));
-		Meeting meeting = meetings.save(new Meeting(project, user, "회의", LocalDate.of(2026, 10, 23), "[]", "t.txt", "원문"));
+		Meeting meeting = meetings.save(new Meeting(project, user, "회의", LocalDate.of(2026, 10, 23), "[]", "t.txt", "# 회의\n\n## 결정\n오늘 회의 원문을 남긴다."));
 		AnalysisTask task = tasks.save(new AnalysisTask(UUID.randomUUID(), meeting, "{}"));
 		content = """
 			{"description":"저장된 수정 본문","tasks":["API 작성"],"acceptance_criteria":["오류 안내"],
@@ -89,6 +89,10 @@ class TicketPreviewTest {
 			.andExpect(jsonPath("$.backlog.tasks[0]").value("API 작성"))
 			.andExpect(jsonPath("$.backlog.acceptanceCriteria[0]").value("오류 안내"))
 			.andExpect(jsonPath("$.backlog.evidenceQuotes[0]").value("회의 원문"))
+			// 근거 문장이 들어 있는 회의록 단락만 제목과 함께 내려 준다.
+			.andExpect(jsonPath("$.evidenceExcerpts[0].heading").value("결정"))
+			.andExpect(jsonPath("$.evidenceExcerpts[0].text").value("오늘 회의 원문을 남긴다."))
+			.andExpect(jsonPath("$.evidenceExcerpts[0].quotes[0]").value("회의 원문"))
 			.andExpect(jsonPath("$.backlog.openQuestions[0]").value("응답 형식 확인"));
 		var captor = ArgumentCaptor.forClass(PublishGateway.Ticket.class);
 		verify(preview).render(captor.capture());

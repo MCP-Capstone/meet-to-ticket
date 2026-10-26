@@ -42,7 +42,8 @@ public class TicketPreviewService {
 			publication = new TicketPreviewGateway.View("CREATE", body == null ? "" : body, null, List.of(), List.of(), null);
 		}
 		return new Result(id, snapshot.request().title(), snapshot.status(), snapshot.target(),
-				properties.getMode().equalsIgnoreCase("mock") ? "MOCK" : "LIVE", publication, snapshot.backlog());
+				properties.getMode().equalsIgnoreCase("mock") ? "MOCK" : "LIVE", publication, snapshot.backlog(),
+				snapshot.evidenceExcerpts());
 	}
 	private Snapshot snapshot(UUID id, Long userId) {
 		TaskItem item = items.findById(id).orElseThrow(() -> new BusinessException(ErrorCode.TICKET_NOT_FOUND));
@@ -51,10 +52,12 @@ public class TicketPreviewService {
 			throw new BusinessException(ErrorCode.TICKET_ASSIGNEE_REQUIRED);
 		projects.requireAccess(item.getTask().getMeeting().getProject().getId(), userId);
 		JsonNode c = json.read(item.getContentJson());
+		List<String> quotes = strings(c.path("evidence_quotes"));
 		return new Snapshot(mapper.toTicket(item), item.getTicketStatus(), item.getPublishTarget(),
 				new Backlog(c.path("description").asText(null), strings(c.path("tasks")),
-						strings(c.path("acceptance_criteria")), strings(c.path("evidence_quotes")), strings(c.path("open_questions"))),
-				c.path("slack").path("text").asText(null));
+						strings(c.path("acceptance_criteria")), quotes, strings(c.path("open_questions"))),
+				c.path("slack").path("text").asText(null),
+				EvidenceExcerpts.find(item.getTask().getMeeting().getOriginalContent(), quotes));
 	}
 	private static List<String> strings(JsonNode node) {
 		List<String> out = new ArrayList<>();
@@ -62,9 +65,11 @@ public class TicketPreviewService {
 		return out;
 	}
 	private record Snapshot(PublishGateway.Ticket request, TicketStatus status, PublishTarget target, Backlog backlog,
-							String legacySlackText) {}
+							String legacySlackText, List<EvidenceExcerpts.Excerpt> evidenceExcerpts) {}
 	public record Backlog(String description, List<String> tasks, List<String> acceptanceCriteria,
 						  List<String> evidenceQuotes, List<String> openQuestions) {}
+	// evidenceExcerpts: 근거 문장이 들어 있는 회의록 원문 단락. 회의록 전체는 내려 주지 않는다.
 	public record Result(UUID ticketId, String title, TicketStatus status, PublishTarget publishTarget,
-						 String executionMode, TicketPreviewGateway.View publication, Backlog backlog) {}
+						 String executionMode, TicketPreviewGateway.View publication, Backlog backlog,
+						 List<EvidenceExcerpts.Excerpt> evidenceExcerpts) {}
 }

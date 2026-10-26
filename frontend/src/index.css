@@ -968,7 +968,20 @@ button.danger { color: var(--danger); border: 1px solid var(--danger); }
 .ticket-draft > p { margin: 0; }
 .ticket-draft .issue-markdown { min-width: 0; }
 .ticket-draft ul { margin: 4px 0 0; padding-left: 18px; }
-.ticket-draft-evidence li { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 회의 근거 토글: 기본으로 접혀 있고, 펼치면 근거가 들어 있는 회의록 원문 단락을 제목과 함께 보여 준다. */
+.evidence-toggle { border-top: 1px dashed var(--border); padding-top: 10px; }
+.evidence-toggle summary { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: var(--accent); font-size: 13px; font-weight: 600; list-style: none; cursor: pointer; }
+.evidence-toggle summary::-webkit-details-marker { display: none; }
+.evidence-chevron { display: inline-block; transition: transform 120ms ease; }
+.evidence-toggle[open] .evidence-chevron { transform: rotate(90deg); }
+.evidence-count { padding: 0 6px; border-radius: var(--radius-pill); background: var(--accent-soft); font-size: 12px; line-height: 18px; }
+.evidence-excerpt { margin: 10px 0 0; }
+.evidence-excerpt figcaption { margin-bottom: 4px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.evidence-toggle ul { display: grid; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.evidence-toggle blockquote { margin: 0; padding-left: 10px; border-left: 3px solid var(--border); color: var(--muted); font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 근거 문장만 진하게 강조해 단락 안에서 어디가 근거인지 보이게 한다. */
+.evidence-toggle mark { padding: 1px 2px; border-radius: 3px; background: var(--accent-soft); color: var(--text); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .evidence-chevron { transition: none; } }
 
 /* Workspace shell: the review experience uses one persistent navigation area and
    keeps page titles, filters, and task content in a single reading column. */
