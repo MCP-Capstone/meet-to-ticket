@@ -129,7 +129,7 @@ VITE_USE_MOCK=false npm run dev        # http://localhost:5173
 3. **프로젝트 관리**에서 프로젝트를 만든다.
    - GitHub 저장소: `owner/repo` 형식. 1번 토큰이 이 저장소에 이슈를 쓸 수 있어야 한다.
    - Notion 기획 페이지 URL (선택): 1번에서 Integration을 연결한 페이지
-   - Slack 채널 ID (선택): 채널 이름 클릭 → 맨 아래의 `C`로 시작하는 ID
+   - Slack 채널 ID (선택): 채널 이름 클릭 → 맨 아래의 `C` 또는 `G`로 시작하는 ID
    - 멤버: GitHub 계정과 Slack 이메일을 넣어 두면 이슈 담당자와 공지 멘션이 연결된다.
 4. 회의록을 올려 분석하고, **내 티켓**에서 확인·승인한 뒤 발행한다.
 
