@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api, ApiRequestError } from '../api'
 import type { PublishBatchResult } from '../api'
 import { batchStartedAt, formatElapsed, slowPublishNotice } from '../batchPublish'
+import type { NotificationItem } from '../components/Notification'
 
 /**
  * 접수한 발행 묶음의 결과를 끝날 때까지 2초마다 조회한다. 화면에 따로 목록을 그리지 않고,
@@ -61,11 +62,18 @@ export function usePublishBatch(batch: { id: string; started: number } | null, o
   }
 }
 
-// 끝난 결과를 토스트 한 줄로 줄인다. 예: 발행을 마쳤어요 · 발행 3 · 확인 필요 1
-export function publishSummary(result: PublishBatchResult) {
+// 끝난 결과를 알림 카드 내용으로 바꾼다. 예: 발행을 마쳤어요 / 주간 회의 · 발행 4
+// 모의 실행으로 발행한 티켓(skipped)도 실제 발행과 같게 센다.
+export function publishNotice(result: PublishBatchResult, meetingTitle: string): Omit<NotificationItem, 'id' | 'action'> {
   const { summary } = result
-  const parts = [['발행', summary.published + summary.linked + summary.updated], ['생략', summary.skipped], ['확인 필요', summary.failed]] as const
-  const title = result.status === 'SUCCEEDED' ? '발행을 마쳤어요' : result.status === 'PARTIAL_FAILED' ? '일부 티켓을 발행하지 못했어요' : '발행하지 못했어요'
+  const published = summary.published + summary.linked + summary.updated + summary.skipped
+  const parts = [['발행', published], ['확인 필요', summary.failed]] as const
   const counts = parts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join(' · ')
-  return [title, counts, result.executionMode === 'MOCK' ? '모의 실행' : ''].filter(Boolean).join(' · ')
+  const title = result.status === 'FAILED' ? '발행하지 못했어요'
+    : result.status === 'PARTIAL_FAILED' ? '일부 티켓을 발행하지 못했어요'
+      : '발행을 마쳤어요'
+  const tone = result.status === 'FAILED' ? 'error' : result.status === 'PARTIAL_FAILED' ? 'warning' : 'success'
+  const lines = [[meetingTitle, counts].filter(Boolean).join(' · ')]
+  if (summary.failed > 0) lines.push('진행 중 탭에서 확인이 필요한 티켓을 봐 주세요.')
+  return { tone, title, lines: lines.filter(Boolean) }
 }

@@ -12,7 +12,7 @@ const publishLabel: Record<PublishStatus, string> = {
   SUCCEEDED: '발행됨',
   FAILED: '발행 실패',
   UNKNOWN: '확인 필요',
-  SKIPPED: '발행 생략',
+  SKIPPED: '발행됨',
   BLOCKED: '발행 제외',
   DRAFT: '발행 전',
 }
@@ -51,7 +51,8 @@ export function ResultList({ meeting, participants, result }: Props) {
   const { summary } = result
   const problems = summary.failed + summary.unknown
   const linkedCount = result.items.filter(isLinked).length
-  const published = summary.succeeded - linkedCount
+  // 모의 실행으로 발행한 항목(skipped)도 실제 발행과 같게 센다.
+  const published = summary.succeeded - linkedCount + summary.skipped
 
   return (
     <>
@@ -95,12 +96,6 @@ export function ResultList({ meeting, participants, result }: Props) {
               <span>검수 반려</span>
             </div>
           )}
-          {summary.skipped > 0 && (
-            <div className="count excluded">
-              <strong>{summary.skipped}</strong>
-              <span>발행 생략</span>
-            </div>
-          )}
           {problems > 0 && (
             <div className="count failed">
               <strong>{problems}</strong>
@@ -118,7 +113,7 @@ export function ResultList({ meeting, participants, result }: Props) {
           <ul className="items">
             {result.items.map((item) => {
               const linked = isLinked(item)
-              const statusClass = linked ? 'linked' : item.publishStatus.toLowerCase()
+              const statusClass = linked ? 'linked' : item.publishStatus === 'SKIPPED' ? 'succeeded' : item.publishStatus.toLowerCase()
               const note = linked ? (item.reason ?? item.contentJson?.dedupe?.reason ?? null) : noteText(item)
               const corrections = correctionCount(item)
               const target = item.publishTarget ?? 'GITHUB'

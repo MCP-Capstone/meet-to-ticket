@@ -1,25 +1,29 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { api, ApiRequestError } from '../api'
-import type { MyTicket } from '../api'
+import type { MyTicket, PublishBatchResult } from '../api'
 import { registeredAt, singleLineLabel } from '../displayText'
 import { publishSelection } from '../batchPublish'
-import { publishSummary, usePublishBatch } from '../hooks/usePublishBatch'
+import { usePublishBatch } from '../hooks/usePublishBatch'
 import { Spinner } from './Spinner'
-import { Toast } from './Toast'
 
 interface Props {
+  id?: string
   // 한 회의의 내 티켓. 발행은 회의 단위로 하고, 내 티켓을 모두 확인·거절해야 열린다.
   tickets: MyTicket[]
   busy: boolean
   dirty: boolean
   onLock: (value: boolean) => void
   onRefresh: () => Promise<boolean>
+  // 발행을 접수하면 onPublishStart, 결과가 나오면 onPublished를 부른다. 결과 알림은 목록 화면이 띄운다.
+  // 묶음은 발행이 끝나면 진행 중 목록에서 빠지므로, 묶음 안에 알림을 두면 함께 사라진다.
+  onPublishStart: () => void
+  onPublished: (result: PublishBatchResult) => void
   children: ReactNode
 }
 
 /** 회의 묶음: 머리에 진행 막대와 발행 버튼을 두고, 아래에 티켓을 놓는다. */
-export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh, children }: Props) {
+export function BatchPublishFlow({ id, tickets, busy, dirty, onLock, onRefresh, onPublishStart, onPublished, children }: Props) {
   const [selection, setSelection] = useState<MyTicket[] | null>(null)
   const [published, setPublished] = useState<{ id: string; started: number } | null>(null)
   const [sending, setSending] = useState(false)
@@ -30,9 +34,8 @@ export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh, chil
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { if (selection) dialog.current?.showModal(); else dialog.current?.close() }, [selection])
-  const [toast, setToast] = useState<string | null>(null)
   // 발행 결과는 따로 목록을 그리지 않는다. 버튼에서 진행을 보여 주고, 끝나면 목록을 새로 불러와 각 티켓 줄이 결과로 바뀐다.
-  const batch = usePublishBatch(published, (result) => { setPublished(null); setToast(publishSummary(result)); void onRefresh() })
+  const batch = usePublishBatch(published, (result) => { setPublished(null); onPublished(result); void onRefresh() })
   async function publish() {
     if (!selection || lock.current || dirty || uncertain) return
     lock.current = true
@@ -44,6 +47,7 @@ export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh, chil
       const result = await api.publishTickets(first.projectId, first.meetingId, selection.map((t) => t.ticketId))
       if (!mounted.current) return
       setPublished({ id: result.batchId, started: Date.now() })
+      onPublishStart()
       setSelection(null)
       // 접수 성공 이후에는 목록 조회가 실패해도 POST를 다시 보내지 않는다.
       await onRefresh()
@@ -72,7 +76,7 @@ export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh, chil
   const created = registeredAt(first.createdAt)
   // 수정 중에는 안내 상자를 띄우지 않고(레이아웃이 밀리지 않게) 버튼만 잠근 뒤 이유는 툴팁으로 알린다.
   const disabled = busy || dirty || sending || uncertain || batch.running || !ready
-  return <section className="card meeting-group" aria-label={`${singleLineLabel(first.meetingTitle)} 회의`}>
+  return <section id={id} className="card meeting-group" aria-label={`${singleLineLabel(first.meetingTitle)} 회의`}>
     <header className="meeting-group-head">
       <div className="meeting-group-title">
         <h3>{singleLineLabel(first.meetingTitle)}</h3>
@@ -89,7 +93,6 @@ export function BatchPublishFlow({ tickets, busy, dirty, onLock, onRefresh, chil
     {error && <p className="error meeting-group-alert" role="alert">{error}</p>}
     {uncertain && <p className="notice meeting-group-alert">이미 접수됐을 수 있어 재발행을 막았습니다. 목록을 새로고침하고 발행 대상 도구에 반영됐는지 확인하세요.</p>}
     {batch.error && <p className="error meeting-group-alert" role="alert">{batch.error} 발행은 다시 보내지 않고 결과만 조회해요. <button type="button" className="link" onClick={batch.retry}>결과 다시 조회</button></p>}
-    <Toast message={toast} onDone={() => setToast(null)} />
     {children}
     <dialog ref={dialog} className="publish-dialog" aria-labelledby="publish-confirm-title" onCancel={(event) => { if (sending) event.preventDefault(); else setSelection(null) }}>
       <h2 id="publish-confirm-title">티켓을 발행할까요?</h2>
