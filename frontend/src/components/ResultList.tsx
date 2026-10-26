@@ -1,5 +1,6 @@
 import type { Meeting, PublishStatus, TaskItem, TaskItemList } from '../api'
 import { safePublishUrl, toolName } from '../batchPublish'
+import { IssueMarkdown } from './IssueMarkdown'
 
 interface Props {
   meeting: Meeting
@@ -131,7 +132,7 @@ export function ResultList({ meeting, participants, result }: Props) {
                     <span className={`badge ${statusClass}`}>{linked ? '기존 이슈 연결' : publishLabel[item.publishStatus]}</span>
                     <strong>{item.title}</strong>
                   </div>
-                  {background && <p>{background}</p>}
+                  {background && <IssueMarkdown body={background} />}
                   <div className="meta">
                     <span>
                       {item.reviewStatus === 'PENDING' ? '확인 대기' : `검수 ${item.reviewStatus === 'APPROVED' ? '통과' : '반려'}`}

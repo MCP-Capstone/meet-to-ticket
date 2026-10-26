@@ -4,6 +4,8 @@ import type { MyTicket, TicketPublicationPreview as Preview } from '../api'
 import { IssueMarkdown } from './IssueMarkdown'
 import { Spinner } from './Spinner'
 
+// Slack 공지 문구는 Slack 서식(*굵게*, • 목록)으로 저장돼 있다.
+const flavorOf = (target: MyTicket['publishTarget']) => target === 'SLACK' ? 'slack' : 'markdown'
 // GitHub가 숨겨 표시하는 발행 중복 확인용 표식은 초안에서도 숨긴다.
 const visibleBody = (body: string) => body.split('\n').filter((line) => !/^<!-- meettoticket:(link|update|update-comment) .* -->$/.test(line)).join('\n')
 
@@ -30,7 +32,7 @@ export function TicketDraft({ ticket }: { ticket: MyTicket }) {
     {error
       ? <p className="muted" role="alert">발행 형식으로는 불러오지 못했어요. 저장된 본문을 보여 드려요. <button type="button" className="link" onClick={() => { setFailure(null); setAttempt((n) => n + 1) }}>다시 불러오기</button></p>
       : <p className="muted inline-status" role="status"><Spinner size="sm" label="초안 불러오는 중" /> 발행 형식을 불러오고 있어요.</p>}
-    {ticket.description ? <p className="ticket-body">{ticket.description}</p> : <p className="muted">저장된 본문이 없습니다.</p>}
+    {ticket.description ? <IssueMarkdown body={ticket.description} flavor={flavorOf(ticket.publishTarget)} /> : <p className="muted">저장된 본문이 없습니다.</p>}
   </section>
 
   const body = current.publication?.body.trim() ? visibleBody(current.publication.body) : null
@@ -40,8 +42,8 @@ export function TicketDraft({ ticket }: { ticket: MyTicket }) {
   return <section className="ticket-draft" aria-label="발행될 초안">
     {current.publication && current.publication.targetIssueNumber !== null && <p className="muted">기존 이슈 #{current.publication.targetIssueNumber}에 {current.publication.kind === 'LINK' ? '댓글로 추가돼요' : '내용이 추가돼요'}</p>}
     <div className="ticket-draft-body">
-    {body ? <IssueMarkdown body={body} /> : <>
-      {current.backlog.description && <p className="ticket-body">{current.backlog.description}</p>}
+    {body ? <IssueMarkdown body={body} flavor={flavorOf(ticket.publishTarget)} /> : <>
+      {current.backlog.description && <IssueMarkdown body={current.backlog.description} flavor={flavorOf(ticket.publishTarget)} />}
       <BacklogSection title="상세 작업" items={current.backlog.tasks} />
       <BacklogSection title="완료 조건" items={current.backlog.acceptanceCriteria} />
       <BacklogSection title="확인 필요 사항" items={current.backlog.openQuestions} />
