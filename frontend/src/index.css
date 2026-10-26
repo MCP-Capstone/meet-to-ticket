@@ -1118,7 +1118,8 @@ button.danger { color: var(--danger); border: 1px solid var(--danger); }
 .file-picker { display: inline-flex; align-items: center; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); font-size: 13px; font-weight: 600; cursor: pointer; }
 .file-picker:hover, .file-picker:focus-within { border-color: var(--accent); color: var(--accent); }
 .file-picker.disabled { opacity: .5; pointer-events: none; }
-.meeting-input textarea { width: 100%; min-height: 280px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.6; resize: vertical; }
+/* 회의록 입력란은 화면 높이에 맞춰 남은 공간을 채우고, 아래 안내와 '티켓 추출' 버튼은 화면 안에 남긴다. */
+.meeting-input textarea { width: 100%; min-height: max(320px, calc(100dvh - 400px)); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.6; resize: vertical; }
 .meeting-input.over textarea { border: 1px dashed var(--accent); background: var(--accent-soft); }
 .meeting-input-hint { margin: 0; font-size: 12px; }
 .progress { width: 100%; max-width: 1098px; margin: 0; }
