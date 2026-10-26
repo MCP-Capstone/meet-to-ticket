@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiRequestError } from '../api'
-import type { MyTicket, MyTicketList } from '../api'
+import type { MyTicket, MyTicketList, PublishBatchResult } from '../api'
 import { Spinner } from './Spinner'
 import { Toast } from './Toast'
 import { TicketCard } from './TicketCard'
 import { BatchPublishFlow } from './BatchPublishFlow'
+import { NotificationStack } from './Notification'
+import type { NotificationItem } from './Notification'
+import { publishNotice } from '../hooks/usePublishBatch'
 import { registeredAt, singleLineLabel, ticketStatusLabel } from '../displayText'
 import { safePublishUrl } from '../batchPublish'
 
@@ -63,6 +66,10 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
   const [mutating, setMutating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [notifications, setNotifications] = useState<NotificationItem[]>([])
+  const notificationId = useRef(0)
+  // 발행 결과를 기다리는 회의. 목록 새로고침이 먼저 끝나도 결과가 올 때까지 진행 중에 두어 결과 조회가 끊기지 않게 한다.
+  const [awaiting, setAwaiting] = useState<Set<string>>(new Set())
   const [settingsFeedback, setSettingsFeedback] = useState<{ message: string; error: boolean; pending?: boolean } | null>(null)
   const settingsMessage = useRef<HTMLParagraphElement>(null)
   useEffect(() => {
@@ -207,6 +214,9 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
   // 처리할 일이 있는 프로젝트를 먼저 연다. 고른 프로젝트가 사라지면 첫 프로젝트로 돌아간다.
   const activeProject = projects.find((project) => project.projectId === projectId) ?? projects.find((project) => project.todo > 0) ?? projects[0] ?? null
   const meetings = groupMeetings((current?.tickets ?? []).filter((ticket) => ticket.projectId === activeProject?.projectId))
+    .map((meeting) => awaiting.has(meeting.key) ? { ...meeting, active: true } : meeting)
+  const meetingsRef = useRef(meetings)
+  useEffect(() => { meetingsRef.current = groupMeetings(current?.tickets ?? []) })
   const visibleMeetings = meetings.filter((meeting) => meeting.active === (view === 'active'))
   const publishLock = useCallback((value: boolean) => {
     mutationLock.current = value
@@ -214,6 +224,28 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
     onBusyChange(value)
   }, [onBusyChange])
   const busy = mutating || loading
+  const setAwaitingMeeting = (key: string, value: boolean) => setAwaiting((current) => {
+    const next = new Set(current)
+    if (value) next.add(key); else next.delete(key)
+    return next
+  })
+  const dismissNotification = useCallback((id: number) => setNotifications((items) => items.filter((item) => item.id !== id)), [])
+  // 발행 결과는 묶음 밖(화면 오른쪽 위)에 띄운다. 최근 3개까지만 쌓는다.
+  const notifyPublished = (key: string, title: string, projectOf: number, result: PublishBatchResult) => {
+    setAwaitingMeeting(key, false)
+    const content = publishNotice(result, title)
+    // 누르는 시점의 목록에서 회의가 어느 탭에 있는지 보고 그 탭의 회의 묶음으로 데려간다.
+    // 다른 티켓에 확인할 일이 남아 있으면 회의는 진행 중에 그대로 있다.
+    const action = { label: '결과 보기', onClick: () => {
+      if (!canDiscard()) return
+      const done = meetingsRef.current.find((meeting) => meeting.key === key)?.active === false
+      setProjectId(projectOf)
+      setView(done ? 'done' : 'active')
+      if (done) setOpenMeetings((open) => new Set(open).add(key))
+      window.requestAnimationFrame(() => document.getElementById(`meeting-${key}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+    } }
+    setNotifications((items) => [...items, { ...content, id: ++notificationId.current, action }].slice(-3))
+  }
   // 조회 필터 변경 시 기존 프로젝트 카드가 잠깐 표시되지 않게 한다.
   // 펼쳐도 목록 줄은 그대로 두고(머리 역할) 아래에 내용만 붙인다.
   const ticketItem = (ticket: MyTicket, open: boolean) => {
@@ -251,12 +283,15 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
       </div>}
       {settingsFeedback && <p ref={settingsMessage} tabIndex={-1} className={settingsFeedback.error ? 'error ticket-settings-feedback' : 'notice ticket-settings-feedback'} role={settingsFeedback.error ? 'alert' : 'status'}>{settingsFeedback.message}</p>}
       <Toast message={notice} onDone={() => setNotice(null)} />
+      <NotificationStack items={notifications} onDismiss={dismissNotification} />
       {error && <div className="ticket-error" role="alert"><p className="error">{error}</p><button type="button" className="link" disabled={busy} onClick={() => void manualRefresh()}>목록 다시 시도</button></div>}
       {loading && !current && <p className="inline-status" role="status"><Spinner size="sm" label="내 티켓 조회 중" />내 티켓을 불러오고 있습니다.</p>}
       {current && !current.tickets.length && !loading && <p className="card empty">아직 나에게 전달된 티켓이 없습니다.</p>}
       {current && current.tickets.length > 0 && !visibleMeetings.length && <p className="card empty" role="status">{view === 'active' ? '처리할 회의가 없어요. 지난 회의는 발행 완료에서 볼 수 있어요.' : '아직 발행을 마친 회의가 없어요.'}</p>}
       <div className="meeting-groups" aria-busy={busy}>
-        {view === 'active' && visibleMeetings.map((meeting) => <BatchPublishFlow key={meeting.key} tickets={meeting.tickets} busy={busy || Boolean(error)} dirty={hasDirty} onLock={publishLock} onRefresh={load}>
+        {view === 'active' && visibleMeetings.map((meeting) => <BatchPublishFlow key={meeting.key} id={`meeting-${meeting.key}`} tickets={meeting.tickets} busy={busy || Boolean(error)} dirty={hasDirty} onLock={publishLock} onRefresh={load}
+          onPublishStart={() => setAwaitingMeeting(meeting.key, true)}
+          onPublished={(result) => notifyPublished(meeting.key, singleLineLabel(meeting.tickets[0].meetingTitle), meeting.tickets[0].projectId, result)}>
           <ul className="meeting-tickets">
             {/* 확인해도 자리는 그대로 두고 접히기만 한다. */}
             {meeting.tickets.map((ticket) => ticketItem(ticket, expanded(ticket)))}
@@ -264,7 +299,7 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
         </BatchPublishFlow>)}
         {view === 'done' && visibleMeetings.map((meeting) => {
           const open = openMeetings.has(meeting.key)
-          return <section key={meeting.key} className="card meeting-group" aria-label={`${singleLineLabel(meeting.tickets[0].meetingTitle)} 회의`}>
+          return <section key={meeting.key} id={`meeting-${meeting.key}`} className="card meeting-group" aria-label={`${singleLineLabel(meeting.tickets[0].meetingTitle)} 회의`}>
             <header className="meeting-group-head">
               <div className="meeting-group-title"><h3>{singleLineLabel(meeting.tickets[0].meetingTitle)}</h3><p className="muted">{registeredAt(meeting.tickets[0].createdAt) ? `${registeredAt(meeting.tickets[0].createdAt)} 등록 · ` : ''}내 티켓 {meeting.tickets.length}건</p></div>
               <div className="meeting-group-publish">
