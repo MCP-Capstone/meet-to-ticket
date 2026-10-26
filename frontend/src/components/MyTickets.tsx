@@ -47,9 +47,9 @@ function projectsOf(tickets: MyTicket[]) {
   return [...projects.values()]
 }
 // 발행 완료 회의 요약은 사용자가 구분할 필요 없는 발행됨·연결됨·갱신됨을 '발행' 하나로 묶는다.
+// 모의 실행으로 발행한 티켓(SKIPPED)도 실제 발행과 같은 화면으로 보여 준다.
 const summaryKinds = [
-  { label: '발행', tone: 'published', match: (t: MyTicket) => t.status === 'PUBLISHED' || t.status === 'LINKED' || t.status === 'UPDATED' },
-  { label: '생략', tone: 'skipped', match: (t: MyTicket) => t.status === 'SKIPPED' },
+  { label: '발행', tone: 'published', match: (t: MyTicket) => t.status === 'PUBLISHED' || t.status === 'LINKED' || t.status === 'UPDATED' || t.status === 'SKIPPED' },
   { label: '거절', tone: 'rejected', match: (t: MyTicket) => t.status === 'REJECTED' },
 ]
 const statusSummary = (tickets: MyTicket[]) => summaryKinds.map((kind) => ({ ...kind, count: tickets.filter(kind.match).length })).filter((kind) => kind.count > 0)
@@ -253,7 +253,7 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
     const url = safePublishUrl(ticket.githubIssueUrl ?? null, ticket.publishTarget)
     const quick = ticket.status === 'CONFIRMED' ? { action: 'reopen' as const, label: '승인 취소' } : ticket.status === 'REJECTED' ? { action: 'restore' as const, label: '거절 취소' } : null
     // 줄의 빈 곳을 눌러도 펼친다. 링크·버튼을 누를 때는 그 동작만 한다.
-    // 발행 완료 탭에서는 요약과 같은 말(발행·생략·거절)로 보여 준다. 연결·갱신 구분은 링크 글자에 남긴다.
+    // 발행 완료 탭에서는 요약과 같은 말(발행·거절)로 보여 준다. 연결·갱신 구분은 링크 글자에 남긴다.
     const kind = view === 'done' ? summaryKinds.find((item) => item.match(ticket)) : undefined
     return <li key={ticket.ticketId} className={open ? 'meeting-ticket-open' : undefined}>
       <div className="meeting-ticket-line" onClick={(event) => { if (!busy && !(event.target as HTMLElement).closest('a, button')) toggleTicket(ticket) }}>

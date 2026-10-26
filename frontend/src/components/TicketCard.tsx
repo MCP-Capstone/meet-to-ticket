@@ -157,7 +157,7 @@ export function TicketCard({ ticket, busy, onCommit, onRefresh, onDirtyChange, o
           <p className="muted">{ticket.projectName} · {ticket.meetingTitle}</p>
           <h3 id={`ticket-${ticket.ticketId}`}>{ticket.title}</h3>
         </div>
-        <span className={`badge ticket-status ${ticket.status.toLowerCase()}`}>{ticketStatusLabel[ticket.status] ?? ticket.status}</span>
+        <span className={`badge ticket-status ${ticket.status === 'SKIPPED' ? 'published' : ticket.status.toLowerCase()}`}>{ticketStatusLabel[ticket.status] ?? ticket.status}</span>
       </div>}
       {failure && <div className="ticket-alert" role="alert">
         <strong>{manualCheck ? `${tool}에 반영됐는지 확인이 필요해요` : ticket.status === 'UPDATED' ? '알림 댓글을 보내지 못했어요' : '발행하지 못했어요'}</strong>

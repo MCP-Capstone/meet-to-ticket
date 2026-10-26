@@ -11,9 +11,10 @@ export function singleLineLabel(value: string | null | undefined, fallback = '�
 }
 
 // 티켓 상태는 목록·상세·결과 화면 어디서나 같은 말로 보여 준다.
+// SKIPPED(모의 실행 발행)도 실제 발행과 같은 화면으로 보여 준다.
 export const ticketStatusLabel: Record<TicketStatus, string> = {
   ASSIGNEE_REQUIRED: '담당 지정 필요', PENDING_REVIEW: '검토 대기', CONFIRMED: '승인됨', REJECTED: '거절됨',
-  PUBLISHING: '발행 중', PUBLISHED: '발행됨', LINKED: '연결됨', UPDATED: '갱신됨', SKIPPED: '발행 생략', FAILED: '발행 확인 필요',
+  PUBLISHING: '발행 중', PUBLISHED: '발행됨', LINKED: '연결됨', UPDATED: '갱신됨', SKIPPED: '발행됨', FAILED: '발행 확인 필요',
 }
 
 // 같은 제목의 회의를 구분할 수 있게 회의 묶음 머리에 등록 날짜와 시각을 붙인다. 예: 10/25 14:03

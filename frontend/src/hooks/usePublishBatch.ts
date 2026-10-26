@@ -62,11 +62,12 @@ export function usePublishBatch(batch: { id: string; started: number } | null, o
   }
 }
 
-// 끝난 결과를 알림 카드 내용으로 바꾼다. 예: 발행을 마쳤어요 / 주간 회의 · 발행 1 · 생략 3
+// 끝난 결과를 알림 카드 내용으로 바꾼다. 예: 발행을 마쳤어요 / 주간 회의 · 발행 4
+// 모의 실행으로 발행한 티켓(skipped)도 실제 발행과 같게 센다.
 export function publishNotice(result: PublishBatchResult, meetingTitle: string): Omit<NotificationItem, 'id' | 'action'> {
   const { summary } = result
-  const published = summary.published + summary.linked + summary.updated
-  const parts = [['발행', published], ['생략', summary.skipped], ['확인 필요', summary.failed]] as const
+  const published = summary.published + summary.linked + summary.updated + summary.skipped
+  const parts = [['발행', published], ['확인 필요', summary.failed]] as const
   const counts = parts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join(' · ')
   const title = result.status === 'FAILED' ? '발행하지 못했어요'
     : result.status === 'PARTIAL_FAILED' ? '일부 티켓을 발행하지 못했어요'
