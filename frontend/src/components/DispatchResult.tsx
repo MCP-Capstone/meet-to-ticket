@@ -101,7 +101,9 @@ export function DispatchResult({ taskId, meeting, onUploadAnother }: Props) {
             {result.tickets.map((t) => {
               const id = t.ticket.ticketId
               const expanded = open.has(id)
+              // 미리보기가 없으면 저장된 본문을 그린다. Slack 공지는 Slack 서식으로 그린다.
               const body = t.preview?.body ?? t.ticket.description
+              const flavor = t.ticket.publishTarget === 'SLACK' ? 'slack' : 'markdown'
               return (
                 <li key={id} className={`dispatch-item${expanded ? ' open' : ''}`}>
                   <button type="button" className="dispatch-item-header" aria-expanded={expanded} aria-controls={`dispatch-${id}`} onClick={() => toggle(id)}>
@@ -118,7 +120,7 @@ export function DispatchResult({ taskId, meeting, onUploadAnother }: Props) {
                         <span>기한 {dueText(t.ticket.due)}</span>
                         {t.preview && t.preview.labels.length > 0 && <span>라벨 {t.preview.labels.join(', ')}</span>}
                       </div>
-                      {body ? <IssueMarkdown body={body} /> : <p className="muted">본문이 없습니다.</p>}
+                      {body ? <IssueMarkdown body={body} flavor={flavor} /> : <p className="muted">본문이 없습니다.</p>}
                     </div>
                   )}
                 </li>

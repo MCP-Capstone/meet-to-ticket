@@ -865,6 +865,12 @@ button.secondary {
   color: var(--muted);
 }
 
+/* 본문 문단은 저장된 줄바꿈을 그대로 살리고, 인라인 코드는 옅은 회색 칩으로 보인다. */
+.issue-markdown p { margin: 0 0 8px; white-space: pre-wrap; }
+.issue-markdown p:last-child { margin-bottom: 0; }
+.issue-markdown li.nested { margin-left: 18px; list-style-type: circle; }
+.issue-markdown code { padding: 1px 5px; border-radius: 4px; background: var(--neutral-soft); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 .dedupe-note {
   margin-top: 12px;
   padding-top: 8px;
