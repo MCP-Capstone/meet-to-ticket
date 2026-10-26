@@ -68,7 +68,7 @@ def test_command_always_dry_run_and_dedupe_uses_eval_repo(tmp_path, agent_dir):
     repos = [c[c.index("--repo") + 1] for c in ex.calls]
     assert repos == ["meet-to-ticket-eval"] * 4
     assert not any(str(p) for c in ex.calls for p in c if "references" in str(p))  # 정답은 에이전트에 넘기지 않는다
-    assert all("/inputs/" in c[2] for c in ex.calls)
+    assert all(Path(c[2]).parent.name == "inputs" for c in ex.calls)
 
 
 def test_cache_hit_skips_second_execution(tmp_path, agent_dir):
@@ -374,8 +374,9 @@ def test_executor_times_out_kills_child_and_returns_124(tmp_path, capsys):
     assert rc == run_eval.TIMEOUT_EXIT_CODE == 124
     assert time.monotonic() - start < 30  # 60초를 기다리지 않는다
     assert "[시간 초과] 회차 제한 2초" in capsys.readouterr().err
-    with pytest.raises(ProcessLookupError):  # 자식 프로세스가 남아 있지 않다
-        os.kill(int(pidfile.read_text()), 0)
+    if sys.platform != "win32":  # Windows의 os.kill(pid, 0)은 확인이 아니라 프로세스 종료라 쓸 수 없다
+        with pytest.raises(ProcessLookupError):  # 자식 프로세스가 남아 있지 않다
+            os.kill(int(pidfile.read_text()), 0)
 
 
 def test_executor_passes_through_exit_code_within_limit(tmp_path, capsys):
