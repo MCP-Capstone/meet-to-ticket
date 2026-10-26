@@ -156,7 +156,8 @@ export function MyTickets({ onBusyChange, onDirtyChange, onOpenProjectSettings }
         if (!transferred && newKey) counts[newKey] += 1
         return { counts, tickets: current.tickets.flatMap((ticket) => ticket.ticketId !== updated.ticketId ? [ticket] : transferred ? [] : [updated]) }
       })
-      setNotice(transferred ? '담당자를 변경했습니다. 해당 티켓은 새 담당자의 내 티켓으로 이동했습니다.' : updated.status === 'PENDING_REVIEW' && previous.status !== 'PENDING_REVIEW' ? '검토 대기로 되돌렸어요.' : '티켓 변경을 저장했습니다.')
+      // 승인·거절·수정은 목록에서 바로 바뀌어 보이므로 따로 알리지 않는다. 티켓이 사라지거나 되돌아갈 때만 알린다.
+      setNotice(transferred ? '담당자를 변경했습니다. 해당 티켓은 새 담당자의 내 티켓으로 이동했습니다.' : updated.status === 'PENDING_REVIEW' && previous.status !== 'PENDING_REVIEW' ? '검토 대기로 되돌렸어요.' : null)
       const refreshed = await load()
       if (!refreshed && lifecycle.current.mounted) setNotice('티켓 변경은 저장됐습니다. 최신 목록 조회에 실패했으니 목록만 다시 불러와 주세요.')
     } finally {
