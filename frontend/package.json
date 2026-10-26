@@ -15,7 +15,8 @@
     "test:publish": "node --test tests/batchPublish.test.mjs",
     "test:preview": "node --test tests/ticketPreview.test.mjs",
     "test:publication": "node --test tests/ticketPublication.test.mjs",
-    "test:failure": "node --test tests/publishFailure.test.mjs"
+    "test:failure": "node --test tests/publishFailure.test.mjs",
+    "test:meeting-input": "node --test tests/meetingInput.test.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",

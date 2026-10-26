@@ -29,3 +29,21 @@ export async function readMeetingFile(file: File): Promise<string> {
   if (invalid) throw new Error(invalid)
   return text
 }
+
+// 회의록 머리에 적힌 회의 날짜(예: "- 회의 일시: 2026-10-22 10:00~10:30")를 찾는다.
+// Agent는 월 없는 기한("23일")을 회의 날짜로 계산하므로, 업로드한 날을 고르면 기한이 다음 달로 밀린다.
+const DATE_LABEL = /(회의\s*일시|회의\s*날짜|회의일|일시|날짜|일자|date)/i
+const DATE_VALUE = /(\d{4})\s*(?:[-./]\s*(\d{1,2})\s*[-./]\s*(\d{1,2})|년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일)/
+const HEADER_LINES = 20
+
+export function meetingDateFromText(text: string): string | null {
+  const lines = text.replace(/\r/g, '').split('\n').slice(0, HEADER_LINES)
+  // 날짜 칸 이름이 붙은 줄을 먼저 보고, 없으면 제목 줄에 적힌 날짜를 쓴다.
+  for (const line of [...lines.filter((l) => DATE_LABEL.test(l)), ...lines.filter((l) => l.trim().startsWith('#'))]) {
+    const m = DATE_VALUE.exec(line)
+    if (!m) continue
+    const value = `${m[1]}-${(m[2] ?? m[4]).padStart(2, '0')}-${(m[3] ?? m[5]).padStart(2, '0')}`
+    if (validMeetingDate(value)) return value
+  }
+  return null
+}

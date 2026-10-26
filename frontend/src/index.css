@@ -1085,6 +1085,7 @@ button.danger { color: var(--danger); border: 1px solid var(--danger); }
 /* Forms and result pages follow the same single-column workspace rhythm. */
 .upload-form { width: 100%; max-width: 1098px; margin: 0; padding: 0; border: 0 !important; border-radius: 0 !important; background: transparent !important; }
 .upload-form .upload-fields { gap: 18px; }
+.upload-date-hint { font-size: 12px; font-weight: 400; }
 .upload-form .row { grid-template-columns: 460px 260px; gap: 24px; }
 .upload-form .dropzone { min-height: 148px; flex-direction: column; align-items: center; justify-content: center; padding: 22px; border: 1px dashed #9ab4e6; border-radius: 8px; background: var(--accent-soft); text-align: center; }
 .upload-form .dropzone strong { color: var(--accent); font-size: 13px; }

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, FormEvent } from 'react'
 import type { MeetingAnalysisInput, Project } from '../api'
-import { readMeetingFile, validateMeetingText, validMeetingDate } from '../meetingInput'
+import { meetingDateFromText, readMeetingFile, validateMeetingText, validMeetingDate } from '../meetingInput'
 import { sampleMeetingFileName, sampleMeetingText } from '../mocks/data'
 import { Spinner } from './Spinner'
 
@@ -17,6 +17,8 @@ interface Props {
 const toMessage = (e: unknown) => e instanceof Error ? e.message : '알 수 없는 오류가 발생했습니다.'
 export function UploadForm({ projects, projectId, projectsLoading, onProjectChange, starting, onStart }: Props) {
   const [meetingDate, setMeetingDate] = useState('')
+  // 회의록에서 찾아 채운 날짜인지. 사용자가 직접 고르면 회의록을 바꿔도 덮어쓰지 않는다.
+  const [dateFromText, setDateFromText] = useState(false)
   const [content, setContent] = useState('')
   // 파일에서 불러온 내용을 그대로 보내면 파일로 올려 파일 이름을 회의 제목 후보로 남긴다. 고치면 텍스트로 보낸다.
   const [loaded, setLoaded] = useState<{ file: File; text: string } | null>(null)
@@ -25,6 +27,14 @@ export function UploadForm({ projects, projectId, projectsLoading, onProjectChan
   const [error, setError] = useState<string | null>(null)
   const fileRead = useRef(0)
   const busy = starting || reading
+
+  const changeContent = (text: string) => {
+    setContent(text)
+    if (meetingDate && !dateFromText) return
+    const found = meetingDateFromText(text)
+    setMeetingDate(found ?? '')
+    setDateFromText(Boolean(found))
+  }
 
   const handleFile = async (selected: File) => {
     if (starting) return
@@ -36,7 +46,7 @@ export function UploadForm({ projects, projectId, projectsLoading, onProjectChan
       const text = await readMeetingFile(selected)
       if (token !== fileRead.current) return
       setLoaded({ file: selected, text })
-      setContent(text)
+      changeContent(text)
     } catch (e) {
       if (token === fileRead.current) setError(toMessage(e))
     } finally {
@@ -78,7 +88,8 @@ export function UploadForm({ projects, projectId, projectsLoading, onProjectChan
           </select>
         </label>
         <label>회의 날짜 (필수)
-          <input type="date" value={meetingDate} onChange={(e) => { setMeetingDate(e.target.value); setError(null) }} required />
+          <input type="date" value={meetingDate} onChange={(e) => { setMeetingDate(e.target.value); setDateFromText(false); setError(null) }} required />
+          {dateFromText && <span className="muted upload-date-hint">회의록에 적힌 날짜로 채웠어요</span>}
         </label>
       </div>
       {!projectsLoading && projects.length === 0 && <p className="notice">참여 중인 프로젝트가 없습니다. 프로젝트 설정에서 먼저 등록해 주세요.</p>}
@@ -96,7 +107,7 @@ export function UploadForm({ projects, projectId, projectsLoading, onProjectChan
         </div>
         <textarea id="meeting-content" rows={14} value={content} disabled={reading}
           placeholder="회의록을 붙여넣거나 MD/TXT 파일을 끌어놓으세요. (최대 10MB)"
-          onChange={(e) => { setContent(e.target.value); if (!e.target.value.trim()) setLoaded(null); setError(null) }} />
+          onChange={(e) => { changeContent(e.target.value); if (!e.target.value.trim()) setLoaded(null); setError(null) }} />
         {/* 불러온 내용을 고치면 텍스트로 보내므로 파일 안내는 내용이 그대로일 때만 보인다. */}
         {(reading || (loaded && content === loaded.text)) && <p className="muted meeting-input-hint">
           {reading ? <span className="inline-status" role="status"><Spinner size="sm" label="파일 확인 중" /> 파일을 불러오고 있습니다.</span>
