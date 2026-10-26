@@ -15,7 +15,7 @@
 | 유저 문제 | 회의에서 후속 업무를 맡은 개발자, 디자이너, 기획자는 회의 직후 누가 티켓을 만들지 몰라 각자 메모에 기대고, 이슈를 쓰는 데 시간이 오래 걸리며, 작성자마다 제목과 본문 품질이 다르다 |
 | 연결고리 | 회의록에서 담당자, 기한, 근거가 붙은 초안이 나오고 담당자가 확인만 하면 -> 티켓 작성 부담과 누락이 줄고 -> 기존 이슈와의 중복도 줄어 협업 비용이 낮아진다 |
 | 문제 정의의 근거 | 통계나 인터뷰로 확인한 근거는 없다. Capstone 기간의 팀 프로젝트 경험에서 나온 가정이다(출처 없는 수치는 넣지 않았다). 기획 문서: Notion 기획_v16의 문제 5개(PRB-01~05)와 페인포인트(PAIN-01~05) |
-| AI 적용 지점 | 회의 요약에서 할 일(업무, 담당자, 기한, 근거 인용)을 추출하고, GitHub 이슈 초안을 쓰고, 기존 이슈와 같은 업무인지 판단하고(SAME, CHANGE, RELATED, UNRELATED), 발행 대상(GitHub, Notion, Slack)을 분류한다. 발행은 담당자가 확인한 뒤에만 한다 |
+| AI 적용 지점 | 회의 요약에서 할 일(업무, 담당자, 기한, 근거 인용)을 추출하고, GitHub 이슈 초안을 쓰고, 기존 이슈와 같은 업무인지 판단하고(SAME, CHANGE, RELATED, UNRELATED), 업무의 발행 대상(GitHub, Notion)을 분류한다. 회의 결과 공지는 회의마다 1건씩 Slack 대상으로 따로 만든다. 발행은 담당자가 확인한 뒤에만 한다 |
 
 ### 이번에 바꾼 범위 (Phase 2)
 
@@ -96,7 +96,7 @@ Agent는 LangGraph 그래프(`agent/graph.py`)로 `prepare -> draft -> review ->
 1. 입력: 회의록 원문, 회의 날짜(상대 기한의 기준), 프로젝트 멤버, 연결된 저장소와 Notion 기획 페이지
 2. 맥락 파악: 연결된 Notion 기획 문서와 기존 이슈를 읽는다. 시간 한도를 넘으면 읽은 부분까지만 쓴다
 3. 추출(`prepare`): 액션 아이템 표가 있으면 표 파서로, 서술형 요약이면 LLM으로 할 일, 결정, 미결 질문, 제외 항목을 뽑는다. 담당자 이름은 멤버와 연결하고, 기한 원문은 코드(`resolve.py`)가 회의 날짜 기준 날짜로 바꾼다. 근거 인용은 원문에 있는 문장만 남긴다. 담당자가 정해지지 않은 업무도 담당자를 비운 채 뽑고 참석자 중에서 추측하지 않는다
-4. 초안(`draft`): 업무마다 제목, 설명, 상세 작업, 완료 조건, 라벨을 LLM이 쓴다. 발행 대상(GitHub, Notion, Slack)도 한 줄 사유와 함께 분류한다. 원문에 없는 숫자, 범위, 사람을 더하지 않는다는 규칙을 프롬프트에 둔다
+4. 초안(`draft`): 업무마다 제목, 설명, 상세 작업, 완료 조건, 라벨을 LLM이 쓴다. 발행 대상도 한 줄 사유와 함께 분류한다(코드 변경이 필요하면 GitHub, 필요 없으면 Notion). Slack 공지는 LLM이 분류하지 않고 회의마다 1건을 코드가 만든다. 원문에 없는 숫자, 범위, 사람을 더하지 않는다는 규칙을 프롬프트에 둔다
 5. 검수(`review`): 제외 항목 포함 여부, 할 일 여부, 원문에 없는 내용, 제목 명확성, 확인 가능한 완료 조건을 점검한다
 6. 중복 판단(`dedupe`, RAG): GitHub 대상 업무만 기존 이슈를 도구로 찾아 SAME, CHANGE, RELATED, UNRELATED로 판정하고 처리 유형(기존 이슈에 연결, 갱신, 신규)을 정한다
 7. 저장: 초안을 담당자별로 저장해 전송하고 여기서 멈춘다. 발행은 담당자가 확인한 뒤 일괄 발행이 MCP로 실행한다
@@ -115,15 +115,17 @@ Agent는 LangGraph 그래프(`agent/graph.py`)로 `prepare -> draft -> review ->
 
 ### 기술 선택 근거
 
-| 기술 | 역할 | 선택 근거 |
-|---|---|---|
-| LLM (OpenAI gpt-5.4-nano, gpt-5.4-mini) | 서술형 회의 요약에서 할 일 추출, 이슈 초안, 검수, 중복 판단 | 회의록은 형식이 정해져 있지 않아 규칙만으로는 업무와 담당자를 뽑기 어렵다. 추출과 초안은 작은 모델로 비용을 줄이고 검수와 중복 판단은 한 단계 큰 모델을 쓴다 |
-| LangGraph | 추출, 초안, 검수 보완 반복, 중복 판단, 저장의 단계 흐름과 상태 저장 | 검수에 실패하면 초안으로 돌아가는 조건부 분기와 단계별 진행 보고가 필요하다 |
-| MCP (business-mcp, rag-mcp) | GitHub, Notion, Slack 쓰기와 조회, 유사 이슈 검색을 도구로 제공 | Agent 코드와 외부 서비스 호출을 분리하고, 쓰기 가능한 저장소를 설정(`GITHUB_ALLOWED_REPOS`)으로 제한하기 위해서다 |
-| RAG (Chroma, text-embedding-3-small) | 기존 이슈의 의미 검색 | 이슈가 수십에서 수백 건 규모라 별도 서버 없이 로컬 색인으로 충분하고, 이슈 본문 표현이 달라도 같은 작업을 찾아야 해서 키워드 검색만으로는 부족하다 |
-| FastAPI | Agent API | LangGraph와 MCP 클라이언트가 Python이라 같은 언어로 API를 제공한다 |
-| Spring Boot, PostgreSQL, RabbitMQ | 인증, 프로젝트, 티켓 상태 이력, 분석 접수 큐 | Phase 1에서 정한 스택이다. 큐는 Agent가 꺼져 있어도 분석을 접수하고 최종 실패를 DLQ에 남기기 위해서다 |
-| React, TypeScript, Vite | 화면 | Phase 1에서 정한 스택이다 |
+| 기술 | 필요했던 것 | 쓰지 않은 방법과 이유 | 선택 이유 |
+|---|---|---|---|
+| LLM: gpt-5.4-nano (추출, 초안) | 형식이 정해지지 않은 회의록에서 업무, 담당자, 기한을 뽑고 이슈 초안을 쓴다 | 규칙 파서만 쓰기: 서술형 요약은 형식이 제각각이라 뽑을 수 없다(액션 아이템 표가 있을 때만 파서를 쓴다). 큰 모델 쓰기: 업무 수만큼 호출돼 호출량이 가장 많은 단계다 | 가장 작은 모델로 호출 부담을 줄이고, 같은 회의록이면 같은 결과가 나오도록 추론을 끄고 temperature 0으로 호출한다 |
+| LLM: gpt-5.4-mini (검수, 중복 판단) | 초안이 원문에 없는 내용을 담았는지 가려내고, 기존 이슈를 도구로 찾아 같은 업무인지 판정한다 | nano로 통일하기: 원문과 대조하는 판단과 조회 도구를 고르는 반복은 추출보다 판단 부담이 크다 | 한 단계 큰 모델에 추론을 켜서 판단이 필요한 단계에만 쓴다. 모델은 단계별 환경 변수(`OPENAI_MODEL`, `OPENAI_REVIEW_MODEL`, `OPENAI_DEDUPE_MODEL`)로 바꿀 수 있다 |
+| LangGraph | 검수에 실패하면 초안으로 돌아가는 반복, 단계별 진행 보고, 단계 상태 저장 | 함수를 차례로 부르기: 되돌아가는 반복과 상태 저장을 직접 구현해야 한다. LangChain 체인: 한 방향 흐름이라 되돌아가는 분기를 표현하기 어렵다 | 조건부 분기(검수 보완 최대 2회)를 그래프로 정의하고, checkpointer가 노드마다 상태를 저장해 같은 작업 요청이 다시 오면 저장된 결과를 돌려준다(메모리 저장이라 재시작하면 사라진다) |
+| MCP (business-mcp, rag-mcp) | GitHub, Notion, Slack 세 서비스 쓰기와 유사 이슈 검색. 쓰기 범위 제한 | Agent 안에서 각 서비스 API를 직접 호출: 외부 호출과 권한 제한이 Agent 코드에 섞이고, 서비스가 늘 때마다 Agent를 고쳐야 한다 | 외부 호출을 별도 서버로 분리해 쓰기 가능한 저장소를 설정(`GITHUB_ALLOWED_REPOS`)으로 제한하고, 중복 판단 모델이 같은 도구 목록에서 골라 쓴다 |
+| RAG: Chroma, text-embedding-3-small | 표현이 달라도 같은 작업인 기존 이슈를 찾는다(수십~수백 건) | GitHub 키워드 검색: 표현이 다르면 못 찾는다. 별도 벡터 DB 서버: 이 규모에서는 운영 부담이 더 크다 | rag-mcp 안에 파일로 두는 로컬 색인으로 충분하고, 임베딩은 같은 OpenAI 키로 쓸 수 있는 small 모델로 충분하다 |
+| FastAPI | LangGraph와 MCP 클라이언트(Python)를 감싸는 API. 몇 분 걸리는 작업을 받아 바로 응답하고, 백엔드와 요청·응답 형식을 맞춘다 | Flask: 동기 처리가 기본이라 async인 LangGraph, MCP와 맞추기 번거롭고, 입력 검증과 API 문서를 따로 붙여야 한다. Django: ORM, 관리 화면 등 Agent에 필요 없는 기능이 많다(Agent는 DB를 갖지 않는다) | async를 기본으로 지원해 오래 걸리는 작업을 띄우고 바로 응답할 수 있다. 타입만 선언하면 입력 검증과 API 문서(OpenAPI)가 자동으로 생겨 개발이 빠르고, 같은 Pydantic 모델을 LLM 구조화 출력 스키마로도 쓴다 |
+| Spring Boot, PostgreSQL | 인증, 권한, 티켓 상태 이력 | Agent(FastAPI)에 모두 넣기: AI 실행과 도메인 로직이 섞이고, Agent가 재시작되면 상태가 흔들린다 | 도메인 로직과 상태는 백엔드가 갖고 Agent는 실행만 한다. 스택은 Phase 1에서 정했다 |
+| RabbitMQ | Agent가 꺼져 있어도 분석 요청을 잃지 않고, 최종 실패를 남긴다 | 백엔드가 Agent를 HTTP로 직접 호출: Agent가 꺼져 있으면 요청이 사라진다 | 큐에 먼저 접수해 Agent가 다시 켜지면 처리하고, 최종 실패는 DLQ에 남긴다 |
+| React, TypeScript, Vite | 화면 | - | Phase 1에서 정한 스택이다 |
 
 ### AI 출력 규격
 
@@ -136,27 +138,41 @@ Agent는 업무마다 아래 형태의 항목을 돌려준다(`agent/schemas.py`
   "action": "CREATE",
   "reviewStatus": "PENDING",
   "publishStatus": "DRAFT",
-  "publishTarget": "GITHUB",
   "contentJson": {
     "action_text": "CSV-05로 user-export 경로의 24시간 삭제/접근 권한/10분 서명 URL 만료를 20일 오후까지 검증한다.",
     "assignees": { "names": ["함주헌"], "github": ["juhun-ham"], "unresolved": [], "unmatched": [], "ambiguous": [] },
     "due": { "text": "20일 오후까지", "date": "2026-10-20", "time": null },
     "evidence_quotes": ["함주헌은 CSV-05로 user-export/ 경로의 24시간 삭제/접근 권한/10분 서명 URL 만료를 20일 오후까지 검증한다."],
+    "publish_target": "GITHUB",
     "dedupe": null,
     "warnings": []
   }
 }
 ```
 
+중복 판단을 한 업무는 `contentJson.dedupe`가 아래 형태로 채워진다(형식 예시이고 값은 설명용이다).
+
+```json
+"dedupe": {
+  "reason": "같은 화면의 같은 버튼에 대한 같은 작업이 다시 언급됨",
+  "relation": "SAME",
+  "issue_number": 12,
+  "issue_state": "open",
+  "handling": { "type": "LINK", "issue_number": 12, "overlap": false, "judged": true }
+}
+```
+
 | 필드 | 값의 범위 | 조건 |
 |---|---|---|
-| `action` | CREATE, UPDATE, DUPLICATE, NEEDS_CHECK | 현재 실제 발행 경로는 신규 생성(CREATE) |
+| `action` | CREATE, UPDATE, DUPLICATE, NEEDS_CHECK | Agent가 정하는 업무 동작 유형이다. 기존 이슈에 연결할지 갱신할지는 이 값이 아니라 `contentJson.dedupe.handling`이 정한다 |
 | `reviewStatus` | PENDING, APPROVED, REJECTED, NEEDS_CHECK | 기본 모드는 담당자 확인 대기(PENDING) |
 | `publishStatus` | NOT_STARTED, DRAFT, SUCCEEDED, FAILED, SKIPPED, BLOCKED, UNKNOWN | 기본 모드는 발행 전 초안(DRAFT) |
-| `publishTarget` | GITHUB, NOTION, SLACK | 분류 결과이고 담당자가 카드에서 바꿀 수 있다 |
+| `contentJson.publish_target` | GITHUB, NOTION, SLACK | 업무는 LLM이 GITHUB나 NOTION으로 분류하고, SLACK은 회의 결과 공지 1건에만 쓴다. 담당자가 카드에서 바꿀 수 있다 |
 | `contentJson.assignees` | `names`가 비어 있으면 담당 미정 | 이름만 보고 GitHub 로그인명을 추정하지 않는다 |
 | `contentJson.due` | `text`(원문 표현), `date`, `time` | 날짜는 회의 날짜 기준으로 코드가 계산하고, 못 구하면 `date`가 null이다 |
 | `contentJson.evidence_quotes` | 원문에 있는 문장 1~3개 | 원문에 없는 문장은 코드가 뺀다 |
+| `contentJson.dedupe.relation` | SAME, CHANGE, RELATED, UNRELATED, null | null이면 판단하지 못한 것이고 카드에 "중복 판단 안 됨"을 띄운다. `reason`(판단 근거)을 판정보다 먼저 쓴다 |
+| `contentJson.dedupe.handling.type` | CREATE, LINK, UPDATE | 열린 이슈와 SAME이면 LINK(댓글 연결), CHANGE면 UPDATE(본문 끝에 변경 섹션), 그 밖과 닫힌 이슈는 CREATE. 닫힌 이슈는 다시 열지 않는다 |
 
 실행 전체의 응답(`RunResult`)은 `status`가 SUCCEEDED 또는 FAILED이고, 실패하면 `errorCode`와 `errorMessage`를 돌려준다. SUCCEEDED가 모든 이슈 발행 성공을 뜻하지는 않는다. 발행 결과(`PublishItemResult`)는 항목별로 PUBLISHED, LINKED, UPDATED, POSTED, SKIPPED, FAILED, UNKNOWN과 오류 코드를 돌려준다.
 
