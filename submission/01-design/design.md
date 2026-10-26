@@ -88,6 +88,7 @@ EPIC: 회의에서 정한 일이 담당자 확인을 거쳐 정확한 티켓으�
 | 10 | business-mcp -> GitHub, Notion, Slack | 발행과 조회 |
 | 11 | rag-mcp -> Chroma | 기존 이슈 임베딩의 저장과 검색. 임베딩은 rag-mcp가 OpenAI에 요청한다 |
 | 12 | rag-mcp -> GitHub | 기존 이슈 읽기(읽기 전용) |
+| 13 | rag-mcp -> OpenAI API | 기존 이슈와 검색어의 임베딩 생성(text-embedding-3-small) |
 
 ### AI 처리 흐름
 
@@ -96,9 +97,9 @@ Agent는 LangGraph 그래프(`agent/graph.py`)로 `prepare -> draft -> review ->
 1. 입력: 회의록 원문, 회의 날짜(상대 기한의 기준), 프로젝트 멤버, 연결된 저장소와 Notion 기획 페이지
 2. 맥락 파악: 연결된 Notion 기획 문서와 기존 이슈를 읽는다. 시간 한도를 넘으면 읽은 부분까지만 쓴다
 3. 추출(`prepare`): 액션 아이템 표가 있으면 표 파서로, 서술형 요약이면 LLM으로 할 일, 결정, 미결 질문, 제외 항목을 뽑는다. 담당자 이름은 멤버와 연결하고, 기한 원문은 코드(`resolve.py`)가 회의 날짜 기준 날짜로 바꾼다. 근거 인용은 원문에 있는 문장만 남긴다. 담당자가 정해지지 않은 업무도 담당자를 비운 채 뽑고 참석자 중에서 추측하지 않는다
-4. 초안(`draft`): 업무마다 제목, 설명, 상세 작업, 완료 조건, 라벨을 LLM이 쓴다. 발행 대상(GitHub, Notion, Slack)도 한 줄 사유와 함께 분류한다. 원문에 없는 숫자, 범위, 사람을 더하지 않는다는 규칙을 프롬프트에 둔다
+4. 초안(`draft`): 업무마다 제목, 설명, 상세 작업, 완료 조건, 라벨을 LLM이 쓴다. 발행 대상도 GitHub 또는 Notion으로 한 줄 사유와 함께 분류한다. Slack 회의 결과 공지는 회의마다 1건을 코드가 만든다. 원문에 없는 숫자, 범위, 사람을 더하지 않는다는 규칙을 프롬프트에 둔다
 5. 검수(`review`): 제외 항목 포함 여부, 할 일 여부, 원문에 없는 내용, 제목 명확성, 확인 가능한 완료 조건을 점검한다
-6. 중복 판단(`dedupe`, RAG): GitHub 대상 업무만 기존 이슈를 도구로 찾아 SAME, CHANGE, RELATED, UNRELATED로 판정하고 처리 유형(기존 이슈에 연결, 갱신, 신규)을 정한다
+6. 중복 판단(`dedupe`, RAG): GitHub 대상 업무만 기존 이슈를 도구로 찾아 SAME, CHANGE, RELATED, UNRELATED로 판정하고 처리 유형(기존 이슈에 연결, 갱신, 신규)을 정한다. 검색은 LLM이 읽기 전용 도구 3개를 골라 쓴다: 키, 단어 검색(business-mcp `search_issues`), 유사 이슈 검색(rag-mcp `search_similar_issues`, 벡터 의미 순위와 BM25 키워드 순위를 RRF로 합친다), 이슈 원문 읽기(`read_issue`). UNRELATED로 판정하기 전에는 검색 1위 이슈의 원문을 읽는다
 7. 저장: 초안을 담당자별로 저장해 전송하고 여기서 멈춘다. 발행은 담당자가 확인한 뒤 일괄 발행이 MCP로 실행한다
 
 예외 처리
@@ -120,7 +121,7 @@ Agent는 LangGraph 그래프(`agent/graph.py`)로 `prepare -> draft -> review ->
 | LLM (OpenAI gpt-5.4-nano, gpt-5.4-mini) | 서술형 회의 요약에서 할 일 추출, 이슈 초안, 검수, 중복 판단 | 회의록은 형식이 정해져 있지 않아 규칙만으로는 업무와 담당자를 뽑기 어렵다. 추출과 초안은 작은 모델로 비용을 줄이고 검수와 중복 판단은 한 단계 큰 모델을 쓴다 |
 | LangGraph | 추출, 초안, 검수 보완 반복, 중복 판단, 저장의 단계 흐름과 상태 저장 | 검수에 실패하면 초안으로 돌아가는 조건부 분기와 단계별 진행 보고가 필요하다 |
 | MCP (business-mcp, rag-mcp) | GitHub, Notion, Slack 쓰기와 조회, 유사 이슈 검색을 도구로 제공 | Agent 코드와 외부 서비스 호출을 분리하고, 쓰기 가능한 저장소를 설정(`GITHUB_ALLOWED_REPOS`)으로 제한하기 위해서다 |
-| RAG (Chroma, text-embedding-3-small) | 기존 이슈의 의미 검색 | 이슈가 수십에서 수백 건 규모라 별도 서버 없이 로컬 색인으로 충분하고, 이슈 본문 표현이 달라도 같은 작업을 찾아야 해서 키워드 검색만으로는 부족하다 |
+| RAG (Chroma, text-embedding-3-small) | 기존 이슈의 의미 검색과 키워드 검색(RRF로 합침) | 이슈가 수십에서 수백 건 규모라 별도 서버 없이 로컬 색인으로 충분하고, 이슈 본문 표현이 달라도 같은 작업을 찾아야 해서 키워드 검색만으로는 부족하다 |
 | FastAPI | Agent API | LangGraph와 MCP 클라이언트가 Python이라 같은 언어로 API를 제공한다 |
 | Spring Boot, PostgreSQL, RabbitMQ | 인증, 프로젝트, 티켓 상태 이력, 분석 접수 큐 | Phase 1에서 정한 스택이다. 큐는 Agent가 꺼져 있어도 분석을 접수하고 최종 실패를 DLQ에 남기기 위해서다 |
 | React, TypeScript, Vite | 화면 | Phase 1에서 정한 스택이다 |
@@ -136,8 +137,8 @@ Agent는 업무마다 아래 형태의 항목을 돌려준다(`agent/schemas.py`
   "action": "CREATE",
   "reviewStatus": "PENDING",
   "publishStatus": "DRAFT",
-  "publishTarget": "GITHUB",
   "contentJson": {
+    "publish_target": "GITHUB",
     "action_text": "CSV-05로 user-export 경로의 24시간 삭제/접근 권한/10분 서명 URL 만료를 20일 오후까지 검증한다.",
     "assignees": { "names": ["함주헌"], "github": ["juhun-ham"], "unresolved": [], "unmatched": [], "ambiguous": [] },
     "due": { "text": "20일 오후까지", "date": "2026-10-20", "time": null },
@@ -153,10 +154,10 @@ Agent는 업무마다 아래 형태의 항목을 돌려준다(`agent/schemas.py`
 | `action` | CREATE, UPDATE, DUPLICATE, NEEDS_CHECK | 현재 실제 발행 경로는 신규 생성(CREATE) |
 | `reviewStatus` | PENDING, APPROVED, REJECTED, NEEDS_CHECK | 기본 모드는 담당자 확인 대기(PENDING) |
 | `publishStatus` | NOT_STARTED, DRAFT, SUCCEEDED, FAILED, SKIPPED, BLOCKED, UNKNOWN | 기본 모드는 발행 전 초안(DRAFT) |
-| `publishTarget` | GITHUB, NOTION, SLACK | 분류 결과이고 담당자가 카드에서 바꿀 수 있다 |
+| `contentJson.publish_target` | 업무는 GITHUB, NOTION. 회의 결과 공지 항목은 SLACK | 분류 결과이고 담당자가 카드에서 바꿀 수 있다 |
 | `contentJson.assignees` | `names`가 비어 있으면 담당 미정 | 이름만 보고 GitHub 로그인명을 추정하지 않는다 |
 | `contentJson.due` | `text`(원문 표현), `date`, `time` | 날짜는 회의 날짜 기준으로 코드가 계산하고, 못 구하면 `date`가 null이다 |
-| `contentJson.evidence_quotes` | 원문에 있는 문장 1~3개 | 원문에 없는 문장은 코드가 뺀다 |
+| `contentJson.evidence_quotes` | 원문에 있는 문장 최대 3개 | 원문에 없는 문장은 코드가 빼고, 남는 근거가 없으면 비운 채 "확인 필요" 경고를 붙인다 |
 
 실행 전체의 응답(`RunResult`)은 `status`가 SUCCEEDED 또는 FAILED이고, 실패하면 `errorCode`와 `errorMessage`를 돌려준다. SUCCEEDED가 모든 이슈 발행 성공을 뜻하지는 않는다. 발행 결과(`PublishItemResult`)는 항목별로 PUBLISHED, LINKED, UPDATED, POSTED, SKIPPED, FAILED, UNKNOWN과 오류 코드를 돌려준다.
 

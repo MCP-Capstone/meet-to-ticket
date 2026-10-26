@@ -62,6 +62,7 @@
     <path d="M675 270V338"/>
     <path d="M855 270L862 338"/>
     <path d="M790 262L740 338" stroke-dasharray="5 4"/>
+    <path d="M905 208V132"/>
   </g>
 
   <!-- 번호 -->
@@ -80,6 +81,7 @@
       <circle cx="675" cy="304" r="9"/><text x="675" y="308">10</text>
       <circle cx="859" cy="304" r="9"/><text x="859" y="308">11</text>
       <circle cx="765" cy="300" r="9"/><text x="765" y="304">12</text>
+      <circle cx="921" cy="170" r="9"/><text x="921" y="174">13</text>
     </g>
   </g>
 
