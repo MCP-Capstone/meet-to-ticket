@@ -88,6 +88,7 @@ EPIC: 회의에서 정한 일이 담당자 확인을 거쳐 정확한 티켓으�
 | 10 | business-mcp -> GitHub, Notion, Slack | 발행과 조회 |
 | 11 | rag-mcp -> Chroma | 기존 이슈 임베딩의 저장과 검색. 임베딩은 rag-mcp가 OpenAI에 요청한다 |
 | 12 | rag-mcp -> GitHub | 기존 이슈 읽기(읽기 전용) |
+| 13 | rag-mcp -> OpenAI API | 기존 이슈와 검색어의 임베딩 생성(text-embedding-3-small) |
 
 ### AI 처리 흐름
 
@@ -98,7 +99,7 @@ Agent는 LangGraph 그래프(`agent/graph.py`)로 `prepare -> draft -> review ->
 3. 추출(`prepare`): 액션 아이템 표가 있으면 표 파서로, 서술형 요약이면 LLM으로 할 일, 결정, 미결 질문, 제외 항목을 뽑는다. 담당자 이름은 멤버와 연결하고, 기한 원문은 코드(`resolve.py`)가 회의 날짜 기준 날짜로 바꾼다. 근거 인용은 원문에 있는 문장만 남긴다. 담당자가 정해지지 않은 업무도 담당자를 비운 채 뽑고 참석자 중에서 추측하지 않는다
 4. 초안(`draft`): 업무마다 제목, 설명, 상세 작업, 완료 조건, 라벨을 LLM이 쓴다. 발행 대상도 한 줄 사유와 함께 분류한다(코드 변경이 필요하면 GitHub, 필요 없으면 Notion). Slack 공지는 LLM이 분류하지 않고 회의마다 1건을 코드가 만든다. 원문에 없는 숫자, 범위, 사람을 더하지 않는다는 규칙을 프롬프트에 둔다
 5. 검수(`review`): 제외 항목 포함 여부, 할 일 여부, 원문에 없는 내용, 제목 명확성, 확인 가능한 완료 조건을 점검한다
-6. 중복 판단(`dedupe`, RAG): GitHub 대상 업무만 기존 이슈를 도구로 찾아 SAME, CHANGE, RELATED, UNRELATED로 판정하고 처리 유형(기존 이슈에 연결, 갱신, 신규)을 정한다
+6. 중복 판단(`dedupe`, RAG): GitHub 대상 업무만 기존 이슈를 도구로 찾아 SAME, CHANGE, RELATED, UNRELATED로 판정하고 처리 유형(기존 이슈에 연결, 갱신, 신규)을 정한다. 검색은 LLM이 읽기 전용 도구 3개를 골라 쓴다: 키, 단어 검색(business-mcp `search_issues`), 유사 이슈 검색(rag-mcp `search_similar_issues`, 벡터 의미 순위와 BM25 키워드 순위를 RRF로 합친다), 이슈 원문 읽기(`read_issue`). UNRELATED로 판정하기 전에는 검색 1위 이슈의 원문을 읽는다
 7. 저장: 초안을 담당자별로 저장해 전송하고 여기서 멈춘다. 발행은 담당자가 확인한 뒤 일괄 발행이 MCP로 실행한다
 
 예외 처리
@@ -170,7 +171,7 @@ Agent는 업무마다 아래 형태의 항목을 돌려준다(`agent/schemas.py`
 | `contentJson.publish_target` | GITHUB, NOTION, SLACK | 업무는 LLM이 GITHUB나 NOTION으로 분류하고, SLACK은 회의 결과 공지 1건에만 쓴다. 담당자가 카드에서 바꿀 수 있다 |
 | `contentJson.assignees` | `names`가 비어 있으면 담당 미정 | 이름만 보고 GitHub 로그인명을 추정하지 않는다 |
 | `contentJson.due` | `text`(원문 표현), `date`, `time` | 날짜는 회의 날짜 기준으로 코드가 계산하고, 못 구하면 `date`가 null이다 |
-| `contentJson.evidence_quotes` | 원문에 있는 문장 1~3개 | 원문에 없는 문장은 코드가 뺀다 |
+| `contentJson.evidence_quotes` | 원문에 있는 문장 최대 3개 | 원문에 없는 문장은 코드가 빼고, 남는 근거가 없으면 비운 채 "확인 필요" 경고를 붙인다 |
 | `contentJson.dedupe.relation` | SAME, CHANGE, RELATED, UNRELATED, null | null이면 판단하지 못한 것이고 카드에 "중복 판단 안 됨"을 띄운다. `reason`(판단 근거)을 판정보다 먼저 쓴다 |
 | `contentJson.dedupe.handling.type` | CREATE, LINK, UPDATE | 열린 이슈와 SAME이면 LINK(댓글 연결), CHANGE면 UPDATE(본문 끝에 변경 섹션), 그 밖과 닫힌 이슈는 CREATE. 닫힌 이슈는 다시 열지 않는다 |
 
