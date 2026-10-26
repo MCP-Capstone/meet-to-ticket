@@ -103,9 +103,37 @@ VITE_USE_MOCK=false npm run dev        # http://localhost:5173
 
 ### 3. 사용해 보기
 
+#### 모의 실행으로 둘러보기 (기본값)
+
+기본값 `DRY_RUN=true`에서는 회의록 분석·검수까지 실제로 하고, 발행 단계에서만 GitHub·Notion·Slack에 아무것도 만들지 않는다. 화면은 실제 발행과 똑같이 '발행됨'으로 보이지만 이슈 링크는 생기지 않는다.
+
 1. http://localhost:5173 접속 후 로그인한다. demo 시드 계정은 `demo1` / `password1`이다.
 2. 프로젝트(`MCP-Capstone/mcp-capstone`)에서 `backend/examples/meetings/`의 `.txt` 샘플 회의록을 업로드한다.
-3. 분석을 시작한다. 처리 중 화면에서 진행 상태를 보고, 끝나면 항목별 검수/발행 결과와 이슈 링크가 나온다.
+3. 분석을 시작한다. 처리 중 화면에서 진행 상태를 보고, 끝나면 회의록에서 만든 티켓 목록이 나온다.
+4. **내 티켓**에서 티켓 내용과 회의 근거를 확인하고 승인한 뒤 발행한다. 발행 결과는 화면 오른쪽 위 알림과 **발행 완료** 탭에서 본다.
+
+#### 실제로 발행하기
+
+토큰은 프로젝트마다 넣는 것이 아니라 서버(`business-mcp/.env`)에 한 번 넣는다. 프로젝트 화면에는 어디로 발행할지(저장소 이름, Notion 페이지 URL, Slack 채널 ID)만 적는다.
+
+1. 토큰을 발급한다. GitHub만 필수이고 Notion, Slack은 그 대상으로 발행할 때만 필요하다.
+
+   | 대상 | 발급 방법 | 넣는 곳 |
+   |---|---|---|
+   | GitHub | GitHub → Settings → Developer settings → Personal access tokens에서 발급한다. Fine-grained 토큰은 발행할 저장소를 고르고 **Issues: Read and write** 권한을 준다 (Classic 토큰은 `repo` 범위) | `business-mcp/.env`의 `GITHUB_TOKEN`. 중복 판단을 쓰려면 `rag-mcp/.env`의 `GITHUB_TOKEN`에도 넣는다 |
+   | Notion | https://www.notion.so/my-integrations 에서 Internal Integration을 만들고 시크릿을 복사한다. 티켓을 둘 기획 페이지에서 `···` → **연결**로 이 Integration을 추가한다 (추가하지 않으면 토큰이 있어도 페이지에 접근할 수 없다) | `business-mcp/.env`의 `NOTION_TOKEN` |
+   | Slack | https://api.slack.com/apps 에서 앱을 만들고 OAuth & Permissions의 Bot Token Scopes에 `chat:write`, `channels:read`, `groups:read`, `users:read`, `users:read.email`을 추가한 뒤 워크스페이스에 설치한다. 발급된 `xoxb-` 토큰을 쓰고, 공지할 채널에서 `/invite @앱이름`으로 봇을 초대한다 | `business-mcp/.env`의 `SLACK_BOT_TOKEN` |
+   | OpenAI | https://platform.openai.com/api-keys 에서 발급한다 | `agent/.env`의 `OPENAI_API_KEY` (중복 판단 임베딩용으로 `rag-mcp/.env`에도) |
+
+2. 모의 실행을 끈다. Docker 전체 실행은 루트 `.env`, 서비스 직접 실행은 `agent/.env`에서 `DRY_RUN=false`로 바꾸고 다시 실행한다.
+3. **프로젝트 관리**에서 프로젝트를 만든다.
+   - GitHub 저장소: `owner/repo` 형식. 1번 토큰이 이 저장소에 이슈를 쓸 수 있어야 한다.
+   - Notion 기획 페이지 URL (선택): 1번에서 Integration을 연결한 페이지
+   - Slack 채널 ID (선택): 채널 이름 클릭 → 맨 아래의 `C`로 시작하는 ID
+   - 멤버: GitHub 계정과 Slack 이메일을 넣어 두면 이슈 담당자와 공지 멘션이 연결된다.
+4. 회의록을 올려 분석하고, **내 티켓**에서 확인·승인한 뒤 발행한다.
+
+대상별 필드와 권한, 재발행 규칙은 [발행 대상별 매핑](docs/publish-targets.md)에 있다.
 
 ### Agent 없이 화면만 보기
 
