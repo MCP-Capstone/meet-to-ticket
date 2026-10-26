@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, ApiRequestError } from '../api'
 import type { MyTicket, TicketPublicationPreview as Preview } from '../api'
 import { IssueMarkdown } from './IssueMarkdown'
+import { EvidenceToggle } from './EvidenceToggle'
 import { Spinner } from './Spinner'
 
 // Slack 공지 문구는 Slack 서식(*굵게*, • 목록)으로 저장돼 있다.
@@ -35,10 +36,9 @@ export function TicketDraft({ ticket }: { ticket: MyTicket }) {
     {ticket.description ? <IssueMarkdown body={ticket.description} flavor={flavorOf(ticket.publishTarget)} /> : <p className="muted">저장된 본문이 없습니다.</p>}
   </section>
 
-  const body = current.publication?.body.trim() ? visibleBody(current.publication.body) : null
   const quotes = current.backlog.evidenceQuotes
-  // GitHub 이슈 본문에는 근거가 들어 있다. 본문에 없는 근거만 따로 보여 준다.
-  const showQuotes = quotes.length > 0 && !(body && quotes.every((quote) => body.includes(quote)))
+  // 발행 본문은 GitHub 등에서 볼 때도 참고할 수 있게 회의 근거 칸까지 그대로 보여 준다.
+  const body = current.publication?.body.trim() ? visibleBody(current.publication.body) : null
   return <section className="ticket-draft" aria-label="발행될 초안">
     {current.publication && current.publication.targetIssueNumber !== null && <p className="muted">기존 이슈 #{current.publication.targetIssueNumber}에 {current.publication.kind === 'LINK' ? '댓글로 추가돼요' : '내용이 추가돼요'}</p>}
     <div className="ticket-draft-body">
@@ -46,12 +46,14 @@ export function TicketDraft({ ticket }: { ticket: MyTicket }) {
       {current.backlog.description && <IssueMarkdown body={current.backlog.description} flavor={flavorOf(ticket.publishTarget)} />}
       <BacklogSection title="상세 작업" items={current.backlog.tasks} />
       <BacklogSection title="완료 조건" items={current.backlog.acceptanceCriteria} />
+      {/* Notion 페이지에도 회의 근거 칸이 들어간다(agent build_notion_page). Slack 공지에는 없다. */}
+      {ticket.publishTarget !== 'SLACK' && <BacklogSection title="회의 근거" items={quotes} />}
       <BacklogSection title="확인 필요 사항" items={current.backlog.openQuestions} />
       {!current.backlog.description && ![current.backlog.tasks, current.backlog.acceptanceCriteria, current.backlog.openQuestions].some((items) => items.length) && <p className="muted">초안 본문이 없습니다.</p>}
     </>}
     {current.publication?.secondaryBody && <div><h4>갱신 알림 댓글</h4><IssueMarkdown body={visibleBody(current.publication.secondaryBody)} /></div>}
-    {showQuotes && <div className="ticket-draft-evidence"><h4>회의록 근거</h4><ul>{quotes.map((quote, i) => <li key={i}>{quote}</li>)}</ul></div>}
     </div>
+    <EvidenceToggle quotes={quotes} excerpts={current.evidenceExcerpts ?? []} />
   </section>
 }
 function BacklogSection({ title, items }: { title: string; items: string[] }) {

@@ -3,6 +3,7 @@ import { api } from '../api'
 import type { DispatchResult as Result, DispatchTicket, Meeting, PublishTarget } from '../api'
 import { ticketStatusLabel } from '../displayText'
 import { IssueMarkdown } from './IssueMarkdown'
+import { EvidenceToggle } from './EvidenceToggle'
 import { Spinner } from './Spinner'
 
 // 회의록 처리가 끝난 뒤 업로더가 보는 전송 결과 (UI 플로우 6쪽, TASK-023·024·025).
@@ -121,6 +122,7 @@ export function DispatchResult({ taskId, meeting, onUploadAnother }: Props) {
                         {t.preview && t.preview.labels.length > 0 && <span>라벨 {t.preview.labels.join(', ')}</span>}
                       </div>
                       {body ? <IssueMarkdown body={body} flavor={flavor} /> : <p className="muted">본문이 없습니다.</p>}
+                      <EvidenceToggle quotes={t.preview?.evidenceQuotes ?? []} />
                     </div>
                   )}
                 </li>

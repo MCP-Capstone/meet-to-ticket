@@ -407,4 +407,7 @@ export interface TicketPublicationPreview {
   executionMode: ExecutionMode
   publication: { kind: ProcessingType; body: string; secondaryBody: string | null; labels: string[]; githubAssignees: string[]; targetIssueNumber: number | null } | null
   backlog: { description: string | null; tasks: string[]; acceptanceCriteria: string[]; evidenceQuotes: string[]; openQuestions: string[] }
+  // 근거 문장이 들어 있는 회의록 원문 단락과 그 앞의 제목. 회의록 전체는 내려오지 않는다.
+  evidenceExcerpts: EvidenceExcerpt[]
 }
+export interface EvidenceExcerpt { heading: string | null; text: string; quotes: string[] }
