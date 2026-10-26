@@ -140,7 +140,6 @@ Agent는 업무마다 아래 형태의 항목을 돌려준다(`agent/schemas.py`
   "reviewStatus": "PENDING",
   "publishStatus": "DRAFT",
   "contentJson": {
-    "publish_target": "GITHUB",
     "action_text": "CSV-05로 user-export 경로의 24시간 삭제/접근 권한/10분 서명 URL 만료를 20일 오후까지 검증한다.",
     "assignees": { "names": ["함주헌"], "github": ["juhun-ham"], "unresolved": [], "unmatched": [], "ambiguous": [] },
     "due": { "text": "20일 오후까지", "date": "2026-10-20", "time": null },
