@@ -97,7 +97,7 @@ export const mockItems: Omit<TaskItem, 'itemId'>[] = [
     errorMessage: null,
   },
   {
-    // 기획_v16: 회의록 처리는 발행하지 않고 담당자 확인 대기 초안으로 끝난다
+    // 기획 문서: 회의록 처리는 발행하지 않고 담당자 확인 대기 초안으로 끝난다
     workKey: 'CSV-10',
     title: '빈 결과 CSV 회귀 테스트 추가',
     contentJson: {

@@ -227,7 +227,7 @@ def settings() -> Settings:
 
 @pytest.fixture
 def draft_settings() -> Settings:
-    """기본 설정과 같은 초안 저장 모드 (기획_v16, TASK-012)."""
+    """기본 설정과 같은 초안 저장 모드 (기획 문서, TASK-012)."""
     return Settings(max_revisions=2)
 
 

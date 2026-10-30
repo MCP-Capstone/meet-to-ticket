@@ -64,7 +64,7 @@ public class MockAgentGateway implements AgentGateway {
                     case "partial" -> List.of(item(run, "SKIPPED", 0), item(run, "FAILED", 1));
                     // Phase 1 흐름: 모의 승인 뒤 발행 생략
                     case "approved" -> List.of(item(run, "SKIPPED", 0));
-                    // 기본: 발행 전 초안 (기획_v16, 회의록 처리는 초안 저장에서 멈춤)
+                    // 기본: 발행 전 초안 (기획 문서, 회의록 처리는 초안 저장에서 멈춤)
                     default -> List.of(item(run, AgentRunMapper.DRAFT, 0));
                 };
         int approved =

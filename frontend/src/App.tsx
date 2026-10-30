@@ -426,7 +426,7 @@ function App() {
 
           {step === 'result' && meeting && result && taskId !== null && (
             <>
-              {/* 기획_v16: 티켓을 담당자별로 보낸 결과 (TASK-023·024·025) */}
+              {/* 기획 문서: 티켓을 담당자별로 보낸 결과 (TASK-023·024·025) */}
               <DispatchResult taskId={taskId} meeting={meeting} onUploadAnother={reset} />
             </>
           )}

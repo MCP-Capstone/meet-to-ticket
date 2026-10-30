@@ -10,7 +10,7 @@
 | 화면 확인용 모의 데이터 | `frontend/src/mocks/data.ts` | 팀이 만든 가짜 결과이고 실제 Agent나 GitHub 결과가 아니다 | 실제 개인정보는 없다 |
 | 중복 판단 대조 저장소 | `MCP-Capstone/meet-to-ticket-eval` (Private) | 팀이 만든 시험용 이슈 8개다. 목록은 `agent/eval/dataset/v2.1/dedupe_seed_issues.md`에 있다 | 시드 이슈를 고치거나 닫지 않는다. 평가 실행은 항상 dry-run이라 이 저장소에 쓰지 않는다 |
 | 발행 시험 대상 저장소 | `MCP-Capstone/mcp-capstone` | 팀의 시험용 저장소다. 안의 이슈는 발행 시험으로 만든 것이다 | 실제 사용자 정보는 없다 |
-| 프로젝트 기획 문서 | Notion 기획_v16 (팀 내부) | 팀이 작성했다 | 저장소에는 포함하지 않았다 |
+| 프로젝트 기획 문서 | Notion 기획 문서 (팀 내부) | 팀이 작성했다 | 저장소에는 포함하지 않았다 |
 
 ## 외부 서비스와 모델
 

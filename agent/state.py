@@ -11,7 +11,7 @@ STAGE_REVIEWING = "REVIEWING"
 STAGE_PUBLISHING = "PUBLISHING"
 STAGE_DONE = "DONE"
 
-# 진행 화면 단계 (기획_v16 REQ-007). stage는 백엔드 TaskStage 값을 그대로 두고, 화면 단계와 세부 정보는 progress에 담는다
+# 진행 화면 단계 (기획 문서 REQ-007). stage는 백엔드 TaskStage 값을 그대로 두고, 화면 단계와 세부 정보는 progress에 담는다
 STEP_CONTEXT = "CONTEXT"          # 맥락 파악
 STEP_EXTRACTING = "EXTRACTING"    # 티켓 추출 (초안 작성·검수 포함)
 STEP_DEDUPING = "DEDUPING"        # 중복 검수
@@ -20,7 +20,7 @@ STEP_DISPATCHING = "DISPATCHING"  # 담당자에게 전송 (결과 보고)
 # 회의록 처리는 발행하지 않고 초안으로 끝난다. 담당자가 확인한 티켓만 일괄 발행한다 (TASK-034)
 PUBLISH_DRAFT = "DRAFT"
 
-# 발행 대상 (기획_v16 1.7.1, REQ-021). 할 일은 GitHub 또는 Notion으로 분류하고, Slack은 회의당 공지 하나다
+# 발행 대상 (기획 문서 1.7.1, REQ-021). 할 일은 GitHub 또는 Notion으로 분류하고, Slack은 회의당 공지 하나다
 TARGET_GITHUB = "GITHUB"
 TARGET_NOTION = "NOTION"
 TARGET_SLACK = "SLACK"
