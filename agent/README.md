@@ -343,7 +343,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 ### 추출 결과 스키마
 
-회의록에서 뽑은 할 일, 결정, 미결 질문을 `schemas.Extraction` 하나로 모은다 (기획_v16 REQ-008). 액션 아이템 표가 있으면 표에서 읽고(`source: "table"`), 없으면 LLM이 뽑은 행으로 만든다(`source: "llm"`). 어느 쪽이든 필드는 같다. 이후 초안 작성과 담당자별 저장은 이 결과를 입력으로 쓴다.
+회의록에서 뽑은 할 일, 결정, 미결 질문을 `schemas.Extraction` 하나로 모은다 (기획 문서 REQ-008). 액션 아이템 표가 있으면 표에서 읽고(`source: "table"`), 없으면 LLM이 뽑은 행으로 만든다(`source: "llm"`). 어느 쪽이든 필드는 같다. 이후 초안 작성과 담당자별 저장은 이 결과를 입력으로 쓴다.
 
 | 필드 | 내용 |
 |---|---|
@@ -402,7 +402,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 ### 이슈 출력문
 
-이슈 본문은 Agent가 완성하고 MCP는 받은 그대로 올린다 (기획_v16 REQ-009). 초안(`schemas.DraftTicket`)이 내용을 만들고 `publisher.build_issue_body`가 아래 순서로 조립한다. 담당과 기한은 항상 쓰고, 나머지 칸은 값이 없으면 생략한다.
+이슈 본문은 Agent가 완성하고 MCP는 받은 그대로 올린다 (기획 문서 REQ-009). 초안(`schemas.DraftTicket`)이 내용을 만들고 `publisher.build_issue_body`가 아래 순서로 조립한다. 담당과 기한은 항상 쓰고, 나머지 칸은 값이 없으면 생략한다.
 
 | 칸 | 내용 | 출처 |
 |---|---|---|
@@ -587,7 +587,7 @@ python cli.py --request samples/requests/csv_check.json --dry-run   # API 없이
 
 `stage`는 백엔드 `TaskStage` 값이다: `EXTRACTING`(할 일 추출) → `NORMALIZING`(담당자·기한 정리, 초안 작성) → `REVIEWING`(검수, 보완, 중복 판단 포함) → `PUBLISHING`(발행, `PUBLISH_ON_RUN`일 때만) 순서다.
 
-`progress`는 진행 화면(기획_v16 REQ-007, UI 플로우 5쪽)용 세부 정보다. 앞 단계의 값은 다음 단계에도 남는다.
+`progress`는 진행 화면(기획 문서 REQ-007, UI 플로우 5쪽)용 세부 정보다. 앞 단계의 값은 다음 단계에도 남는다.
 
 | `step` | 화면 단계 | 함께 오는 값 |
 |---|---|---|
@@ -690,7 +690,7 @@ model ──(조회 도구 호출)──▶ tools ──▶ model ── … ─
 - `RAG_ENABLED=false`(기본)면 이 단계를 건너뛰고 기존처럼 발행한다.
 - 결과: 항목 `contentJson.dedupe`에 `relation`, `issue_number`, `issue_state`, `issue_title`, `reason`, `before`, `after`(CHANGE일 때만), `tool_calls`(모델이 고른 도구와 인자), `skipped`, `handling`(아래 "처리 유형")이 남는다. 연결했으면 `linked_existing: true`, 새로 발행해 색인에 넣었으면 `indexed`가 붙는다. `metrics.dedupe`에 판단 수, 건너뛴 수, 도구 호출 수, 관계별 수, 색인한 수가 남는다.
 
-#### 처리 유형 (기획_v16 1.7.2, `handling.py`)
+#### 처리 유형 (기획 문서 1.7.2, `handling.py`)
 
 판정마다 처리 유형을 정해 `contentJson.dedupe.handling`에 남긴다. 담당자가 카드에서 바꿀 수 있는 제안이고, 실제 GitHub 쓰기는 일괄 발행(TASK-034)이 실행한다.
 

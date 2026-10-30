@@ -259,7 +259,7 @@ def related_lines(ticket: dict[str, Any]) -> tuple[list[str], list[str]]:
 
 def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str, *, meeting_title: str = "",
                      meeting_date: str | None = None) -> str:
-    """이슈 본문 (기획_v16 REQ-009). MCP는 이 본문을 그대로 올린다. 값이 없는 칸은 담당·기한을 빼고 생략한다."""
+    """이슈 본문 (기획 문서 REQ-009). MCP는 이 본문을 그대로 올린다. 값이 없는 칸은 담당·기한을 빼고 생략한다."""
     ticket_background = ticket.get("background") or background
     lines: list[str] = []
     if ticket_background:
@@ -323,7 +323,7 @@ def build_issue_body(ticket: dict[str, Any], meeting_id: str, background: str, *
 
 
 def build_notion_page(ticket: dict[str, Any], meeting_id: str, background: str) -> dict[str, str]:
-    """Notion 페이지 출력문 (기획_v16 REQ-023, TASK-021). create_page(root, title, markdown)에 그대로 넘긴다.
+    """Notion 페이지 출력문 (기획 문서 REQ-023, TASK-021). create_page(root, title, markdown)에 그대로 넘긴다.
 
     GitHub 이슈 본문과 같은 순서지만 GitHub 전용 칸(라벨, 관련 이슈, 상위 이슈, @계정)은 넣지 않는다.
     """
@@ -352,7 +352,7 @@ def build_notion_page(ticket: dict[str, Any], meeting_id: str, background: str) 
 
 def build_slack_notice(meeting_title: str, meeting_date: str | None, decisions: list[str],
                        tickets: list[dict[str, Any]], linked: int, members: list[str]) -> dict[str, Any]:
-    """회의 결과 공지 출력문 (기획_v16 REQ-022, TASK-021). 회의 하나당 하나다.
+    """회의 결과 공지 출력문 (기획 문서 REQ-022, TASK-021). 회의 하나당 하나다.
 
     검토 요청은 실제로 티켓을 받는 사람과 맞춘다. GitHub 티켓은 회의록 담당자가 프로젝트 멤버 1명과
     정확히 연결될 때만 그 사람이 받고(백엔드 AssigneeResolver와 같은 규칙), 나머지는 담당 지정 필요다.

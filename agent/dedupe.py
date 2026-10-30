@@ -161,7 +161,7 @@ def _result(decision: dict | None = None, *, calls: list | None = None, skipped:
             issue: dict | None = None) -> dict[str, Any]:
     """티켓의 판단 결과 (결과 contentJson.dedupe). relation이 없으면 판단 없이 새로 발행한다.
 
-    handling은 판정으로 정한 처리 유형이다 (handling.py, 기획_v16 1.7.2 처리 유형 표).
+    handling은 판정으로 정한 처리 유형이다 (handling.py, 기획 문서 1.7.2 처리 유형 표).
     """
     change = decision is not None and decision["relation"] == "CHANGE"
     result = {

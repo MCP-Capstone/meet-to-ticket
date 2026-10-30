@@ -77,7 +77,7 @@ export function ResultList({ meeting, participants, result }: Props) {
               <span>발행 전 초안</span>
             </div>
           )}
-          {/* 초안만 있는 결과(기획_v16)에서는 발행·반려가 0이라 숨긴다 */}
+          {/* 초안만 있는 결과(기획 문서)에서는 발행·반려가 0이라 숨긴다 */}
           {published > 0 && (
             <div className="count">
               <strong>{published}</strong>

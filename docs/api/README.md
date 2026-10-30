@@ -42,7 +42,7 @@
 | GET | /api/publish-batches/{batchId} | 200 | 발행 결과: 건수 요약, 티켓별 이슈 링크/실패 사유 (요청한 사용자만) |
 | POST | /api/tickets/{ticketId}/retry | 202 | 실패한 티켓 다시 시도. 담당자만(403), 실패 상태가 아니면 409. 결과는 `batchId`로 조회 |
 | POST | /api/tickets/{ticketId}/resolve-outcome | 200 | Notion/Slack 결과 모름 실패를 확인 결과(`applied`, 선택 `url`)로 정리. 담당자만(403), `resolution=MANUAL_CHECK` 실패가 아니면 409 |
-| POST | /api/projects/{projectId}/analysis-tasks | 202 | 회의록 처리 요청 (회의 저장 + 분석 접수, 기획_v16) |
+| POST | /api/projects/{projectId}/analysis-tasks | 202 | 회의록 처리 요청 (회의 저장 + 분석 접수, 기획 문서) |
 | POST | /api/projects/{projectId}/meetings | 201 | multipart file 업로드·회의 저장 |
 | GET | /api/meetings/{meetingId} | 200 | 본문을 제외한 회의 메타데이터 |
 | POST | /api/meetings/{meetingId}/analysis-tasks | 202 | 저장된 회의 분석 접수 |
@@ -151,7 +151,7 @@ Notion 페이지와 Slack 공지는 결과 모름 뒤 재발행을 Agent가 보�
 
 ### 회의록 처리 요청 (#153)
 
-`POST /api/projects/{projectId}/analysis-tasks`는 회의 저장과 분석 접수를 한 번에 한다 (기획_v16 REQ-006). 업로드 화면은 이 API를 쓴다. 기존 업로드(`POST /api/projects/{projectId}/meetings`)와 분석 시작(`POST /api/meetings/{meetingId}/analysis-tasks`)은 프론트가 옮길 때까지 유지한다.
+`POST /api/projects/{projectId}/analysis-tasks`는 회의 저장과 분석 접수를 한 번에 한다 (기획 문서 REQ-006). 업로드 화면은 이 API를 쓴다. 기존 업로드(`POST /api/projects/{projectId}/meetings`)와 분석 시작(`POST /api/meetings/{meetingId}/analysis-tasks`)은 프론트가 옮길 때까지 유지한다.
 
 요청은 `multipart/form-data`다.
 

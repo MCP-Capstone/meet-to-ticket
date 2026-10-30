@@ -2,7 +2,7 @@
 
 흐름: prepare(추출 준비·담당자·기한 정리) → draft(초안 작성) → review(검수)
       → (보완 필요 시 draft로, 최대 MAX_REVISIONS회) → dedupe(중복 판단) → finish(결과 정리·보고)
-기본은 초안 저장에서 멈춘다 (기획_v16). 검수는 초안 보완과 카드 경고만 하고, 발행은 담당자가 확인한 뒤
+기본은 초안 저장에서 멈춘다 (기획 문서). 검수는 초안 보완과 카드 경고만 하고, 발행은 담당자가 확인한 뒤
 일괄 발행(TASK-034)이 한다. PUBLISH_ON_RUN이면 Phase 1처럼 검수가 승인·반려를 정하고 dedupe 뒤에 publish로 발행한다.
 
 LLM, 발행 도구, 백엔드 보고는 생성자로 주입한다. 테스트에서는 가짜를 넣는다.
@@ -192,7 +192,7 @@ class AgentNodes:
         self.context_tools = context_tools
 
     async def _progress(self, state: AgentState, stage: str, progress: dict[str, Any] | None = None) -> None:
-        """진행 단계를 보고한다. progress를 주면 화면 단계와 세부 정보도 함께 보낸다 (기획_v16 REQ-007)."""
+        """진행 단계를 보고한다. progress를 주면 화면 단계와 세부 정보도 함께 보낸다 (기획 문서 REQ-007)."""
         try:
             await self.reporter.progress(state["task_id"], STATUS_RUNNING, stage, progress or state.get("progress"))
         except Exception as exc:  # noqa: BLE001 - 보고 실패로 작업을 멈추지 않는다
@@ -888,7 +888,7 @@ class AgentNodes:
 
     @staticmethod
     def _slack_notice(state: AgentState, tickets: list[dict[str, Any]]) -> dict[str, Any]:
-        """회의 결과 공지 티켓 (기획_v16 REQ-022). 회의 하나당 하나이고, 받는 사람은 업로더다 (REQ-010)."""
+        """회의 결과 공지 티켓 (기획 문서 REQ-022). 회의 하나당 하나이고, 받는 사람은 업로더다 (REQ-010)."""
         decisions = [d["content"] for d in state.get("decisions", [])]
         notice = build_slack_notice(state.get("meeting_title", ""), state.get("meeting_date"), decisions, tickets,
                                     linked=sum(1 for t in tickets if _open_same_issue(t)),

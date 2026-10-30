@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.SessionAttribute;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 회의록 처리 요청 (기획_v16 REQ-006). 회의 저장과 분석 접수를 한 번에 한다.
+ * 회의록 처리 요청 (기획 문서 REQ-006). 회의 저장과 분석 접수를 한 번에 한다.
  * 기존 업로드(POST /api/projects/{projectId}/meetings)와 분석 시작(POST /api/meetings/{meetingId}/analysis-tasks)은
  * 프론트가 이 API로 옮길 때까지 그대로 둔다.
  */

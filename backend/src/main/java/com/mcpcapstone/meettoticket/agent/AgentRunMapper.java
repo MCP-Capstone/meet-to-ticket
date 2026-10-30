@@ -53,7 +53,7 @@ final class AgentRunMapper {
 	}
 
 	// Agent 검수 상태: APPROVED / REJECTED / NEEDS_CHECK / PENDING
-	// 발행 전 초안(publishStatus DRAFT)은 담당자 확인 대기(PENDING)로 저장한다. (기획_v16, 회의록 처리는 초안 저장에서 멈춤)
+	// 발행 전 초안(publishStatus DRAFT)은 담당자 확인 대기(PENDING)로 저장한다. (기획 문서, 회의록 처리는 초안 저장에서 멈춤)
 	// 그 밖에는 Spring이 승인 / 반려만 저장하므로 승인 외에는 반려(발행 제외)로 본다. (Agent PUBLISH_ON_RUN)
 	private static AgentContracts.Item toItem(JsonNode node) {
 		if (node.path("publishStatus").asText("").equals(DRAFT)) {
